@@ -59,8 +59,8 @@ messages -> RemoteRenderingBackend Stream {
     Flush(IPC::Semaphore semaphore) NotStreamEncodable
 #endif
 
-    MoveToSerializedBuffer(WebCore::RenderingResourceIdentifier sourceImageBuffer)
-    MoveToImageBuffer(WebCore::RenderingResourceIdentifier destinationImageBuffer)
+    MoveToSerializedBuffer(WebKit::RemoteSerializedImageBufferReference source)
+    MoveToImageBuffer(WebKit::RemoteSerializedImageBufferWriteReference destination)
 
     [EnabledBy=ShapeDetection] CreateRemoteBarcodeDetector(WebKit::ShapeDetectionIdentifier identifier, WebCore::ShapeDetection::BarcodeDetectorOptions barcodeDetectorOptions) AllowedWhenWaitingForSyncReply
     [EnabledBy=ShapeDetection] ReleaseRemoteBarcodeDetector(WebKit::ShapeDetectionIdentifier identifier) AllowedWhenWaitingForSyncReply

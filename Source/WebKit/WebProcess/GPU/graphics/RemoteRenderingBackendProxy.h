@@ -94,8 +94,8 @@ public:
     RemoteResourceCacheProxy& remoteResourceCacheProxy() { return m_remoteResourceCacheProxy; }
 
     void transferImageBuffer(std::unique_ptr<RemoteSerializedImageBufferProxy>, WebCore::ImageBuffer&);
-    void moveToSerializedBuffer(WebCore::RenderingResourceIdentifier);
-    void moveToImageBuffer(WebCore::RenderingResourceIdentifier);
+    void moveToSerializedBuffer(RemoteSerializedImageBufferReference);
+    void moveToImageBuffer(RemoteSerializedImageBufferWriteReference);
 
     void createRemoteImageBuffer(WebCore::ImageBuffer&);
     bool isCached(const WebCore::ImageBuffer&) const;

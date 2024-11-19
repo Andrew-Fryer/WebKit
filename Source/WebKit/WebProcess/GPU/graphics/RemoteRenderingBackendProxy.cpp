@@ -40,6 +40,7 @@
 #include "RemoteImageBufferSetProxyMessages.h"
 #include "RemoteRenderingBackendMessages.h"
 #include "RemoteRenderingBackendProxyMessages.h"
+#include "RemoteSerializedImageBufferIdentifier.h"
 #include "RemoteSharedResourceCacheProxy.h"
 #include "SwapBuffersDisplayRequirement.h"
 #include "WebPage.h"
@@ -292,14 +293,14 @@ void RemoteRenderingBackendProxy::releaseRemoteImageBufferSet(RemoteImageBufferS
     send(Messages::RemoteRenderingBackend::ReleaseRemoteImageBufferSet(bufferSet.identifier()));
 }
 
-void RemoteRenderingBackendProxy::moveToSerializedBuffer(WebCore::RenderingResourceIdentifier identifier)
+void RemoteRenderingBackendProxy::moveToSerializedBuffer(RemoteSerializedImageBufferReference ref)
 {
-    send(Messages::RemoteRenderingBackend::MoveToSerializedBuffer(identifier));
+    send(Messages::RemoteRenderingBackend::MoveToSerializedBuffer(ref));
 }
 
-void RemoteRenderingBackendProxy::moveToImageBuffer(WebCore::RenderingResourceIdentifier identifier)
+void RemoteRenderingBackendProxy::moveToImageBuffer(RemoteSerializedImageBufferWriteReference ref)
 {
-    send(Messages::RemoteRenderingBackend::MoveToImageBuffer(identifier));
+    send(Messages::RemoteRenderingBackend::MoveToImageBuffer(ref));
 }
 
 bool RemoteRenderingBackendProxy::getPixelBufferForImageBuffer(RenderingResourceIdentifier imageBuffer, const PixelBufferFormat& destinationFormat, const IntRect& srcRect, std::span<uint8_t> result)
