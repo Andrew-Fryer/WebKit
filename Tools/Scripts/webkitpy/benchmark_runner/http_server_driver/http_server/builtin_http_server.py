@@ -52,6 +52,8 @@ class Handler(SimpleHTTPRequestHandler):
                 # os signpost here
                 signpost_type = data['type']
                 testname = data['testname']
+                #_log.error('signpost', json.dumps(data))
+                #print(json.dumps(data))
                 try:
                     if signpost_type == 'signpostStart':
                         signposts.interval_begin(testname)

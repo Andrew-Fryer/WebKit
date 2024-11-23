@@ -35,6 +35,14 @@ class OSXSafariDriver(OSXBrowserDriver):
         if browser_build_path or browser_path:
             self._launch_url_with_custom_path(url, options, browser_build_path, browser_path, env)
             return
+
+        test = os.environ.get('TEST')
+        if test != None:
+            # for sp3
+            #url = url + f"?startAutomatically=true&iterationCount=100&suites={test}#running"
+            url = url + f"?startAutomatically=true&suites={test}#running"
+            _log.info('afryer: changed url to: ' + url)
+
         self._safari_process = self._launch_process(None, 'Safari.app', url, ['--url', url, '--args'] + self._safari_preferences, env=env)
 
     def _launch_url_with_custom_path(self, url, options, browser_build_path, browser_path, env):

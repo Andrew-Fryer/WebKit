@@ -283,13 +283,13 @@ def computeMultipleHypothesesSignificance(a, b):
     for key in a.keys():
         if key == unitMarker:
             continue
+        if key in a and key in b:
+            (tStatistic, pValue) = stats.ttest_ind(a[key], b[key], equal_var=False)
 
-        (tStatistic, pValue) = stats.ttest_ind(a[key], b[key], equal_var=False)
-
-        sortedPValues.append(pValue)
-        if pValue not in reversePValueMap:
-            reversePValueMap[pValue] = []
-        reversePValueMap[pValue].append(key)
+            sortedPValues.append(pValue)
+            if pValue not in reversePValueMap:
+                reversePValueMap[pValue] = []
+            reversePValueMap[pValue].append(key)
 
     sortedPValues.sort()
     assert sortedPValues[0] <= sortedPValues[-1]

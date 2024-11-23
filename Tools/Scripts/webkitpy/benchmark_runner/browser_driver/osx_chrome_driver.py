@@ -97,6 +97,12 @@ class OSXChromeDevDriver(OSXChromeDriverBase):
         set_binary_location_impl(options, browser_build_path, self.app_name, self.process_name)
 
     def launch_args_with_url(self, url):
+        test = os.environ.get('TEST')
+        if test != None:
+            # for sp3
+            #url = url + f"?startAutomatically=true&iterationCount=100&suites={test}#running"
+            url = url + f"?startAutomatically=true&suites={test}#running"
+            _log.info('afryer: changed url to: ' + url)
         return super(OSXChromeDevDriver, self).launch_args_with_url(url) + ['--enable-field-trial-config']
 
 
