@@ -1,0 +1,75 @@
+diff --git a/Tools/Scripts/webkitpy/benchmark_runner/data/patches/signposts/Speedometer3.patch b/Tools/Scripts/webkitpy/benchmark_runner/data/patches/signposts/Speedometer3.patch
+index 1a5d00ec1001..95606d9fb809 100644
+--- a/Tools/Scripts/webkitpy/benchmark_runner/data/patches/signposts/Speedometer3.patch
++++ b/Tools/Scripts/webkitpy/benchmark_runner/data/patches/signposts/Speedometer3.patch
+@@ -9,11 +9,11 @@ index 47084c8..4fd3dcd 100644
+ +    req.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+ +    req.send(JSON.stringify(data));
+ +};
+-+if (globalThis.__signpostStart === undefined && globalThis.__signpostStop === undefined) {
+-+    globalThis.__signpostStart = testname => {
+++if (true) {
+++    globalThis.__signpostStart_afryer = testname => {
+ +        send_data({type: "signpostStart", testname, timestamp: performance.now()});
+ +    };
+-+    globalThis.__signpostStop = testname => {
+++    globalThis.__signpostStop_afryer = testname => {
+ +        send_data({type: "signpostStop", testname, timestamp: performance.now()});
+ +    };
+ +};
+@@ -34,25 +34,25 @@ index 47084c8..4fd3dcd 100644
+                  performance.mark("warmup-end");
+              }
+              performance.mark(startLabel);
+-+            __signpostStart(syncName);
+++            __signpostStart_afryer(syncName);
+              const syncStartTime = performance.now();
+              test.run(this._page);
+              const syncEndTime = performance.now();
+-+            __signpostStop(syncName);
+++            __signpostStop_afryer(syncName);
+              performance.mark(syncEndLabel);
+  
+              syncTime = syncEndTime - syncStartTime;
+  
+              performance.mark(asyncStartLabel);
+              asyncStartTime = performance.now();
+-+            __signpostStart(asyncName);
+++            __signpostStart_afryer(asyncName);
+          };
+          const measureAsync = () => {
+              // Some browsers don't immediately update the layout for paint.
+              // Force the layout here to ensure we're measuring the layout time.
+              const height = this._frame.contentDocument.body.getBoundingClientRect().height;
+              const asyncEndTime = performance.now();
+-+            __signpostStop(asyncName);
+++            __signpostStop_afryer(asyncName);
+              asyncTime = asyncEndTime - asyncStartTime;
+              this._frame.contentWindow._unusedHeightValue = height; // Prevent dead code elimination.
+              performance.mark(asyncEndLabel);
+diff --git a/Tools/Scripts/webkitpy/benchmark_runner/http_server_driver/http_server/builtin_http_server.py b/Tools/Scripts/webkitpy/benchmark_runner/http_server_driver/http_server/builtin_http_server.py
+index c90faa20a86c..713b4a06ad5b 100644
+--- a/Tools/Scripts/webkitpy/benchmark_runner/http_server_driver/http_server/builtin_http_server.py
++++ b/Tools/Scripts/webkitpy/benchmark_runner/http_server_driver/http_server/builtin_http_server.py
+@@ -52,6 +52,8 @@ class Handler(SimpleHTTPRequestHandler):
+                 # os signpost here
+                 signpost_type = data['type']
+                 testname = data['testname']
++                #_log.error('signpost', json.dumps(data))
++                #print(json.dumps(data))
+                 try:
+                     if signpost_type == 'signpostStart':
+                         signposts.interval_begin(testname)
+diff --git a/Tools/Scripts/webkitpy/benchmark_runner/http_server_driver/http_server/signposts/signposts.c b/Tools/Scripts/webkitpy/benchmark_runner/http_server_driver/http_server/signposts/signposts.c
+index b9345c22d6b6..2acab47eead9 100644
+--- a/Tools/Scripts/webkitpy/benchmark_runner/http_server_driver/http_server/signposts/signposts.c
++++ b/Tools/Scripts/webkitpy/benchmark_runner/http_server_driver/http_server/signposts/signposts.c
+@@ -62,7 +62,7 @@ PyMODINIT_FUNC
+ PyInit_signposts(void) {
+     PyObject *obj = PyModule_Create(&module);
+ 
+-    handle = os_log_create("UnknownBrowser", "Signposts");
++    handle = os_log_create("com.apple.WebKit", "Signposts");
+     id = os_signpost_id_generate(handle);
+ 
+     return obj;

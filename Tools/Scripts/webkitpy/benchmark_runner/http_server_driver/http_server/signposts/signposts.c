@@ -62,7 +62,7 @@ PyMODINIT_FUNC
 PyInit_signposts(void) {
     PyObject *obj = PyModule_Create(&module);
 
-    handle = os_log_create("UnknownBrowser", "Signposts");
+    handle = os_log_create("com.apple.WebKit", "Signposts");
     id = os_signpost_id_generate(handle);
 
     return obj;
