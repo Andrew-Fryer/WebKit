@@ -79,6 +79,9 @@ struct ImageBufferCreationContext {
 #endif
     ProcessIdentity resourceOwner;
 
+    // RenderingResourceIdentifier identifier { RenderingResourceIdentifier::generate() }; // afryer: I definitely shouldn't actually generate here
+    // std::optional<RenderingResourceIdentifier> identifier;
+
     ImageBufferCreationContext() = default;
 };
 
@@ -122,6 +125,10 @@ public:
             ImageBufferBackend::calculateBaseTransform(parameters),
             BackendType::calculateMemoryCost(parameters),
         };
+    }
+
+    void setRenderingResourceIdentifier(RenderingResourceIdentifier identifier) {
+        m_renderingResourceIdentifier = identifier;
     }
 
     WEBCORE_EXPORT virtual ~ImageBuffer();
@@ -253,6 +260,7 @@ public:
 
     WEBCORE_EXPORT virtual ImageBufferBackendSharing* toBackendSharing();
 
+    RenderingResourceIdentifier m_renderingResourceIdentifier;
 protected:
     WEBCORE_EXPORT ImageBuffer(ImageBufferParameters, const ImageBufferBackend::Info&, const WebCore::ImageBufferCreationContext&, std::unique_ptr<ImageBufferBackend>&& = nullptr, RenderingResourceIdentifier = RenderingResourceIdentifier::generate());
 
@@ -267,7 +275,6 @@ protected:
     Parameters m_parameters;
     ImageBufferBackend::Info m_backendInfo;
     std::unique_ptr<ImageBufferBackend> m_backend;
-    RenderingResourceIdentifier m_renderingResourceIdentifier;
     unsigned m_backendGeneration { 0 };
     bool m_hasForcedPurgeForTesting { false };
 };
