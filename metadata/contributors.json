@@ -726,7 +726,11 @@
          "a_fryer@apple.com"
       ],
       "github" : "Andrew-Fryer",
-      "name" : "Andrew Fryer"
+      "name" : "Andrew Fryer",
+      "nicks" : [
+         "afryer"
+      ],
+      "status" : "committer"
    },
    {
       "emails" : [
