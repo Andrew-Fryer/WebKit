@@ -65,7 +65,12 @@ void WebBackForwardListProxy::addItem(Ref<HistoryItem>&& item)
         return;
 
     LOG(BackForward, "(Back/Forward) WebProcess pid %i setting item %p for id %s with url %s", getCurrentProcessID(), item.ptr(), item->itemID().toString().utf8().data(), item->urlString().utf8().data());
-    m_cachedBackForwardListCounts = std::nullopt;
+    if (m_cachedBackForwardListCounts) {
+        m_cachedBackForwardListCounts = WebBackForwardListCounts {
+            .backCount = m_cachedBackForwardListCounts->backCount + 1,
+            .forwardCount = 0,
+        };
+    }
     page->send(Messages::WebPageProxy::BackForwardAddItem(toFrameState(item.get())));
 }
 
