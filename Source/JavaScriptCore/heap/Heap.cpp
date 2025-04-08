@@ -138,45 +138,6 @@ size_t minHeapSize(HeapType heapType, size_t ramSize)
     }
 }
 
-size_t proportionalHeapSize(size_t heapSize, size_t ramSize)
-{
-    if (VM::isInMiniMode())
-        return Options::miniVMHeapGrowthFactor() * heapSize;
-
-    bool useNewHeapGrowthFactor = true;
-
-    // Use new heuristic function for machines >= 16GB RAM.
-    // https://www.mathway.com/en/Algebra?asciimath=2%20*%20e%5E(-1%20*%20x)%20%2B%201%20%3Dy
-    size_t heapGrowthFunctionThresholdInBytes = static_cast<size_t>(Options::heapGrowthFunctionThresholdInMB()) * MB;
-    if (ramSize < heapGrowthFunctionThresholdInBytes)
-        useNewHeapGrowthFactor = false;
-
-    // Disable it for Darwin Intel machine.
-#if OS(DARWIN) && CPU(X86_64)
-    useNewHeapGrowthFactor = false;
-#endif
-
-    if (useNewHeapGrowthFactor) {
-        double x = static_cast<double>(std::min(heapSize, ramSize)) / ramSize;
-        double ratio = Options::heapGrowthMaxIncrease() * std::exp(-(Options::heapGrowthSteepnessFactor() * x)) + 1;
-        return ratio * heapSize;
-    }
-
-#if USE(BMALLOC_MEMORY_FOOTPRINT_API)
-    size_t memoryFootprint = bmalloc::api::memoryFootprint();
-    if (memoryFootprint < ramSize * Options::smallHeapRAMFraction())
-        return Options::smallHeapGrowthFactor() * heapSize;
-    if (memoryFootprint < ramSize * Options::mediumHeapRAMFraction())
-        return Options::mediumHeapGrowthFactor() * heapSize;
-#else
-    if (heapSize < ramSize * Options::smallHeapRAMFraction())
-        return Options::smallHeapGrowthFactor() * heapSize;
-    if (heapSize < ramSize * Options::mediumHeapRAMFraction())
-        return Options::mediumHeapGrowthFactor() * heapSize;
-#endif
-    return Options::largeHeapGrowthFactor() * heapSize;
-}
-
 void recordType(TypeCountSet& set, JSCell* cell)
 {
     auto typeName = "[unknown]"_s;
@@ -309,6 +270,7 @@ Heap::Heap(VM& vm, HeapType heapType)
     , m_ramSize(Options::forceRAMSize() ? Options::forceRAMSize() : ramSize())
     , m_minBytesPerCycle(minHeapSize(m_heapType, m_ramSize))
     , m_maxEdenSize(m_minBytesPerCycle)
+    , m_maxOldSize(m_minBytesPerCycle)
     , m_maxHeapSize(m_minBytesPerCycle)
     , m_objectSpace(this)
     , m_machineThreads(makeUnique<MachineThreads>())
@@ -331,6 +293,7 @@ Heap::Heap(VM& vm, HeapType heapType)
     , m_helperClient(&heapHelperPool())
     , m_threadLock(Box<Lock>::create())
     , m_threadCondition(AutomaticThreadCondition::create())
+    , m_lastFullGCEndTime(MonotonicTime::now())
 
     // HeapCellTypes
     , auxiliaryHeapCellType(CellAttributes(DoesNotNeedDestruction, HeapCell::Auxiliary))
@@ -2432,6 +2395,33 @@ void Heap::notifyIncrementalSweeper()
     m_sweeper->startSweeping(*this);
 }
 
+void Heap::updateMaxEdenSize(size_t currentHeapSize)
+{
+    size_t maxEdenSizeLowerLimit = minHeapSize(m_heapType, m_ramSize);
+    size_t maxEdenSizeUpperLimit = static_cast<size_t>(Options::maxEdenSizeLimitMultiplier()) * maxEdenSizeLowerLimit;
+    size_t prevEdenSize = m_maxEdenSize;
+    double actualGCTimeRatio = (MonotonicTime::now() - m_currentGCStartTime) / (m_currentGCStartTime - m_lastGCEndTime);
+    double scalingFactor = actualGCTimeRatio / Options::idealGCTimeRatio();
+    size_t projectedMaxEdenSize = prevEdenSize * scalingFactor;
+    m_maxEdenSize = std::max(maxEdenSizeLowerLimit, std::min(maxEdenSizeUpperLimit, projectedMaxEdenSize));
+    m_maxHeapSize = currentHeapSize + m_maxEdenSize;
+}
+
+void Heap::updateMaxOldSize(size_t currentHeapSize)
+{
+    double x = std::min(static_cast<double>(currentHeapSize) / static_cast<double>(m_ramSize), Options::criticalGCMemoryThreshold());
+    // We compute the scaling factor as y like so:
+    // y = m * x + b
+    // where b = oldHeapGrowthMaxIncrease (set m_maxOldSize to currentHeapSize * oldHeapGrowthMaxIncrease for small currentHeapSize)
+    // we want y = 1 (set m_maxOldSize to currentHeapSize) at criticalGCMemoryThreshold, so:
+    // 1 = m * criticalGCMemoryThreshold + oldHeapGrowthMaxIncrease
+    // m = (1 - oldHeapGrowthMaxIncrease) / criticalGCMemoryThreshold
+    // y = (1 - oldHeapGrowthMaxIncrease) / criticalGCMemoryThreshold * x + oldHeapGrowthMaxIncrease
+    double scalingFactor = (1 - Options::oldHeapGrowthMaxIncrease()) / Options::criticalGCMemoryThreshold() * x + Options::oldHeapGrowthMaxIncrease();
+    size_t projectedMaxOldSize = scalingFactor * currentHeapSize;
+    m_maxOldSize = std::max(projectedMaxOldSize, minHeapSize(m_heapType, m_ramSize));
+}
+
 void Heap::updateAllocationLimits()
 {
     constexpr bool verbose = false;
@@ -2469,31 +2459,25 @@ void Heap::updateAllocationLimits()
         // To avoid pathological GC churn in very small and very large heaps, we set
         // the new allocation limit based on the current size of the heap, with a
         // fixed minimum.
-        if (!m_isInOpportunisticTask)
-            m_maxHeapSize = std::max(minHeapSize(m_heapType, m_ramSize), proportionalHeapSize(currentHeapSize, m_ramSize));
-        dataLogLnIf(verbose, "Full: maxHeapSize = ", m_maxHeapSize);
-        m_maxEdenSize = m_maxHeapSize - currentHeapSize;
+        updateMaxEdenSize(currentHeapSize);
+        updateMaxOldSize(currentHeapSize);
         dataLogLnIf(verbose, "Full: maxEdenSize = ", m_maxEdenSize);
+        dataLogLnIf(verbose, "Full: maxOldSize = ", m_maxOldSize);
+        dataLogLnIf(verbose, "Full: maxHeapSize = ", m_maxHeapSize);
         m_sizeAfterLastFullCollect = currentHeapSize;
         dataLogLnIf(verbose, "Full: sizeAfterLastFullCollect = ", currentHeapSize);
         m_bytesAbandonedSinceLastFullCollect = 0;
         dataLogLnIf(verbose, "Full: bytesAbandonedSinceLastFullCollect = ", 0);
     } else {
         ASSERT(currentHeapSize >= m_sizeAfterLastCollect);
-        // Theoretically, we shouldn't ever scan more memory than the heap size we planned to have.
-        // But we are sloppy, so we have to defend against the overflow.
-        m_maxEdenSize = currentHeapSize > m_maxHeapSize ? 0 : m_maxHeapSize - currentHeapSize;
-        dataLogLnIf(verbose, "Eden: maxEdenSize = ", m_maxEdenSize);
         m_sizeAfterLastEdenCollect = currentHeapSize;
         dataLogLnIf(verbose, "Eden: sizeAfterLastEdenCollect = ", currentHeapSize);
-        double edenToOldGenerationRatio = (double)m_maxEdenSize / (double)m_maxHeapSize;
-        double minEdenToOldGenerationRatio = 1.0 / 3.0;
-        if (edenToOldGenerationRatio < minEdenToOldGenerationRatio)
+        if (currentHeapSize > m_maxOldSize)
             m_shouldDoFullCollection = true;
-        // This seems suspect at first, but what it does is ensure that the nursery size is fixed.
-        m_maxHeapSize += currentHeapSize - m_sizeAfterLastCollect;
+        if (m_shouldDoFullCollection)
+            dataLogLnIf(verbose, "Eden: m_shouldDoFullCollection is set");
+        updateMaxEdenSize(currentHeapSize);
         dataLogLnIf(verbose, "Eden: maxHeapSize = ", m_maxHeapSize);
-        m_maxEdenSize = m_maxHeapSize - currentHeapSize;
         dataLogLnIf(verbose, "Eden: maxEdenSize = ", m_maxEdenSize);
         if (m_fullActivityCallback) {
             ASSERT(currentHeapSize >= m_sizeAfterLastFullCollect);

@@ -753,6 +753,8 @@ private:
 
     void deleteUnmarkedCompiledCode();
     JS_EXPORT_PRIVATE void addToRememberedSet(const JSCell*);
+    void updateMaxEdenSize(size_t);
+    void updateMaxOldSize(size_t);
     void updateAllocationLimits();
     void didFinishCollection();
     void resumeCompilerThreads();
@@ -825,6 +827,7 @@ private:
     size_t m_bytesAbandonedSinceLastFullCollect { 0 };
     size_t m_maxEdenSize;
     size_t m_maxEdenSizeWhenCritical;
+    size_t m_maxOldSize;
     size_t m_maxHeapSize;
     size_t m_totalBytesVisitedAfterLastFullCollect { 0 };
     size_t m_totalBytesVisited { 0 };
