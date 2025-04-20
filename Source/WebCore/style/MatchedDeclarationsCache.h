@@ -43,11 +43,33 @@ public:
     explicit MatchedDeclarationsCache(const Resolver&);
     ~MatchedDeclarationsCache();
 
-    static bool isCacheable(const Element&, const RenderStyle&, const RenderStyle& parentStyle);
-    static unsigned computeHash(const MatchResult&, const StyleCustomPropertyData& inheritedCustomProperties);
+    // static bool isCacheable(const Element&, const RenderStyle&, const RenderStyle& parentStyle);
+    // static unsigned computeHash(const MatchResult&, const StyleCustomPropertyData& inheritedCustomProperties);
+
+    class Key {
+    public: // make this a struct?
+        MatchResult m_matchResult;
+        std::unique_ptr<const RenderStyle> m_parentRenderStyle;
+        size_t m_hash;
+        
+        Key Key(MatchResult, StyleCustomPropertyData, std::unique_ptr<const RenderStyle>); // remove this?
+        size_t hash();
+        bool equals(const Key&);
+    };
+
+    // struct MatchedDeclarationsCacheHash {
+    //     size_t operator()(const MatchedDeclarationsCacheKey& s) const {
+    //         return asdf;
+    //     }
+    // };
+    
+    // struct MatchedDeclarationsCacheEqual {
+    //     bool operator()(const MatchedDeclarationsCacheKey& a, const MatchedDeclarationsCacheKey& b) const {
+    //     }
+    // };
 
     struct Entry {
-        MatchResult matchResult;
+        MatchResult matchResult; // this definitely shouldn't be here
         std::unique_ptr<const RenderStyle> renderStyle;
         std::unique_ptr<const RenderStyle> parentRenderStyle;
         std::unique_ptr<const RenderStyle> userAgentAppearanceStyle;
@@ -55,9 +77,10 @@ public:
         bool isUsableAfterHighPriorityProperties(const RenderStyle&) const;
     };
 
-    const Entry* find(unsigned hash, const MatchResult&, const StyleCustomPropertyData& inheritedCustomProperties);
-    void add(const RenderStyle&, const RenderStyle& parentStyle, const RenderStyle* userAgentAppearanceStyle, unsigned hash, const MatchResult&);
-    void remove(unsigned hash);
+    std::optional<Key> createKeyIfCacheable(const MatchResult& matchResult, const Element& element, const RenderStyle& style, const RenderStyle& parentStyle);
+    const Entry& find(const Key& key);
+    void add(const Key& key);
+    void remove(const Key& key);
 
     // Every N additions to the matched declaration cache trigger a sweep where entries holding
     // the last reference to a style declaration are garbage collected.
@@ -72,6 +95,7 @@ private:
 
     SingleThreadWeakRef<const Resolver> m_owner;
     UncheckedKeyHashMap<unsigned, Entry, AlreadyHashed> m_entries;
+    std::unordered_multimap<Key, 
     Timer m_sweepTimer;
     unsigned m_additionsSinceLastSweep { 0 };
 };

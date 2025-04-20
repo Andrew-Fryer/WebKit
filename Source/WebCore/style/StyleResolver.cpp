@@ -678,14 +678,14 @@ void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResu
     auto& style = *state.style();
     auto& parentStyle = *state.parentStyle();
     auto& element = *state.element();
-
-    unsigned cacheHash = MatchedDeclarationsCache::computeHash(matchResult, parentStyle.inheritedCustomProperties());
+    
     auto includedProperties = PropertyCascade::normalProperties();
 
-    auto* cacheEntry = m_matchedDeclarationsCache.find(cacheHash, matchResult, parentStyle.inheritedCustomProperties());
-
-    auto hasUsableEntry = cacheEntry && MatchedDeclarationsCache::isCacheable(element, style, parentStyle);
-    if (hasUsableEntry) {
+    auto keyIfCacheable = MatchedDeclarationsCache::createKeyIfCacheable(matchResult, element, style, parentStyle);
+    std::optional<const MatchedDeclarationsCache::Entry&> cacheEntryIfAvailable;
+    if (MatchedDeclarationsCache::Key key = keyIfCacheable)
+        cacheEntryIfAvailable = MatchedDeclarationsCache::find(key);
+    if (MatchedDeclarationsCache::Entry cacheEntry = cacheEntryIfAvailable) {
         // We can build up the style by copying non-inherited properties from an earlier style object built using the same exact
         // style declarations. We then only need to apply the inherited properties, if any, as their values can depend on the
         // element context. This is fast and saves memory by reusing the style data structures.
@@ -756,11 +756,8 @@ void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResu
     if (style.usesViewportUnits())
         document().setHasStyleWithViewportUnits();
 
-    if (cacheEntry || !cacheHash)
-        return;
-
-    if (MatchedDeclarationsCache::isCacheable(element, style, parentStyle))
-        m_matchedDeclarationsCache.add(style, parentStyle, state.userAgentAppearanceStyle(), cacheHash, matchResult);
+    if (MatchedDeclarationsCache::Key key = keyIfCacheable && !cacheEntryIfAvailable)
+        m_matchedDeclarationsCache.add(key, ... style, parentStyle, state.userAgentAppearanceStyle(), cacheHash, matchResult);
 }
 
 bool Resolver::hasSelectorForAttribute(const Element& element, const AtomString& attributeName) const

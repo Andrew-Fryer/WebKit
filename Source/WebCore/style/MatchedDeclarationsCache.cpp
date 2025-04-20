@@ -64,7 +64,22 @@ void MatchedDeclarationsCache::deref() const
     m_owner->deref();
 }
 
-bool MatchedDeclarationsCache::isCacheable(const Element& element, const RenderStyle& style, const RenderStyle& parentStyle)
+bool matchResultIsCacheable(const MatchResult& matchResult) {
+    if (matchResult.isCompletelyNonCacheable)
+        return false;
+
+    if (matchResult.userAgentDeclarations.isEmpty() && matchResult.userDeclarations.isEmpty()) {
+        bool allNonCacheable = std::ranges::all_of(matchResult.authorDeclarations, [](auto& matchedProperties) {
+            return matchedProperties.isCacheable != IsCacheable::Yes;
+        });
+        // No point of caching if we are not applying any properties.
+        if (allNonCacheable)
+            return false;
+    }
+    return true;
+}
+
+bool elementIsCacheable(const Element& element, const RenderStyle& style, const RenderStyle& parentStyle)
 {
     // FIXME: Writing mode and direction properties modify state when applying to document element by calling
     // Document::setWritingMode/DirectionSetOnDocumentElement. We can't skip the applying by caching.
@@ -104,6 +119,20 @@ bool MatchedDeclarationsCache::isCacheable(const Element& element, const RenderS
     return true;
 }
 
+MatchedDeclarationsCache::Key MatchedDeclarationsCache::Key(MatchResult matchResult, StyleCustomPropertyData inheritedCustomProperties, std::unique_ptr<const RenderStyle> parentRenderStyle)
+    : m_matchResult(matchResult)
+    , m_parentRenderStyle(parentRenderStyle)
+{
+    // m_hash = WTF::computeHash(matchResult, &inheritedCustomProperties);
+    m_hash = WTF::computeHash(matchResult);
+}
+
+std::optional<MatchedDeclarationsCache::Key> MatchedDeclarationsCache::createKeyIfCacheable(const MatchResult& matchResult, const Element& element, const RenderStyle& style, const RenderStyle& parentStyle) {
+    if (!matchResultIsCacheable(matchResult) || !elementIsCacheable(element, style, parentStyle))
+        return std::nullopt;
+    return MatchedDeclarationsCache::Key(matchResult, parentStyle.inheritedCustomProperties());
+}
+
 bool MatchedDeclarationsCache::Entry::isUsableAfterHighPriorityProperties(const RenderStyle& style) const
 {
     if (style.usedZoom() != renderStyle->usedZoom())
@@ -117,37 +146,31 @@ bool MatchedDeclarationsCache::Entry::isUsableAfterHighPriorityProperties(const 
     return Style::equalForLengthResolution(style, *renderStyle);
 }
 
-unsigned MatchedDeclarationsCache::computeHash(const MatchResult& matchResult, const StyleCustomPropertyData& inheritedCustomProperties)
-{
-    if (matchResult.isCompletelyNonCacheable)
-        return 0;
-
-    if (matchResult.userAgentDeclarations.isEmpty() && matchResult.userDeclarations.isEmpty()) {
-        bool allNonCacheable = std::ranges::all_of(matchResult.authorDeclarations, [](auto& matchedProperties) {
-            return matchedProperties.isCacheable != IsCacheable::Yes;
-        });
-        // No point of caching if we are not applying any properties.
-        if (allNonCacheable)
-            return 0;
-    }
-    return WTF::computeHash(matchResult, &inheritedCustomProperties);
+size_t MatchedDeclarationsCache::Key::hash() {
+    return m_hash;
 }
 
-const MatchedDeclarationsCache::Entry* MatchedDeclarationsCache::find(unsigned hash, const MatchResult& matchResult, const StyleCustomPropertyData& inheritedCustomProperties)
-{
-    if (!hash)
-        return nullptr;
+size_t MatchedDeclarationsCache::Key::equals(const MatchedDeclarationsCache::Key& other) {
+    if (!m_matchResult.cacheablePropertiesEqual(other.m_matchResult))
+        return false;
 
-    auto it = m_entries.find(hash);
+    if (&m_parentRenderStyle->inheritedCustomProperties() != other.m_parentRenderStyle->inheritedCustomProperties())
+        return false;
+    return true;
+}
+
+const MatchedDeclarationsCache::Entry* MatchedDeclarationsCache::find(const Key& key)
+{
+    auto it = m_entries.find(key);
     if (it == m_entries.end())
         return nullptr;
 
-    auto& entry = it->value;
-    if (!matchResult.cacheablePropertiesEqual(entry.matchResult))
-        return nullptr;
+    // auto& entry = it->value;
+    // if (!matchResult.cacheablePropertiesEqual(entry.matchResult))
+    //     return nullptr;
 
-    if (&entry.parentRenderStyle->inheritedCustomProperties() != &inheritedCustomProperties)
-        return nullptr;
+    // if (&entry.parentRenderStyle->inheritedCustomProperties() != &inheritedCustomProperties)
+    //     return nullptr;
 
     return &entry;
 }
