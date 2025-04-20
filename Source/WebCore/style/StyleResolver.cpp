@@ -714,7 +714,8 @@ void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResu
 
     unsigned cacheHash = MatchedDeclarationsCache::computeHash(matchResult, parentStyle.inheritedCustomProperties());
 
-    auto* cacheEntry = m_matchedDeclarationsCache.find(cacheHash, matchResult, parentStyle.inheritedCustomProperties());
+    bool inheritedEqual;
+    auto* cacheEntry = m_matchedDeclarationsCache.find(cacheHash, matchResult, parentStyle.inheritedCustomProperties(), parentStyle, inheritedEqual);
 
     auto hasUsableEntry = cacheEntry && MatchedDeclarationsCache::isCacheable(element, style, parentStyle);
     if (hasUsableEntry) {
@@ -722,8 +723,6 @@ void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResu
         // style declarations. We then only need to apply the inherited properties, if any, as their values can depend on the
         // element context. This is fast and saves memory by reusing the style data structures.
         style.copyNonInheritedFrom(*cacheEntry->renderStyle);
-
-        bool inheritedEqual = parentStyle.inheritedEqual(*cacheEntry->parentRenderStyle);
 
         bool hasExplicitlyInherited = cacheEntry->renderStyle->hasExplicitlyInheritedProperties();
         bool explicitlyInheritedEqual = !hasExplicitlyInherited || parentStyle.nonInheritedEqual(*cacheEntry->parentRenderStyle);
@@ -786,10 +785,7 @@ void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResu
 
     setGlobalStateAfterApplyingProperties(builder.state());
 
-    if (cacheEntry || !cacheHash)
-        return;
-
-    if (MatchedDeclarationsCache::isCacheable(element, style, parentStyle))
+    if (((cacheHash && !cacheEntry) || (cacheEntry && !inheritedEqual)) && MatchedDeclarationsCache::isCacheable(element, style, parentStyle))
         m_matchedDeclarationsCache.add(style, parentStyle, state.userAgentAppearanceStyle(), cacheHash, matchResult);
 }
 

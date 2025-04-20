@@ -133,7 +133,7 @@ unsigned MatchedDeclarationsCache::computeHash(const MatchResult& matchResult, c
     return WTF::computeHash(matchResult, &inheritedCustomProperties);
 }
 
-const MatchedDeclarationsCache::Entry* MatchedDeclarationsCache::find(unsigned hash, const MatchResult& matchResult, const StyleCustomPropertyData& inheritedCustomProperties)
+const MatchedDeclarationsCache::Entry* MatchedDeclarationsCache::find(unsigned hash, const MatchResult& matchResult, const StyleCustomPropertyData& inheritedCustomProperties, const RenderStyle& parentStyle, bool& inheritedEqual)
 {
     if (!hash)
         return nullptr;
@@ -142,14 +142,23 @@ const MatchedDeclarationsCache::Entry* MatchedDeclarationsCache::find(unsigned h
     if (it == m_entries.end())
         return nullptr;
 
-    auto& entry = it->value;
-    if (!matchResult.cacheablePropertiesEqual(*entry.matchResult))
-        return nullptr;
+    Entry* result = nullptr;
+    for (auto& entry : it->value) {
+        if (!matchResult.cacheablePropertiesEqual(*entry.matchResult))
+            continue;
 
-    if (&entry.parentRenderStyle->inheritedCustomProperties() != &inheritedCustomProperties)
-        return nullptr;
+        if (&entry.parentRenderStyle->inheritedCustomProperties() != &inheritedCustomProperties)
+            continue;
 
-    return &entry;
+        result = &entry;
+        if (parentStyle.inheritedEqual(*result->parentRenderStyle)) {
+            inheritedEqual = true;
+            return result;
+        }
+    }
+
+    inheritedEqual = false;
+    return result;
 }
 
 void MatchedDeclarationsCache::add(const RenderStyle& style, const RenderStyle& parentStyle, const RenderStyle* userAgentAppearanceStyle, unsigned hash, const MatchResult& matchResult)
@@ -169,7 +178,18 @@ void MatchedDeclarationsCache::add(const RenderStyle& style, const RenderStyle& 
     ASSERT(hash);
     // Note that we don't cache the original RenderStyle instance. It may be further modified.
     // The RenderStyle in the cache is really just a holder for the substructures and never used as-is.
-    m_entries.add(hash, Entry { &matchResult, RenderStyle::clonePtr(style), RenderStyle::clonePtr(parentStyle), userAgentAppearanceStyleCopy() });
+    constexpr unsigned maxEntriesPerHash = 4;
+    auto it = m_entries.find(hash);
+    if (it != m_entries.end()) {
+        if (it->value.size() < maxEntriesPerHash)
+            it->value.append(Entry { &matchResult, RenderStyle::clonePtr(style), RenderStyle::clonePtr(parentStyle), userAgentAppearanceStyleCopy() });
+    } else {
+        // Store `Entry`s out of line because hash table complains if Value type is too large (inefficient rehashing)
+        Vector<Entry> newBucket;
+        newBucket.reserveCapacity(maxEntriesPerHash);
+        newBucket.append(Entry { &matchResult, RenderStyle::clonePtr(style), RenderStyle::clonePtr(parentStyle), userAgentAppearanceStyleCopy() });
+        m_entries.add(hash, WTFMove(newBucket));
+    }
 }
 
 void MatchedDeclarationsCache::remove(unsigned hash)
@@ -186,8 +206,13 @@ void MatchedDeclarationsCache::clearEntriesAffectedByViewportUnits()
 {
     Ref protectedThis { *this };
 
+    for (auto& [key, bucket] : m_entries) {
+        bucket.removeAllMatching([&] (const Entry& entry) -> bool {
+            return entry.renderStyle->usesViewportUnits();
+        });
+    }
     m_entries.removeIf([](auto& keyValue) {
-        return keyValue.value.renderStyle->usesViewportUnits();
+        return !keyValue.value.size();
     });
 }
 
@@ -206,9 +231,14 @@ void MatchedDeclarationsCache::sweep()
         return false;
     };
 
-    m_entries.removeIf([&](auto& keyValue) {
-        auto& matchResult = *keyValue.value.matchResult;
-        return hasOneRef(matchResult.userAgentDeclarations) || hasOneRef(matchResult.userDeclarations) || hasOneRef(matchResult.authorDeclarations);
+    for (auto& [key, bucket] : m_entries) {
+        bucket.removeAllMatching([&] (const Entry& entry) -> bool {
+            auto& matchResult = entry.matchResult;
+            return hasOneRef(matchResult->userAgentDeclarations) || hasOneRef(matchResult->userDeclarations) || hasOneRef(matchResult->authorDeclarations);
+        });
+    }
+    m_entries.removeIf([](auto& keyValue) {
+        return !keyValue.value.size();
     });
 
     m_additionsSinceLastSweep = 0;
