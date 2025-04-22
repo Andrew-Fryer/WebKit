@@ -182,12 +182,12 @@ void MatchedDeclarationsCache::add(const RenderStyle& style, const RenderStyle& 
     auto it = m_entries.find(hash);
     if (it != m_entries.end()) {
         if (it->value.size() < maxEntriesPerHash)
-            it->value.append(Entry { &matchResult, RenderStyle::clonePtr(style), RenderStyle::clonePtr(parentStyle), userAgentAppearanceStyleCopy() });
+            it->value.constructAndAppend(&matchResult, RenderStyle::clonePtr(style), RenderStyle::clonePtr(parentStyle), userAgentAppearanceStyleCopy());
     } else {
         // Store `Entry`s out of line because hash table complains if Value type is too large (inefficient rehashing)
         Vector<Entry> newBucket;
         newBucket.reserveCapacity(maxEntriesPerHash);
-        newBucket.append(Entry { &matchResult, RenderStyle::clonePtr(style), RenderStyle::clonePtr(parentStyle), userAgentAppearanceStyleCopy() });
+        newBucket.constructAndAppend(&matchResult, RenderStyle::clonePtr(style), RenderStyle::clonePtr(parentStyle), userAgentAppearanceStyleCopy());
         m_entries.add(hash, WTFMove(newBucket));
     }
 }
