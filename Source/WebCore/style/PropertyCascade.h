@@ -50,6 +50,7 @@ public:
         AfterTransition = 1 << 4,
         StartingStyle = 1 << 5,
         NonCacheable = 1 << 6,
+        VariableReference = 1 << 7,
     };
 
     static constexpr OptionSet<PropertyType> normalPropertyTypes() { return { PropertyType::NonInherited,  PropertyType::Inherited }; }

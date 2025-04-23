@@ -44,7 +44,7 @@ public:
     ~MatchedDeclarationsCache();
 
     static bool isCacheable(const Element&, const RenderStyle&, const RenderStyle& parentStyle);
-    static unsigned computeHash(const MatchResult&, const StyleCustomPropertyData& inheritedCustomProperties);
+    static unsigned computeHash(const MatchResult&);
 
     struct Entry {
         RefPtr<const MatchResult> matchResult;
@@ -55,7 +55,7 @@ public:
         bool isUsableAfterHighPriorityProperties(const RenderStyle&) const;
     };
 
-    const Entry* find(unsigned hash, const MatchResult&, const StyleCustomPropertyData& inheritedCustomProperties, const RenderStyle&, bool&);
+    const Entry* find(unsigned hash, const MatchResult&, const StyleCustomPropertyData& inheritedCustomProperties, const RenderStyle&, bool&, bool&);
     void add(const RenderStyle&, const RenderStyle& parentStyle, const RenderStyle* userAgentAppearanceStyle, unsigned hash, const MatchResult&);
     void remove(unsigned hash);
 

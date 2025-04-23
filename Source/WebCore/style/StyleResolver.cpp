@@ -712,12 +712,14 @@ void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResu
     auto& parentStyle = *state.parentStyle();
     auto& element = *state.element();
 
-    unsigned cacheHash = MatchedDeclarationsCache::computeHash(matchResult, parentStyle.inheritedCustomProperties());
+    unsigned cacheHash = MatchedDeclarationsCache::computeHash(matchResult);
 
+    bool inheritedCustomPropertiesEqual;
     bool inheritedEqual;
-    auto* cacheEntry = m_matchedDeclarationsCache.find(cacheHash, matchResult, parentStyle.inheritedCustomProperties(), parentStyle, inheritedEqual);
+    auto* cacheEntry = m_matchedDeclarationsCache.find(cacheHash, matchResult, parentStyle.inheritedCustomProperties(), parentStyle, inheritedCustomPropertiesEqual, inheritedEqual);
 
-    auto hasUsableEntry = cacheEntry && MatchedDeclarationsCache::isCacheable(element, style, parentStyle);
+    bool isCacheable = MatchedDeclarationsCache::isCacheable(element, style, parentStyle);
+    auto hasUsableEntry = cacheEntry && isCacheable;
     if (hasUsableEntry) {
         // We can build up the style by copying non-inherited properties from an earlier style object built using the same exact
         // style declarations. We then only need to apply the inherited properties, if any, as their values can depend on the
@@ -752,6 +754,8 @@ void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResu
             includedProperties.types.add(PropertyCascade::PropertyType::ExplicitlyInherited);
         if (!matchResult.nonCacheablePropertyIds.isEmpty())
             includedProperties.types.add(PropertyCascade::PropertyType::NonCacheable);
+        if (!inheritedCustomPropertiesEqual)
+            includedProperties.types.add(PropertyCascade::PropertyType::VariableReference);
     }
 
     if (elementTypeHasAppearanceFromUAStyle(element)) {
@@ -785,7 +789,7 @@ void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResu
 
     setGlobalStateAfterApplyingProperties(builder.state());
 
-    if (((cacheHash && !cacheEntry) || (cacheEntry && !inheritedEqual)) && MatchedDeclarationsCache::isCacheable(element, style, parentStyle))
+    if (isCacheable && ((cacheHash && !cacheEntry) || (cacheEntry && (!inheritedCustomPropertiesEqual || !inheritedEqual))))
         m_matchedDeclarationsCache.add(style, parentStyle, state.userAgentAppearanceStyle(), cacheHash, matchResult);
 }
 

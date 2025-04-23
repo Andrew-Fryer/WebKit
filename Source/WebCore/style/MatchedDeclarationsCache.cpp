@@ -117,7 +117,7 @@ bool MatchedDeclarationsCache::Entry::isUsableAfterHighPriorityProperties(const 
     return Style::equalForLengthResolution(style, *renderStyle);
 }
 
-unsigned MatchedDeclarationsCache::computeHash(const MatchResult& matchResult, const StyleCustomPropertyData& inheritedCustomProperties)
+unsigned MatchedDeclarationsCache::computeHash(const MatchResult& matchResult)
 {
     if (matchResult.isCompletelyNonCacheable)
         return 0;
@@ -130,10 +130,10 @@ unsigned MatchedDeclarationsCache::computeHash(const MatchResult& matchResult, c
         if (allNonCacheable)
             return 0;
     }
-    return WTF::computeHash(matchResult, &inheritedCustomProperties);
+    return WTF::computeHash(matchResult);
 }
 
-const MatchedDeclarationsCache::Entry* MatchedDeclarationsCache::find(unsigned hash, const MatchResult& matchResult, const StyleCustomPropertyData& inheritedCustomProperties, const RenderStyle& parentStyle, bool& inheritedEqual)
+const MatchedDeclarationsCache::Entry* MatchedDeclarationsCache::find(unsigned hash, const MatchResult& matchResult, const StyleCustomPropertyData& inheritedCustomProperties, const RenderStyle& parentStyle, bool& inheritedCustomPropertiesEqual, bool& inheritedEqual)
 {
     if (!hash)
         return nullptr;
@@ -147,9 +147,15 @@ const MatchedDeclarationsCache::Entry* MatchedDeclarationsCache::find(unsigned h
         if (!matchResult.cacheablePropertiesEqual(*entry.matchResult))
             continue;
 
-        if (&entry.parentRenderStyle->inheritedCustomProperties() != &inheritedCustomProperties)
+        if (&entry.parentRenderStyle->inheritedCustomProperties() != &inheritedCustomProperties) {
+            if (!result) {
+                inheritedCustomPropertiesEqual = false;
+                result = &entry;
+            }
             continue;
+        }
 
+        inheritedCustomPropertiesEqual = true;
         result = &entry;
         if (parentStyle.inheritedEqual(*result->parentRenderStyle)) {
             inheritedEqual = true;

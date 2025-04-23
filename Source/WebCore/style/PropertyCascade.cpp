@@ -267,6 +267,8 @@ bool PropertyCascade::addMatch(const MatchedProperties& matchedProperties, Casca
                 return true;
             if (m_includedProperties.types.contains(PropertyType::NonInherited) && !currentIsInherited)
                 return true;
+            if (m_includedProperties.types.contains(PropertyType::VariableReference) && current.value()->hasVariableReferences())
+                return true;
 
             // Apply all logical group properties if we have applied any. They may override the ones we already applied.
             if (propertyID >= firstLogicalGroupProperty && m_lastIndexForLogicalGroup)
