@@ -78,6 +78,7 @@ bool hasCapacityToUseLargeGigacage();
 // and cannot be modified thereafter.
 
 #define FOR_EACH_JSC_OPTION(v)                                          \
+    v(Unsigned, mdcNumEntries, 4, Normal, nullptr) \
     v(Bool, useKernTCSM, defaultTCSMValue(), Normal, "Note: this needs to go before other options since they depend on this value."_s) \
     v(Bool, validateOptions, false, Normal, "crashes if mis-typed JSC options were passed to the VM"_s) \
     v(Unsigned, dumpOptions, 0, Normal, "dumps JSC options (0 = None, 1 = Overridden only, 2 = All, 3 = Verbose)"_s) \

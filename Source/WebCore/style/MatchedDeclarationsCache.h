@@ -51,6 +51,9 @@ public:
         std::unique_ptr<const RenderStyle> renderStyle;
         std::unique_ptr<const RenderStyle> parentRenderStyle;
         std::unique_ptr<const RenderStyle> userAgentAppearanceStyle;
+        uint64_t epoch;
+        unsigned hitCount = 0;
+        unsigned partialHitCount = 0;
 
         bool isUsableAfterHighPriorityProperties(const RenderStyle&) const;
     };
@@ -69,11 +72,13 @@ public:
 
 private:
     void sweep();
+    double hitRateScore(const Entry&);
 
     SingleThreadWeakRef<const Resolver> m_owner;
     UncheckedKeyHashMap<unsigned, Vector<Entry>, AlreadyHashed> m_entries;
     Timer m_sweepTimer;
     unsigned m_additionsSinceLastSweep { 0 };
+    uint64_t m_epoch { 0 };
 };
 
 }

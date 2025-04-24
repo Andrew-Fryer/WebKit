@@ -40,6 +40,8 @@
 #include "StyleScope.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringHash.h>
+// #include <JavaScriptCore/Options.h>
+
 
 namespace WebCore {
 namespace Style {
@@ -117,6 +119,11 @@ bool MatchedDeclarationsCache::Entry::isUsableAfterHighPriorityProperties(const 
     return Style::equalForLengthResolution(style, *renderStyle);
 }
 
+double MatchedDeclarationsCache::hitRateScore(const Entry& entry)
+{
+    return (entry.hitCount + 100 * entry.partialHitCount) / (m_epoch - entry.epoch);
+}
+
 unsigned MatchedDeclarationsCache::computeHash(const MatchResult& matchResult)
 {
     if (matchResult.isCompletelyNonCacheable)
@@ -135,12 +142,15 @@ unsigned MatchedDeclarationsCache::computeHash(const MatchResult& matchResult)
 
 const MatchedDeclarationsCache::Entry* MatchedDeclarationsCache::find(unsigned hash, const MatchResult& matchResult, const StyleCustomPropertyData& inheritedCustomProperties, const RenderStyle& parentStyle, bool& inheritedCustomPropertiesEqual, bool& inheritedEqual)
 {
+    WTFLogAlways("afryer_MDC_find_attempt\n");
     if (!hash)
         return nullptr;
 
     auto it = m_entries.find(hash);
     if (it == m_entries.end())
         return nullptr;
+
+    m_epoch++;
 
     Entry* result = nullptr;
     for (auto& entry : it->value) {
@@ -158,11 +168,16 @@ const MatchedDeclarationsCache::Entry* MatchedDeclarationsCache::find(unsigned h
         inheritedCustomPropertiesEqual = true;
         result = &entry;
         if (parentStyle.inheritedEqual(*result->parentRenderStyle)) {
+            WTFLogAlways("afryer_MDC_find_full_hit\n");
             inheritedEqual = true;
             return result;
         }
     }
 
+    if (inheritedCustomPropertiesEqual)
+        WTFLogAlways("afryer_MDC_find_partial_hit\n");
+    else
+        WTFLogAlways("afryer_MDC_find_barely_hit\n");
     inheritedEqual = false;
     return result;
 }
@@ -184,16 +199,31 @@ void MatchedDeclarationsCache::add(const RenderStyle& style, const RenderStyle& 
     ASSERT(hash);
     // Note that we don't cache the original RenderStyle instance. It may be further modified.
     // The RenderStyle in the cache is really just a holder for the substructures and never used as-is.
-    constexpr unsigned maxEntriesPerHash = 4;
+    unsigned maxEntriesPerHash = JSC::Options::mdcNumEntries() ? JSC::Options::mdcNumEntries() : 4;
     auto it = m_entries.find(hash);
     if (it != m_entries.end()) {
         if (it->value.size() < maxEntriesPerHash)
-            it->value.constructAndAppend(&matchResult, RenderStyle::clonePtr(style), RenderStyle::clonePtr(parentStyle), userAgentAppearanceStyleCopy());
+            it->value.constructAndAppend(&matchResult, RenderStyle::clonePtr(style), RenderStyle::clonePtr(parentStyle), userAgentAppearanceStyleCopy(), m_epoch);
+        else {
+            if (JSC::Options::mdcNumEntries()) {
+                Vector<Entry>& entries = it->value;
+                size_t lowestScoreInd = 0;
+                double lowestScore = hitRateScore(entries[lowestScoreInd]);
+                for (size_t i = 1; i < entries.size(); ++i) {
+                    double score = hitRateScore(entries[i]);
+                    if (score < lowestScore) {
+                        lowestScore = score;
+                        lowestScoreInd = i;
+                    }
+                }
+                entries[lowestScoreInd] = Entry { &matchResult, RenderStyle::clonePtr(style), RenderStyle::clonePtr(parentStyle), userAgentAppearanceStyleCopy(), m_epoch };
+            }
+        }
     } else {
         // Store `Entry`s out of line because hash table complains if Value type is too large (inefficient rehashing)
         Vector<Entry> newBucket;
-        newBucket.reserveCapacity(maxEntriesPerHash);
-        newBucket.constructAndAppend(&matchResult, RenderStyle::clonePtr(style), RenderStyle::clonePtr(parentStyle), userAgentAppearanceStyleCopy());
+        newBucket.reserveCapacity(4);
+        newBucket.constructAndAppend(&matchResult, RenderStyle::clonePtr(style), RenderStyle::clonePtr(parentStyle), userAgentAppearanceStyleCopy(), m_epoch);
         m_entries.add(hash, WTFMove(newBucket));
     }
 }
