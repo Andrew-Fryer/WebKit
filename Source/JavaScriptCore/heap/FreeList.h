@@ -29,6 +29,8 @@
 #include <wtf/Noncopyable.h>
 #include <wtf/PrintStream.h>
 
+#include "MarkedBlock.h"
+
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
@@ -81,17 +83,23 @@ struct FreeCell {
 class FreeList {
 public:
     FreeList(unsigned cellSize);
+    FreeList(const FreeList&) = default; // for HashMap... TODO: remove this
     ~FreeList();
     
     void clear();
     
-    JS_EXPORT_PRIVATE void initialize(FreeCell* head, uint64_t secret, unsigned bytes);
+    JS_EXPORT_PRIVATE void initialize(FreeCell* head, uint64_t secret, unsigned bytes, MarkedBlock::Handle* block);
+    JS_EXPORT_PRIVATE void initialize(FreeList &other);
+
+    MarkedBlock::Handle* block() { return m_block; }
     
     bool allocationWillFail() const { return m_intervalStart >= m_intervalEnd && isSentinel(nextInterval()); }
     bool allocationWillSucceed() const { return !allocationWillFail(); }
     
     template<typename Func>
     HeapCell* allocateWithCellSize(const Func& slowPath, size_t cellSize);
+
+    void unfreelist();
     
     template<typename Func>
     void forEach(const Func&) const;
@@ -113,6 +121,7 @@ public:
 private:
     FreeCell* nextInterval() const { return m_nextInterval; }
     
+    MarkedBlock::Handle* m_block { nullptr };
     char* m_intervalStart { nullptr };
     char* m_intervalEnd { nullptr };
     FreeCell* m_nextInterval { std::bit_cast<FreeCell*>(static_cast<uintptr_t>(1)) };

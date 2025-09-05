@@ -187,6 +187,15 @@ void* LocalAllocator::tryAllocateWithoutCollecting(size_t cellSize)
     
     ASSERT(!m_currentBlock);
     ASSERT(m_freeList.allocationWillFail());
+
+    if (std::optional<FreeList> freeList = m_directory->findOpportunisticallyConstructedFreeList()) {
+        m_freeList.initialize(*freeList);
+        m_currentBlock = m_freeList.block();
+        return m_freeList.allocateWithCellSize([]() -> HeapCell* {
+            RELEASE_ASSERT_NOT_REACHED();
+            return nullptr;
+        }, cellSize);
+    }
     
     for (;;) {
         MarkedBlock::Handle* block = m_directory->findBlockForAllocation(*this);
@@ -206,8 +215,8 @@ void* LocalAllocator::tryAllocateWithoutCollecting(size_t cellSize)
             // It's good that this clears canAllocateButNotEmpty as well as all other bits,
             // because there is a remote chance that a block may have both canAllocateButNotEmpty
             // and empty set at the same time.
-            block->removeFromDirectory();
-            m_directory->addBlock(block);
+            block->removeFromDirectory(); // this sets not empty
+            m_directory->addBlock(block); // this set empty
             return allocateIn(block, cellSize);
         }
     }

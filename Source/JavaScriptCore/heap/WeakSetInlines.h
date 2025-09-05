@@ -48,11 +48,11 @@ inline WeakImpl* WeakSet::allocate(JSValue jsValue, WeakHandleOwner* weakHandleO
 inline void WeakBlock::finalize(WeakImpl* weakImpl)
 {
     ASSERT(weakImpl->state() == WeakImpl::Dead);
-    weakImpl->setState(WeakImpl::Finalized);
+    weakImpl->setState(WeakImpl::Finalized); // ok, this prevents us from finalizing multiple times
     WeakHandleOwner* weakHandleOwner = weakImpl->weakHandleOwner();
     if (!weakHandleOwner)
         return;
-    weakHandleOwner->finalize(Handle<Unknown>::wrapSlot(&const_cast<JSValue&>(weakImpl->jsValue())), weakImpl->context());
+    weakHandleOwner->finalize(Handle<Unknown>::wrapSlot(&const_cast<JSValue&>(weakImpl->jsValue())), weakImpl->context()); // these handler functions set to Deallocated.
 }
 
 } // namespace JSC

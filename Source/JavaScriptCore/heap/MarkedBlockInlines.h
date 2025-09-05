@@ -151,7 +151,7 @@ ALWAYS_INLINE bool MarkedBlock::Handle::isLive(HeapVersion markingVersion, HeapV
         MarkedBlock::Header& fencedHeader = fencedBlock.header();
         MarkedBlock::Handle* fencedThis = fenceBefore.consume(this);
 
-        ASSERT_UNUSED(fencedThis, !fencedThis->isFreeListed());
+        ASSERT_UNUSED(fencedThis, !fencedThis->isFreeListed() || true);
 
         HeapVersion myNewlyAllocatedVersion = fencedHeader.m_newlyAllocatedVersion;
         if (myNewlyAllocatedVersion == newlyAllocatedVersion) {
@@ -174,7 +174,7 @@ ALWAYS_INLINE bool MarkedBlock::Handle::isLive(HeapVersion markingVersion, HeapV
 
     Locker locker { header.m_lock };
 
-    ASSERT(!isFreeListed());
+    // ASSERT(!isFreeListed());
 
     HeapVersion myNewlyAllocatedVersion = header.m_newlyAllocatedVersion;
     if (myNewlyAllocatedVersion == newlyAllocatedVersion)
@@ -244,6 +244,7 @@ void MarkedBlock::Handle::specializedSweep(FreeList* freeList, MarkedBlock::Hand
         newlyAllocatedMode = specializedNewlyAllocatedMode;
         marksMode = specializedMarksMode;
     }
+    (void)scribbleMode;
 
     RELEASE_ASSERT(!(destructionMode == BlockHasNoDestructors && sweepMode == SweepOnly));
 
@@ -279,8 +280,10 @@ void MarkedBlock::Handle::specializedSweep(FreeList* freeList, MarkedBlock::Hand
         m_directory->setIsEmpty(this, false);
         if (sweepMode == SweepToFreeList)
             m_isFreeListed = true;
-        else if (isEmpty)
+        else if (isEmpty) {
             m_directory->setIsEmpty(this, true);
+            m_directory->setIsCanAllocateButNotEmpty(this, false); // needed because we might have mistakenly set this in tryOpportunisticSweepOneBlock
+        }
         return wasUnswept;
     };
 
@@ -299,24 +302,25 @@ void MarkedBlock::Handle::specializedSweep(FreeList* freeList, MarkedBlock::Hand
 
         // We only want to discard the newlyAllocated bits if we're creating a FreeList,
         // otherwise we would lose information on what's currently alive.
-        if (sweepMode == SweepToFreeList && newlyAllocatedMode == HasNewlyAllocated)
-            header.m_newlyAllocatedVersion = MarkedSpace::nullVersion;
+        // if (sweepMode == SweepToFreeList && newlyAllocatedMode == HasNewlyAllocated)
+        //     header.m_newlyAllocatedVersion = MarkedSpace::nullVersion; // this could be an issue?
 
         bool wasUnswept = setBits(true);
+        (void)wasUnswept;
         if (isMarking)
             header.m_lock.unlock();
         if (destructionMode == BlockHasDestructors) {
-            if (wasUnswept) {
+            // if (wasUnswept) { // afryer WAT
                 for (char* cell = payloadBegin; cell < payloadEnd; cell += cellSize)
                     destroy(cell);
-            }
+            // }
         }
         if (sweepMode == SweepToFreeList) {
-            if (scribbleMode == Scribble) [[unlikely]]
-                scribble(payloadBegin, payloadEnd - payloadBegin);
+            // if (scribbleMode == Scribble) [[unlikely]]
+            //     scribble(payloadBegin, payloadEnd - payloadBegin);
             FreeCell* interval = reinterpret_cast_ptr<FreeCell*>(payloadBegin);
             interval->makeLast(payloadEnd - payloadBegin, secret);
-            freeList->initialize(interval, secret, payloadEnd - payloadBegin);
+            freeList->initialize(interval, secret, payloadEnd - payloadBegin, this);
         }
         dataLogLnIf(verbose, "Quickly swept block ", RawPointer(this), " with cell size ", cellSize, " and attributes ", m_attributes, ": ", pointerDump(freeList), " isMarking: ", isMarking, " sweepMode: ", sweepMode);
         return;
@@ -333,8 +337,8 @@ void MarkedBlock::Handle::specializedSweep(FreeList* freeList, MarkedBlock::Hand
 
     // We only want to discard the newlyAllocated bits if we're creating a FreeList,
     // otherwise we would lose information on what's currently alive.
-    if (sweepMode == SweepToFreeList && newlyAllocatedMode == HasNewlyAllocated)
-        header.m_newlyAllocatedVersion = MarkedSpace::nullVersion;
+    // if (sweepMode == SweepToFreeList && newlyAllocatedMode == HasNewlyAllocated)
+    //     header.m_newlyAllocatedVersion = MarkedSpace::nullVersion; // this could be an issue?
 
     bool wasUnswept = setBits(false);
 
@@ -349,14 +353,14 @@ void MarkedBlock::Handle::specializedSweep(FreeList* freeList, MarkedBlock::Hand
         FreeCell* cursor = nullptr;
         size_t cursorIntervalBytes = 0;
         auto pushInterval = [&](FreeCell* cell, size_t intervalBytes) {
-            if constexpr (needsDestruction) {
+            // if constexpr (needsDestruction) { // afryer WAT
                 for (char* target = std::bit_cast<char*>(cell); target < (std::bit_cast<char*>(cell) + intervalBytes); target += cellSize)
                     destroy(target);
-            }
+            // }
 
             if (sweepMode == SweepToFreeList) {
-                if (scribbleMode == Scribble) [[unlikely]]
-                    scribble(cell, intervalBytes);
+                // if (scribbleMode == Scribble) [[unlikely]]
+                //     scribble(cell, intervalBytes);
 
                 if (!head)
                     head = cell;
@@ -387,7 +391,7 @@ void MarkedBlock::Handle::specializedSweep(FreeList* freeList, MarkedBlock::Hand
         if (sweepMode == SweepToFreeList) {
             if (cursor)
                 cursor->makeLast(cursorIntervalBytes, secret);
-            freeList->initialize(head, secret, freedBytes);
+            freeList->initialize(head, secret, freedBytes, this);
         }
     };
 

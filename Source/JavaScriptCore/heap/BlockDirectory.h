@@ -81,7 +81,7 @@ public:
 
     inline void forEachBlock(const std::invocable<MarkedBlock::Handle*> auto&);
     inline void forEachNotEmptyBlock(const std::invocable<MarkedBlock::Handle*> auto&);
-    
+
     RefPtr<SharedTask<MarkedBlock::Handle*()>> parallelNotEmptyBlockSource();
     
     void addBlock(MarkedBlock::Handle*);
@@ -147,6 +147,14 @@ public:
     MarkedBlock::Handle* findBlockToSweep() { return findBlockToSweep(m_unsweptCursor); }
     MarkedBlock::Handle* findBlockToSweep(unsigned& unsweptCursor);
 
+    std::optional<FreeList> findOpportunisticallyConstructedFreeList();
+    FreeList takeOpportunisticallyConstructedFreeList(MarkedBlock::Handle* block);
+
+    void opportunisticSweep(MarkedBlock::Handle* block);
+    bool tryOpportunisticSweepOneBlock(VM& vm, bool shouldShrinkOrFree);
+
+    bool areOpportunisticallySweptFreeListsStale();
+
     // FIXME: rdar://139998916
     MarkedBlock::Handle* findMarkedBlockHandleDebug(MarkedBlock*);
 
@@ -195,6 +203,10 @@ private:
     BlockDirectory* m_nextDirectoryInAlignedMemoryAllocator { nullptr };
     
     SentinelLinkedList<LocalAllocator, BasicRawSentinelNode<LocalAllocator>> m_localAllocators;
+
+    HeapVersion m_opportunisticallySweptFreeListsVersion;
+    // WTF::HashMap<unsigned, FreeList, AlreadyHashed> m_opportunisticallySweptFreeLists;
+    WTF::HashMap<unsigned, std::unique_ptr<FreeList>> m_opportunisticallySweptFreeLists;
 };
 
 } // namespace JSC

@@ -153,13 +153,17 @@ public:
         // the block. If it's not set and the block has nothing marked, then we'll make the
         // mistake of making a pop freelist rather than a bump freelist.
         void sweep(FreeList*);
+
+        void sweepWeak();
         
         // This is to be called by Subspace.
         template<typename DestroyFunc>
         void finishSweepKnowingHeapCellType(FreeList*, const DestroyFunc&);
         
         void unsweepWithNoNewlyAllocated();
-        
+
+        void clearIsFreeListed() { m_isFreeListed = false; } // TODO: probably need to set and unset inUse bit
+
         void shrink();
             
         // While allocating from a free list, MarkedBlock temporarily has bogus

@@ -39,6 +39,7 @@ FreeList::~FreeList()
 
 void FreeList::clear()
 {
+    m_block = nullptr;
     m_intervalStart = nullptr;
     m_intervalEnd = nullptr;
     m_nextInterval = std::bit_cast<FreeCell*>(static_cast<uintptr_t>(1));
@@ -46,16 +47,44 @@ void FreeList::clear()
     m_originalSize = 0;
 }
 
-void FreeList::initialize(FreeCell* start, uint64_t secret, unsigned bytes)
+void FreeList::initialize(FreeCell* start, uint64_t secret, unsigned bytes, MarkedBlock::Handle* block)
 {
     if (!start) [[unlikely]] {
         clear();
+        WTFLogAlways("afryer_ahah_this_is_happening\n");
+        // WTFReportBacktrace();
         return;
     }
     m_secret = secret;
     m_nextInterval = start;
     FreeCell::advance(m_secret, m_nextInterval, m_intervalStart, m_intervalEnd);
     m_originalSize = bytes;
+    m_block = block;
+    // WTFLogAlways("afryer_FreeList_initialize %u %p\n", m_originalSize, m_block);
+}
+
+void FreeList::initialize(FreeList &other)
+{
+    ASSERT(m_cellSize == other.m_cellSize);
+    m_block = other.m_block;
+    m_intervalStart = other.m_intervalStart;
+    m_intervalEnd = other.m_intervalEnd;
+    m_nextInterval = other.m_nextInterval;
+    m_secret = other.m_secret;
+    m_originalSize = other.m_originalSize;
+
+    other.clear();
+}
+
+void FreeList::unfreelist()
+{
+    // TODO: ASSERT(isInUse(m_block));
+    if (m_block->needsDestruction()) {
+        forEach([&] (HeapCell* cell) {
+            cell->zap(HeapCell::Unfreelist); // this prevents us from calling destructors on these cells when we resweep
+        });
+    }
+    m_block->clearIsFreeListed();
 }
 
 void FreeList::dump(PrintStream& out) const

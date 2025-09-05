@@ -454,7 +454,8 @@ void MarkedSpace::beginMarking()
             [&] (MarkedBlock::Handle* block) {
                 if (block->areMarksStale())
                     return;
-                ASSERT(!block->isFreeListed());
+                Locker locker { block->directory()->bitvectorLock() };
+                ASSERT(!block->isFreeListed() || block->directory()->isOpportunisticallyFreeListed(block));
             });
     }
     

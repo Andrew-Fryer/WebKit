@@ -1713,7 +1713,7 @@ NEVER_INLINE bool Heap::runEndPhase(GCConductor conn)
             vm().typeProfiler()->invalidateTypeSetCache(vm());
 
         cancelDeferredWorkIfNeeded();
-        reapWeakHandles();
+        reapWeakHandles(); // this goes through the `WeakSet`s and sets them to `WeakImpl::Dead` in `WeakBlock::reap`.
         pruneStaleEntriesFromWeakGCHashTables();
         sweepArrayBuffers();
         snapshotUnswept();
@@ -2641,7 +2641,7 @@ void Heap::CFinalizerOwner::finalize(Handle<Unknown> handle, void* context)
     HandleSlot slot = handle.slot();
     CFinalizer finalizer = std::bit_cast<CFinalizer>(context);
     finalizer(slot->asCell());
-    WeakSet::deallocate(WeakImpl::asWeakImpl(slot));
+    WeakSet::deallocate(WeakImpl::asWeakImpl(slot)); // this is where we set to Deallocated
 }
 
 void Heap::LambdaFinalizerOwner::finalize(Handle<Unknown> handle, void* context)
@@ -2649,7 +2649,7 @@ void Heap::LambdaFinalizerOwner::finalize(Handle<Unknown> handle, void* context)
     auto finalizer = WTF::adopt(static_cast<LambdaFinalizer::Impl*>(context));
     HandleSlot slot = handle.slot();
     finalizer(slot->asCell());
-    WeakSet::deallocate(WeakImpl::asWeakImpl(slot));
+    WeakSet::deallocate(WeakImpl::asWeakImpl(slot)); // this is where we set to Deallocated
 }
 
 void Heap::collectNowFullIfNotDoneRecently(Synchronousness synchronousness)

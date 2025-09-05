@@ -42,6 +42,7 @@ namespace JSC {
     macro(destructible, Destructible) /* The set of all blocks that may have destructors to run. */\
     macro(eden, Eden) /* The set of all blocks that have new objects since the last GC. */\
     macro(unswept, Unswept) /* The set of all blocks that could be swept by the incremental sweeper. */\
+    macro(opportunisticallyFreeListed, OpportunisticallyFreeListed) /* The set of all blocks that have been opportunistically freelisted. */\
     macro(inUse, InUse) /* This tells us if a block is currently being allocated from or swept. This acts like a lock bit. */\
     \
     /* These are computed during marking. */\

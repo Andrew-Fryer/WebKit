@@ -232,7 +232,7 @@ void JITThunks::finalize(Handle<Unknown> handle, void*)
         AssertNoGC assertNoGC;
         auto iterator = m_nativeExecutableSet.find<HostKeySearcher>(hostFunctionKey);
         // Because this finalizer is called, this means that we still have dead Weak<> in m_nativeExecutableSet.
-        ASSERT(iterator != m_nativeExecutableSet.end());
+        ASSERT(iterator != m_nativeExecutableSet.end()); // we crashed on one of these ASSERTs
         ASSERT(iterator->unsafeImpl()->state() == WeakImpl::State::Finalized);
         m_nativeExecutableSet.remove(iterator);
     }

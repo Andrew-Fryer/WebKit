@@ -27,6 +27,7 @@
 #include "BlockDirectory.h"
 
 #include "BlockDirectoryInlines.h"
+#include "DeferGCInlines.h"
 #include "Heap.h"
 #include "MarkedSpaceInlines.h"
 #include "SubspaceInlines.h"
@@ -117,7 +118,7 @@ MarkedBlock::Handle* BlockDirectory::findBlockForAllocation(LocalAllocator& allo
         
         unsigned blockIndex = allocator.m_allocationCursor++;
         MarkedBlock::Handle* result = m_blocks[blockIndex];
-        setIsCanAllocateButNotEmpty(blockIndex, false);
+        setIsCanAllocateButNotEmpty(blockIndex, false); // afryer what if it was empty?!? Oh, sweeping will fix this.
         dataLogLnIf(BlockDirectoryInternal::verbose, "Setting block ", blockIndex, " in use (findBlockForAllocation) for ", *this);
         setIsInUse(blockIndex, true);
         return result;
@@ -187,7 +188,7 @@ void BlockDirectory::removeBlock(MarkedBlock::Handle* block, WillDeleteBlock wil
     Locker locker(bitvectorLock());
     forEachBitVector(
         [&](auto vectorRef) {
-            vectorRef[block->index()] = false;
+            vectorRef[block->index()] = false; // Ahhh, this clears all bits
         });
 
     if (willDelete == WillDeleteBlock::No)
@@ -295,8 +296,8 @@ void BlockDirectory::endMarking()
     // vectors.
     
     // Sweeper is suspended so we don't need the lock here.
-    emptyBits() = liveBits() & ~markingNotEmptyBits();
-    canAllocateButNotEmptyBits() = liveBits() & markingNotEmptyBits() & ~markingRetiredBits();
+    emptyBits() = liveBits() & ~markingNotEmptyBits() & ~opportunisticallyFreeListedBits();
+    canAllocateButNotEmptyBits() = liveBits() & markingNotEmptyBits() & ~markingRetiredBits() & ~opportunisticallyFreeListedBits();
 
     switch (m_attributes.destruction) {
     case NeedsDestruction: {
@@ -329,13 +330,13 @@ void BlockDirectory::endMarking()
 void BlockDirectory::snapshotUnsweptForEdenCollection()
 {
     assertSweeperIsSuspended();
-    unsweptBits() |= edenBits();
+    unsweptBits() |= edenBits() & ~opportunisticallyFreeListedBits();
 }
 
 void BlockDirectory::snapshotUnsweptForFullCollection()
 {
     assertSweeperIsSuspended();
-    unsweptBits() = liveBits();
+    unsweptBits() = liveBits() & ~opportunisticallyFreeListedBits();
 }
 
 MarkedBlock::Handle* BlockDirectory::findBlockToSweep(unsigned& unsweptCursor)
@@ -347,6 +348,142 @@ MarkedBlock::Handle* BlockDirectory::findBlockToSweep(unsigned& unsweptCursor)
     dataLogLnIf(BlockDirectoryInternal::verbose, "Setting block ", unsweptCursor, " in use (findBlockToSweep) for ", *this);
     setIsInUse(unsweptCursor, true);
     return m_blocks[unsweptCursor];
+}
+
+bool BlockDirectory::tryOpportunisticSweepOneBlock(VM& vm, bool shouldShrinkOrFree)
+{
+    if (m_opportunisticallySweptFreeListsVersion != markedSpace().newlyAllocatedVersion() && m_opportunisticallySweptFreeLists.size()) {
+        // Unfreelist a block rather than sweeping a block
+        DeferGCForAWhile deferGC(vm);
+        auto it = m_opportunisticallySweptFreeLists.begin();
+        ASSERT(it.get());
+        if (!it->value) {
+            WTFLogAlways("afryer_tryOpportunisticSweepOneBlock found nullptr %u\n", it->key);
+            return true;
+        }
+        std::unique_ptr<FreeList> freeListToDestroy = m_opportunisticallySweptFreeLists.takeFirst();
+        ASSERT(freeListToDestroy);
+        freeListToDestroy->unfreelist();
+        {
+            Locker locker { m_bitvectorLock };
+            setIsOpportunisticallyFreeListed(freeListToDestroy->block(), false);
+            setIsCanAllocateButNotEmpty(freeListToDestroy->block(), true); // afryer what if it was empty?!? ... I think this just means we won't be able to steal this block.
+            setIsUnswept(freeListToDestroy->block(), true);
+            m_unsweptCursor = std::min(m_unsweptCursor, freeListToDestroy->block()->index());
+        }
+        return true;
+    }
+
+    auto block = findBlockToSweep();
+    if (block) {
+        DeferGCForAWhile deferGC(vm);
+        bool blockIsFreed = false;
+        if (shouldShrinkOrFree) {
+            block->sweep(nullptr); // don't opportunistically construct a FreeList because we're going to shrink/free
+            if (!block->isEmpty())
+                block->shrink();
+            else {
+                vm.heap.objectSpace().freeBlock(block);
+                blockIsFreed = true;
+            }
+        } else {
+            opportunisticSweep(block);
+        }
+
+        if (!blockIsFreed)
+            didFinishUsingBlock(block);
+        return true;
+    }
+    return false;
+}
+
+bool BlockDirectory::areOpportunisticallySweptFreeListsStale()
+{
+    return m_opportunisticallySweptFreeListsVersion != markedSpace().newlyAllocatedVersion();
+}
+
+void BlockDirectory::opportunisticSweep(MarkedBlock::Handle* block)
+{
+    ASSERT(!m_opportunisticallySweptFreeLists.contains(block->index() + 1));
+    if (!m_opportunisticallySweptFreeLists.size())
+        m_opportunisticallySweptFreeListsVersion = markedSpace().newlyAllocatedVersion(); // this version is incremented when GC finishes marking
+    ASSERT(m_opportunisticallySweptFreeListsVersion == markedSpace().newlyAllocatedVersion());
+    // auto addResult = m_opportunisticallySweptFreeLists.add(block->index(), [&] -> FreeList { return FreeList(cellSize()); });
+    // auto addResult = m_opportunisticallySweptFreeLists.add(block->index(), [&] -> FreeList { return FreeList(static_cast<unsigned>(cellSize())); });
+    ASSERT(block->index() != std::numeric_limits<unsigned>::max());
+    std::unique_ptr<FreeList> freeList = std::make_unique<FreeList>(cellSize());
+    block->sweep(&*freeList);
+    if (freeList->allocationWillFail()) {
+        ASSERT(block->isFreeListed());
+        block->unsweepWithNoNewlyAllocated();
+        ASSERT(!block->isFreeListed());
+        {
+            Locker locker { m_bitvectorLock };
+            ASSERT(!isEmpty(block));
+            setIsCanAllocateButNotEmpty(block, false);
+            ASSERT(!isInUse(block)); // this was cleared by `unsweepWithNoNewlyAllocated`
+            setIsInUse(block, true); // we need to set this because it'll be cleared in the caller
+            setIsOpportunisticallyFreeListed(block, false); // just in case
+        }
+        WTFLogAlways("afryer_opportunisticSweep_block_was_full\n");
+        return;
+    }
+    WTFLogAlways("afryer_opportunisticSweep %p %u %p %u\n", block, block->index(), freeList->block(), freeList->block() == freeList->block());
+    // auto addResult = m_opportunisticallySweptFreeLists.add(block->index() + 1, std::make_unique<FreeList>(static_cast<unsigned>(cellSize())));
+    auto addResult = m_opportunisticallySweptFreeLists.add(block->index() + 1, WTFMove(freeList));
+    // auto addResult = m_opportunisticallySweptFreeLists.add(block->index(), FreeList((unsigned)cellSize()));
+    // block->sweep(&(*addResult.iterator->value));
+    if (!addResult.iterator->value->block()) {
+        WTFLogAlways("afryer_opportunisticSweep_failed_sweep_to_freelist_in_hash_map\n");
+        RELEASE_ASSERT(false);
+    }
+    {
+        Locker locker { m_bitvectorLock };
+        setIsOpportunisticallyFreeListed(block, true);
+        setIsCanAllocateButNotEmpty(block, false);
+        setIsEmpty(block, false);
+    }
+}
+
+std::optional<FreeList> BlockDirectory::findOpportunisticallyConstructedFreeList()
+{
+    if (!m_opportunisticallySweptFreeLists.size())
+        return std::nullopt;
+
+    size_t cursor;
+    {
+        Locker locker { m_bitvectorLock };
+        cursor = opportunisticallyFreeListedBits().findBit(0, true); // TODO: maybe we should search for a non-empty block first so that we reduce fragmentation?
+    }
+    ASSERT(cursor < m_blocks.size());
+    ASSERT(m_opportunisticallySweptFreeLists.contains(cursor + 1));
+    FreeList freeList = *m_opportunisticallySweptFreeLists.take(cursor + 1);
+    ASSERT(freeList.block()->index() == cursor);
+    if (m_opportunisticallySweptFreeListsVersion != markedSpace().newlyAllocatedVersion()) {
+        MarkedBlock::Handle* block = freeList.block();
+        {
+            Locker locker { m_bitvectorLock };
+            setIsInUse(block, true);
+        }
+        freeList.unfreelist();
+        block->sweep(&freeList);
+    }
+    {
+        Locker locker { m_bitvectorLock };
+        if (!freeList.block())
+            WTFLogAlways("afryer_findOpportunisticallyConstructedFreeList_nullptr_freelist_block\n");
+        setIsOpportunisticallyFreeListed(freeList.block(), false);
+        setIsInUse(freeList.block(), true);
+    }
+    freeList.block()->sweepWeak();
+    return { freeList };
+}
+
+FreeList BlockDirectory::takeOpportunisticallyConstructedFreeList(MarkedBlock::Handle* block)
+{
+    ASSERT(m_opportunisticallySweptFreeLists.contains(block->index() + 1));
+    FreeList freeList = *m_opportunisticallySweptFreeLists.take(block->index() + 1);
+    return freeList;
 }
 
 void BlockDirectory::sweep()

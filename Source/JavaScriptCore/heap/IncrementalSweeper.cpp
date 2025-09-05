@@ -93,31 +93,10 @@ bool IncrementalSweeper::sweepNextBlock(VM& vm, SweepTrigger trigger)
 {
     vm.heap.stopIfNecessary();
 
-    MarkedBlock::Handle* block = nullptr;
-    
+    bool shouldShrinkOrFree = trigger == SweepTrigger::Timer;
     for (; m_currentDirectory; m_currentDirectory = m_currentDirectory->nextDirectory()) {
-        block = m_currentDirectory->findBlockToSweep();
-        if (block)
-            break;
-    }
-    
-    if (block) {
-        DeferGCForAWhile deferGC(vm);
-        block->sweep(nullptr);
-
-        bool blockIsFreed = false;
-        if (trigger == SweepTrigger::Timer) {
-            if (!block->isEmpty())
-                block->shrink();
-            else {
-                vm.heap.objectSpace().freeBlock(block);
-                blockIsFreed = true;
-            }
-        }
-
-        if (!blockIsFreed)
-            m_currentDirectory->didFinishUsingBlock(block);
-        return true;
+        if (m_currentDirectory->tryOpportunisticSweepOneBlock(vm, shouldShrinkOrFree))
+            return true;
     }
 
     return vm.heap.sweepNextLogicallyEmptyWeakBlock();

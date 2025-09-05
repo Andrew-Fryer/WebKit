@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
@@ -44,10 +44,18 @@ bool HeapCell::isPendingDestruction()
     // (2) The cell is on the FreeList, in which case it is free.
     // In either case, the destructor is not pending.
     // (And as indicated above, it's not legal to call this method in state #2).
-    if (markedBlockHandle.isFreeListed())
-        return false;
+    // Note that if the block has been opportunistically free listed,
+    // all bets are off since GC marking may have finished
+    if (markedBlockHandle.isFreeListed()) {
+        Locker locker { markedBlockHandle.directory()->bitvectorLock() };
+        if (!markedBlockHandle.directory()->isOpportunisticallyFreeListed(&markedBlockHandle) || !markedBlockHandle.directory()->areOpportunisticallySweptFreeListsStale())
+            return false;
+        markedBlockHandle.directory()->takeOpportunisticallyConstructedFreeList(&markedBlockHandle).unfreelist();
+        return !isZapped();
+    }
+    // Wait, but a block is still free listed as it is being allocated from...
     return !markedBlockHandle.isLive(this);
-}
+} 
 
 } // namespace JSC
 

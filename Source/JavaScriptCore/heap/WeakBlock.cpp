@@ -86,9 +86,9 @@ void WeakBlock::sweep()
     for (size_t i = 0; i < weakImplCount(); ++i) {
         WeakImpl* weakImpl = &weakImpls()[i];
         if (weakImpl->state() == WeakImpl::Dead)
-            finalize(weakImpl);
+            finalize(weakImpl); // why not add to free list right after this? Oh, we do because it isn't if-else
         if (weakImpl->state() == WeakImpl::Deallocated)
-            addToFreeList(&sweepResult.freeList, weakImpl);
+            addToFreeList(&sweepResult.freeList, weakImpl); // why not sweep direclty into m_sweepResult? maybe it's a bit better to have the hot memory on the stack...
         else {
             sweepResult.blockIsFree = false;
             if (weakImpl->state() == WeakImpl::Live)

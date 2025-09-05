@@ -464,6 +464,11 @@ Subspace* MarkedBlock::Handle::subspace() const
     return directory()->subspace();
 }
 
+void MarkedBlock::Handle::sweepWeak()
+{
+    m_weakSet.sweep();
+}
+
 void MarkedBlock::Handle::sweep(FreeList* freeList)
 {
     SweepingScope sweepingScope(*heap());
