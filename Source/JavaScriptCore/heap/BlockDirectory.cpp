@@ -387,7 +387,30 @@ bool BlockDirectory::tryOpportunisticSweepOneBlock(VM& vm, bool shouldShrinkOrFr
                 blockIsFreed = true;
             }
         } else {
-            opportunisticSweep(block);
+            bool didConstructFreeList = opportunisticSweep(block);
+
+            if (didConstructFreeList) {
+                // for debugging, let's unfreelist right after free listing and see if we still have crashes
+                ASSERT(m_opportunisticallySweptFreeLists.size());
+                // Unfreelist a block rather than sweeping a block
+                DeferGCForAWhile deferGC(vm);
+                auto it = m_opportunisticallySweptFreeLists.begin();
+                ASSERT(it.get());
+                if (!it->value) {
+                    WTFLogAlways("afryer_tryOpportunisticSweepOneBlock found nullptr %u\n", it->key);
+                    ASSERT(false);
+                }
+                std::unique_ptr<FreeList> freeListToDestroy = m_opportunisticallySweptFreeLists.takeFirst();
+                ASSERT(freeListToDestroy);
+                freeListToDestroy->unfreelist();
+                {
+                    Locker locker { m_bitvectorLock };
+                    setIsOpportunisticallyFreeListed(freeListToDestroy->block(), false);
+                    setIsCanAllocateButNotEmpty(freeListToDestroy->block(), true); // afryer what if it was empty?!? ... I think this just means we won't be able to steal this block.
+                    setIsUnswept(freeListToDestroy->block(), true);
+                    m_unsweptCursor = std::min(m_unsweptCursor, freeListToDestroy->block()->index());
+                }
+            }
         }
 
         if (!blockIsFreed)
@@ -402,7 +425,7 @@ bool BlockDirectory::areOpportunisticallySweptFreeListsStale()
     return m_opportunisticallySweptFreeListsVersion != markedSpace().newlyAllocatedVersion();
 }
 
-void BlockDirectory::opportunisticSweep(MarkedBlock::Handle* block)
+bool BlockDirectory::opportunisticSweep(MarkedBlock::Handle* block)
 {
     ASSERT(!m_opportunisticallySweptFreeLists.contains(block->index() + 1));
     if (!m_opportunisticallySweptFreeLists.size())
@@ -426,7 +449,7 @@ void BlockDirectory::opportunisticSweep(MarkedBlock::Handle* block)
             setIsOpportunisticallyFreeListed(block, false); // just in case
         }
         WTFLogAlways("afryer_opportunisticSweep_block_was_full\n");
-        return;
+        return false;
     }
     WTFLogAlways("afryer_opportunisticSweep %p %u %p %u\n", block, block->index(), freeList->block(), freeList->block() == freeList->block());
     // auto addResult = m_opportunisticallySweptFreeLists.add(block->index() + 1, std::make_unique<FreeList>(static_cast<unsigned>(cellSize())));
@@ -443,6 +466,7 @@ void BlockDirectory::opportunisticSweep(MarkedBlock::Handle* block)
         setIsCanAllocateButNotEmpty(block, false);
         setIsEmpty(block, false);
     }
+    return true;
 }
 
 std::optional<FreeList> BlockDirectory::findOpportunisticallyConstructedFreeList()

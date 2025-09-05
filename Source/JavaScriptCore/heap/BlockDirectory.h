@@ -150,7 +150,7 @@ public:
     std::optional<FreeList> findOpportunisticallyConstructedFreeList();
     FreeList takeOpportunisticallyConstructedFreeList(MarkedBlock::Handle* block);
 
-    void opportunisticSweep(MarkedBlock::Handle* block);
+    bool opportunisticSweep(MarkedBlock::Handle* block);
     bool tryOpportunisticSweepOneBlock(VM& vm, bool shouldShrinkOrFree);
 
     bool areOpportunisticallySweptFreeListsStale();
