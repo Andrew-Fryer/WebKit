@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
@@ -44,7 +44,6 @@ static constexpr bool verbose = false;
 }
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(BlockDirectory);
-
 
 BlockDirectory::BlockDirectory(size_t cellSize)
     : m_cellSize(static_cast<unsigned>(cellSize))
@@ -76,7 +75,7 @@ void BlockDirectory::updatePercentageOfPagedOutPages(SimpleStats& stats)
     // For some reason this can be unsigned char or char on different OSes...
     using MincoreBufferType = std::remove_pointer_t<FunctionTraits<decltype(mincore)>::ArgumentType<2>>;
     static_assert(std::is_same_v<std::make_unsigned_t<MincoreBufferType>, unsigned char>);
-    Vector<MincoreBufferType, 16> pagedBits(numberOfPagesInMarkedBlock, MincoreBufferType { });
+    Vector<MincoreBufferType, 16> pagedBits(numberOfPagesInMarkedBlock, MincoreBufferType {});
 
     for (auto* handle : m_blocks) {
         if (!handle)
@@ -115,7 +114,7 @@ MarkedBlock::Handle* BlockDirectory::findBlockForAllocation(LocalAllocator& allo
         allocator.m_allocationCursor = ((canAllocateButNotEmptyBits() | emptyBits()) & ~inUseBits()).findBit(allocator.m_allocationCursor, true);
         if (allocator.m_allocationCursor >= m_blocks.size())
             return nullptr;
-        
+
         unsigned blockIndex = allocator.m_allocationCursor++;
         MarkedBlock::Handle* result = m_blocks[blockIndex];
         setIsCanAllocateButNotEmpty(blockIndex, false); // afryer what if it was empty?!? Oh, sweeping will fix this.
@@ -130,9 +129,9 @@ MarkedBlock::Handle* BlockDirectory::tryAllocateBlock(JSC::Heap& heap)
     MarkedBlock::Handle* handle = MarkedBlock::tryCreate(heap, subspace()->alignedMemoryAllocator());
     if (!handle)
         return nullptr;
-    
+
     markedSpace().didAddBlock(handle);
-    
+
     return handle;
 }
 
@@ -148,7 +147,7 @@ void BlockDirectory::addBlock(MarkedBlock::Handle* block)
         if (m_blocks.capacity() != oldCapacity) {
             ASSERT(m_bits.numBits() == oldCapacity);
             ASSERT(m_blocks.capacity() > oldCapacity);
-            
+
             subspace()->didResizeBits(m_blocks.capacity());
             m_bits.resize(m_blocks.capacity());
         }
@@ -157,7 +156,7 @@ void BlockDirectory::addBlock(MarkedBlock::Handle* block)
         ASSERT(!m_blocks[index]);
         m_blocks[index] = block;
     }
-    
+
     forEachBitVector(
         [&](auto vectorRef) {
             ASSERT_UNUSED(vectorRef, !vectorRef[index]);
@@ -165,7 +164,7 @@ void BlockDirectory::addBlock(MarkedBlock::Handle* block)
 
     // This is the point at which the block learns of its cellSize() and attributes().
     block->didAddToDirectory(this, index);
-    
+
     setIsLive(index, true);
     setIsEmpty(index, true);
     dataLogLnIf(BlockDirectoryInternal::verbose, "Setting block ", index, " in use (addBlock) for ", *this);
@@ -178,12 +177,12 @@ void BlockDirectory::removeBlock(MarkedBlock::Handle* block, WillDeleteBlock wil
     ASSERT(block->directory() == this);
     ASSERT(m_blocks[block->index()] == block);
     ASSERT(isInUse(block));
-    
+
     subspace()->didRemoveBlock(block->index());
-    
+
     m_blocks[block->index()] = nullptr;
     m_freeBlockIndices.append(block->index());
-    
+
     releaseAssertAcquiredBitVectorLock();
     Locker locker(bitvectorLock());
     forEachBitVector(
@@ -199,7 +198,7 @@ void BlockDirectory::stopAllocating()
 {
     dataLogLnIf(BlockDirectoryInternal::verbose, RawPointer(this), ": BlockDirectory::stopAllocating!");
     m_localAllocators.forEach(
-        [&] (LocalAllocator* allocator) {
+        [&](LocalAllocator* allocator) {
             allocator->stopAllocating();
         });
 
@@ -217,13 +216,13 @@ void BlockDirectory::stopAllocating()
 void BlockDirectory::prepareForAllocation()
 {
     m_localAllocators.forEach(
-        [&] (LocalAllocator* allocator) {
+        [&](LocalAllocator* allocator) {
             allocator->prepareForAllocation();
         });
-    
+
     m_unsweptCursor = 0;
     m_emptyCursor = 0;
-    
+
     assertSweeperIsSuspended();
     edenBits().clearAll();
 
@@ -237,9 +236,9 @@ void BlockDirectory::prepareForAllocation()
 void BlockDirectory::stopAllocatingForGood()
 {
     dataLogLnIf(BlockDirectoryInternal::verbose, RawPointer(this), ": BlockDirectory::stopAllocatingForGood!");
-    
+
     m_localAllocators.forEach(
-        [&] (LocalAllocator* allocator) {
+        [&](LocalAllocator* allocator) {
             allocator->stopAllocatingForGood();
         });
 
@@ -251,7 +250,7 @@ void BlockDirectory::stopAllocatingForGood()
 void BlockDirectory::lastChanceToFinalize()
 {
     forEachBlock(
-        [&] (MarkedBlock::Handle* block) {
+        [&](MarkedBlock::Handle* block) {
             block->lastChanceToFinalize();
         });
 }
@@ -260,7 +259,7 @@ void BlockDirectory::resumeAllocating()
 {
     dataLogLnIf(BlockDirectoryInternal::verbose, RawPointer(this), ": BlockDirectory::resumeAllocating!");
     m_localAllocators.forEach(
-        [&] (LocalAllocator* allocator) {
+        [&](LocalAllocator* allocator) {
             allocator->resumeAllocating();
         });
 }
@@ -281,7 +280,7 @@ void BlockDirectory::endMarking()
     assertSweeperIsSuspended();
 
     allocatedBits().clearAll();
-    
+
 #if ASSERT_ENABLED
     if (!inUseBitsView().isEmpty()) [[unlikely]] {
         dataLogLn("Block is inUse at end marking.");
@@ -294,7 +293,7 @@ void BlockDirectory::endMarking()
     // It's surprising and frustrating to comprehend, but the end-of-marking flip does not need to
     // know what kind of collection it is. That knowledge is already encoded in the m_markingXYZ
     // vectors.
-    
+
     // Sweeper is suspended so we don't need the lock here.
     emptyBits() = liveBits() & ~markingNotEmptyBits() & ~opportunisticallyFreeListedBits();
     canAllocateButNotEmptyBits() = liveBits() & markingNotEmptyBits() & ~markingRetiredBits() & ~opportunisticallyFreeListedBits();
@@ -352,7 +351,7 @@ MarkedBlock::Handle* BlockDirectory::findBlockToSweep(unsigned& unsweptCursor)
 
 bool BlockDirectory::tryOpportunisticSweepOneBlock(VM& vm, bool shouldShrinkOrFree)
 {
-    if (m_opportunisticallySweptFreeListsVersion != markedSpace().newlyAllocatedVersion() && m_opportunisticallySweptFreeLists.size()) {
+    if (areOpportunisticallySweptFreeListsStale() && m_opportunisticallySweptFreeLists.size()) {
         // Unfreelist a block rather than sweeping a block
         DeferGCForAWhile deferGC(vm);
         auto it = m_opportunisticallySweptFreeLists.begin();
@@ -371,6 +370,8 @@ bool BlockDirectory::tryOpportunisticSweepOneBlock(VM& vm, bool shouldShrinkOrFr
             setIsUnswept(freeListToDestroy->block(), true);
             m_unsweptCursor = std::min(m_unsweptCursor, freeListToDestroy->block()->index());
         }
+        freeListToDestroy->block()->pastStates.append(MarkedBlock::Handle::State::OpportunisticUnFreeList);
+        WTFLogAlways("afryer_tryOpportunisticSweepOneBlock_unswept_block\n");
         return true;
     }
 
@@ -389,7 +390,7 @@ bool BlockDirectory::tryOpportunisticSweepOneBlock(VM& vm, bool shouldShrinkOrFr
         } else {
             bool didConstructFreeList = opportunisticSweep(block);
 
-            if (didConstructFreeList) {
+            if (didConstructFreeList && false) {
                 // for debugging, let's unfreelist right after free listing and see if we still have crashes
                 ASSERT(m_opportunisticallySweptFreeLists.size());
                 // Unfreelist a block rather than sweeping a block
@@ -430,11 +431,12 @@ bool BlockDirectory::opportunisticSweep(MarkedBlock::Handle* block)
     ASSERT(!m_opportunisticallySweptFreeLists.contains(block->index() + 1));
     if (!m_opportunisticallySweptFreeLists.size())
         m_opportunisticallySweptFreeListsVersion = markedSpace().newlyAllocatedVersion(); // this version is incremented when GC finishes marking
-    ASSERT(m_opportunisticallySweptFreeListsVersion == markedSpace().newlyAllocatedVersion());
+    ASSERT(!areOpportunisticallySweptFreeListsStale());
     // auto addResult = m_opportunisticallySweptFreeLists.add(block->index(), [&] -> FreeList { return FreeList(cellSize()); });
     // auto addResult = m_opportunisticallySweptFreeLists.add(block->index(), [&] -> FreeList { return FreeList(static_cast<unsigned>(cellSize())); });
     ASSERT(block->index() != std::numeric_limits<unsigned>::max());
     std::unique_ptr<FreeList> freeList = std::make_unique<FreeList>(cellSize());
+    block->pastStates.append(MarkedBlock::Handle::State::OpportunisticSweep);
     block->sweep(&*freeList);
     if (freeList->allocationWillFail()) {
         ASSERT(block->isFreeListed());
@@ -449,6 +451,7 @@ bool BlockDirectory::opportunisticSweep(MarkedBlock::Handle* block)
             setIsOpportunisticallyFreeListed(block, false); // just in case
         }
         WTFLogAlways("afryer_opportunisticSweep_block_was_full\n");
+        block->pastStates.append(MarkedBlock::Handle::State::OpportunisticSweepFailedAllocation);
         return false;
     }
     WTFLogAlways("afryer_opportunisticSweep %p %u %p %u\n", block, block->index(), freeList->block(), freeList->block() == freeList->block());
@@ -466,6 +469,7 @@ bool BlockDirectory::opportunisticSweep(MarkedBlock::Handle* block)
         setIsCanAllocateButNotEmpty(block, false);
         setIsEmpty(block, false);
     }
+    block->pastStates.append(MarkedBlock::Handle::State::OpportunisticallySwept);
     return true;
 }
 
@@ -483,7 +487,9 @@ std::optional<FreeList> BlockDirectory::findOpportunisticallyConstructedFreeList
     ASSERT(m_opportunisticallySweptFreeLists.contains(cursor + 1));
     FreeList freeList = *m_opportunisticallySweptFreeLists.take(cursor + 1);
     ASSERT(freeList.block()->index() == cursor);
-    if (m_opportunisticallySweptFreeListsVersion != markedSpace().newlyAllocatedVersion()) {
+    freeList.block()->pastStates.append(MarkedBlock::Handle::State::TakeOpportunisticallyFreeListed);
+    if (areOpportunisticallySweptFreeListsStale()) {
+        freeList.block()->pastStates.append(MarkedBlock::Handle::State::TakeOpportunisticallyFreeListedUnsweep);
         MarkedBlock::Handle* block = freeList.block();
         {
             Locker locker { m_bitvectorLock };
@@ -582,7 +588,7 @@ void BlockDirectory::assertNoUnswept()
 
     if (unsweptBitsView().isEmpty())
         return;
-    
+
     dataLog("Assertion failed: unswept not empty in ", *this, ".\n");
     dumpBits();
     ASSERT_NOT_REACHED();
@@ -614,7 +620,7 @@ RefPtr<SharedTask<MarkedBlock::Handle*()>> BlockDirectory::parallelNotEmptyBlock
             : m_directory(directory)
         {
         }
-        
+
         MarkedBlock::Handle* run() final
         {
             if (m_done)
@@ -628,14 +634,14 @@ RefPtr<SharedTask<MarkedBlock::Handle*()>> BlockDirectory::parallelNotEmptyBlock
             }
             return m_directory.m_blocks[m_index++];
         }
-        
+
     private:
         BlockDirectory& m_directory WTF_GUARDED_BY_LOCK(m_lock);
         size_t m_index WTF_GUARDED_BY_LOCK(m_lock) { 0 };
         Lock m_lock;
         bool m_done { false };
     };
-    
+
     return adoptRef(new Task(*this));
 }
 
@@ -650,19 +656,19 @@ void BlockDirectory::dumpBits(PrintStream& out)
     forEachBitVectorWithName(
         [&](auto vectorRef, const char* name) {
             UNUSED_PARAM(vectorRef);
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+            WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
             unsigned length = strlen(name);
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+            WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
             maxNameLength = std::max(maxNameLength, length);
         });
-    
+
     forEachBitVectorWithName(
         [&](auto vectorRef, const char* name) {
             out.print("    ", name, ": ");
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+            WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
             for (unsigned i = maxNameLength - strlen(name); i--;)
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
-                out.print(" ");
+                WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+            out.print(" ");
             out.print(vectorRef, "\n");
         });
 }
@@ -692,4 +698,3 @@ void BlockDirectory::assertSweeperIsSuspended() const
 }
 #endif
 } // namespace JSC
-

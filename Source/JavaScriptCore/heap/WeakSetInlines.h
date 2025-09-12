@@ -33,6 +33,8 @@ namespace JSC {
 inline WeakImpl* WeakSet::allocate(JSValue jsValue, WeakHandleOwner* weakHandleOwner, void* context)
 {
     CellContainer container = jsValue.asCell()->cellContainer();
+    if (container.isMarkedBlock() && (!container.markedBlock().handle().pastStates.size() || container.markedBlock().handle().pastStates.last() != MarkedBlock::Handle::State::WeakAllocation))
+        container.markedBlock().handle().pastStates.append(MarkedBlock::Handle::State::WeakAllocation);
     ASSERT(container.vm().currentThreadIsHoldingAPILock());
     WeakSet& weakSet = container.weakSet();
     WeakBlock::FreeCell* allocator = weakSet.m_allocator;

@@ -46,7 +46,11 @@ LocalAllocator::LocalAllocator(BlockDirectory* directory)
 void LocalAllocator::reset()
 {
     m_freeList.clear();
+    if (m_currentBlock)
+        m_currentBlock->pastStates.append(MarkedBlock::Handle::State::AllocatorResetCurrent);
     m_currentBlock = nullptr;
+    if (m_lastActiveBlock)
+        m_lastActiveBlock->pastStates.append(MarkedBlock::Handle::State::AllocatorResetLast);
     m_lastActiveBlock = nullptr;
     m_allocationCursor = 0;
 }
@@ -191,10 +195,22 @@ void* LocalAllocator::tryAllocateWithoutCollecting(size_t cellSize)
     if (std::optional<FreeList> freeList = m_directory->findOpportunisticallyConstructedFreeList()) {
         m_freeList.initialize(*freeList);
         m_currentBlock = m_freeList.block();
-        return m_freeList.allocateWithCellSize([]() -> HeapCell* {
+        {
+            Locker locker { m_directory->bitvectorLock() };
+            ASSERT(m_currentBlock->isFreeListed());
+            // m_directory->assertIsMutatorOrMutatorIsStopped();
+            ASSERT(m_directory->isInUse(m_currentBlock));
+        }
+        void* result = m_freeList.allocateWithCellSize([]() -> HeapCell* {
             RELEASE_ASSERT_NOT_REACHED();
             return nullptr;
         }, cellSize);
+        {
+            Locker locker { m_directory->bitvectorLock() };
+            m_directory->m_bits.setIsEden(m_currentBlock->index(), true);
+        }
+        m_directory->markedSpace().didAllocateInBlock(m_currentBlock); // this should fix the WeakBlock crashes!
+        return result;
     }
     
     for (;;) {
@@ -209,6 +225,8 @@ void* LocalAllocator::tryAllocateWithoutCollecting(size_t cellSize)
     if (Options::stealEmptyBlocksFromOtherAllocators()) {
         if (MarkedBlock::Handle* block = m_directory->m_subspace->findEmptyBlockToSteal()) {
             RELEASE_ASSERT(block->alignedMemoryAllocator() == m_directory->m_subspace->alignedMemoryAllocator());
+
+            block->pastStates.append(MarkedBlock::Handle::State::Stolen);
             
             block->sweep(nullptr);
             
@@ -248,11 +266,13 @@ void* LocalAllocator::tryAllocateIn(MarkedBlock::Handle* block, size_t cellSize)
         ASSERT(!block->isFreeListed());
         ASSERT(!m_directory->isEmpty(block));
         ASSERT(!m_directory->isCanAllocateButNotEmpty(block));
+        block->pastStates.append(MarkedBlock::Handle::State::AllocationFailed);
         return nullptr;
     }
     
     m_currentBlock = block;
     
+    block->pastStates.append(MarkedBlock::Handle::State::Allocating);
     void* result = m_freeList.allocateWithCellSize(
         []() -> HeapCell* {
             RELEASE_ASSERT_NOT_REACHED();

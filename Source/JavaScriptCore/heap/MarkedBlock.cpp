@@ -115,6 +115,7 @@ void MarkedBlock::Handle::unsweepWithNoNewlyAllocated()
     RELEASE_ASSERT(m_isFreeListed);
     m_isFreeListed = false;
     m_directory->didFinishUsingBlock(this);
+    pastStates.append(State::UnsweepWithNoNewlyAllocated);
 }
 
 void MarkedBlock::Handle::stopAllocating(const FreeList& freeList)
@@ -132,6 +133,7 @@ void MarkedBlock::Handle::stopAllocating(const FreeList& freeList)
         // This means that we either didn't use this block at all for allocation since last GC,
         // or someone had already done stopAllocating() before.
         ASSERT(freeList.allocationWillFail());
+        pastStates.append(State::StopAllocatingNotFreeListed);
         return;
     }
     
@@ -162,6 +164,7 @@ void MarkedBlock::Handle::stopAllocating(const FreeList& freeList)
     
     m_isFreeListed = false;
     directory()->didFinishUsingBlock(this);
+    pastStates.append(State::StopAllocating);
 }
 
 void MarkedBlock::Handle::lastChanceToFinalize()
@@ -200,10 +203,11 @@ void MarkedBlock::Handle::resumeAllocating(FreeList& freeList)
                 dataLog("There ain't no newly allocated.\n");
             // This means we had already exhausted the block when we stopped allocation.
             freeList.clear();
+            pastStates.append(State::ResumeAllocatingNoNewlyAllocated);
             return;
         }
     }
-
+    pastStates.append(State::ResumeAllocating);
     directory->setIsInUse(this, true);
 
     // Re-create our free list from before stopping allocation. Note that this may return an empty
@@ -367,6 +371,7 @@ void MarkedBlock::Handle::didConsumeFreeList()
     Locker bitLocker(m_directory->bitvectorLock());
     m_directory->setIsAllocated(this, true);
     m_directory->didFinishUsingBlock(bitLocker, this);
+    pastStates.append(State::DidConsumeFreeList);
 }
 
 size_t MarkedBlock::markCount()
@@ -388,10 +393,12 @@ void MarkedBlock::noteMarkedSlow()
 
 void MarkedBlock::Handle::removeFromDirectory()
 {
+    pastStates.append(State::RemovingFromDirectory);
     if (!m_directory)
         return;
     
     m_directory->removeBlock(this);
+    pastStates.append(State::RemovedFromDirectory);
 }
 
 void MarkedBlock::Handle::didAddToDirectory(BlockDirectory* directory, unsigned index)
@@ -429,6 +436,7 @@ void MarkedBlock::Handle::didAddToDirectory(BlockDirectory* directory, unsigned 
     
     // This means we haven't marked anything yet.
     blockHeader().m_biasedMarkCount = blockHeader().m_markCountBias = static_cast<int16_t>(markCountBias);
+    pastStates.append(State::AddedToDirectory);
 }
 
 void MarkedBlock::Handle::didRemoveFromDirectory()
@@ -476,6 +484,7 @@ void MarkedBlock::Handle::sweep(FreeList* freeList)
     ASSERT(m_directory->isInUse(this));
 
     SweepMode sweepMode = freeList ? SweepToFreeList : SweepOnly;
+    pastStates.append(freeList ? State::SweptAndFreeListed : State::Swept);
     bool needsDestruction = m_attributes.destruction != DoesNotNeedDestruction && m_directory->isDestructible(this);
 
     m_weakSet.sweep();

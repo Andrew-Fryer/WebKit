@@ -1868,7 +1868,7 @@ void Heap::stopThePeriphery(GCConductor conn)
     if (auto* shadowChicken = vm().shadowChicken())
         shadowChicken->update(vm(), vm().topCallFrame);
     
-    m_objectSpace.stopAllocating();
+    m_objectSpace.stopAllocating(); // this is where we stop allocating
     
     m_stopTime = MonotonicTime::now();
 }
@@ -1880,7 +1880,7 @@ NEVER_INLINE void Heap::resumeThePeriphery()
     // - At end of collection cycle: it's a no-op because prepareForAllocation already cleared the
     //   last active block.
     // - During collection cycle: it reinstates the last active block.
-    m_objectSpace.resumeAllocating();
+    m_objectSpace.resumeAllocating(); // this is where we start allocating
     
     m_barriersExecuted = 0;
     
