@@ -354,12 +354,7 @@ bool BlockDirectory::tryOpportunisticSweepOneBlock(VM& vm, bool shouldShrinkOrFr
     if (areOpportunisticallySweptFreeListsStale() && m_opportunisticallySweptFreeLists.size()) {
         // Unfreelist a block rather than sweeping a block
         DeferGCForAWhile deferGC(vm);
-        auto it = m_opportunisticallySweptFreeLists.begin();
-        ASSERT(it.get());
-        if (!it->value) {
-            WTFLogAlways("afryer_tryOpportunisticSweepOneBlock found nullptr %u\n", it->key);
-            return true;
-        }
+        ASSERT(m_opportunisticallySweptFreeLists.begin()->value);
         std::unique_ptr<FreeList> freeListToDestroy = m_opportunisticallySweptFreeLists.takeFirst();
         ASSERT(freeListToDestroy);
         freeListToDestroy->unfreelist();
@@ -370,8 +365,8 @@ bool BlockDirectory::tryOpportunisticSweepOneBlock(VM& vm, bool shouldShrinkOrFr
             setIsUnswept(freeListToDestroy->block(), true);
             m_unsweptCursor = std::min(m_unsweptCursor, freeListToDestroy->block()->index());
         }
-        freeListToDestroy->block()->pastStates.append(MarkedBlock::Handle::State::OpportunisticUnFreeList);
-        WTFLogAlways("afryer_tryOpportunisticSweepOneBlock_unswept_block\n");
+        // freeListToDestroy->block()->pastStates.append(MarkedBlock::Handle::State::OpportunisticUnFreeList);
+        // WTFLogAlways("afryer_tryOpportunisticSweepOneBlock_unswept_block\n");
         return true;
     }
 
@@ -395,12 +390,7 @@ bool BlockDirectory::tryOpportunisticSweepOneBlock(VM& vm, bool shouldShrinkOrFr
                 ASSERT(m_opportunisticallySweptFreeLists.size());
                 // Unfreelist a block rather than sweeping a block
                 DeferGCForAWhile deferGC(vm);
-                auto it = m_opportunisticallySweptFreeLists.begin();
-                ASSERT(it.get());
-                if (!it->value) {
-                    WTFLogAlways("afryer_tryOpportunisticSweepOneBlock found nullptr %u\n", it->key);
-                    ASSERT(false);
-                }
+                ASSERT(m_opportunisticallySweptFreeLists.begin()->value);
                 std::unique_ptr<FreeList> freeListToDestroy = m_opportunisticallySweptFreeLists.takeFirst();
                 ASSERT(freeListToDestroy);
                 freeListToDestroy->unfreelist();
@@ -436,7 +426,7 @@ bool BlockDirectory::opportunisticSweep(MarkedBlock::Handle* block)
     // auto addResult = m_opportunisticallySweptFreeLists.add(block->index(), [&] -> FreeList { return FreeList(static_cast<unsigned>(cellSize())); });
     ASSERT(block->index() != std::numeric_limits<unsigned>::max());
     std::unique_ptr<FreeList> freeList = std::make_unique<FreeList>(cellSize());
-    block->pastStates.append(MarkedBlock::Handle::State::OpportunisticSweep);
+    // block->pastStates.append(MarkedBlock::Handle::State::OpportunisticSweep);
     block->sweep(&*freeList);
     if (freeList->allocationWillFail()) {
         ASSERT(block->isFreeListed());
@@ -450,26 +440,20 @@ bool BlockDirectory::opportunisticSweep(MarkedBlock::Handle* block)
             setIsInUse(block, true); // we need to set this because it'll be cleared in the caller
             setIsOpportunisticallyFreeListed(block, false); // just in case
         }
-        WTFLogAlways("afryer_opportunisticSweep_block_was_full\n");
-        block->pastStates.append(MarkedBlock::Handle::State::OpportunisticSweepFailedAllocation);
+        // WTFLogAlways("afryer_opportunisticSweep_block_was_full\n");
+        // block->pastStates.append(MarkedBlock::Handle::State::OpportunisticSweepFailedAllocation);
         return false;
     }
-    WTFLogAlways("afryer_opportunisticSweep %p %u %p %u\n", block, block->index(), freeList->block(), freeList->block() == freeList->block());
-    // auto addResult = m_opportunisticallySweptFreeLists.add(block->index() + 1, std::make_unique<FreeList>(static_cast<unsigned>(cellSize())));
+    // WTFLogAlways("afryer_opportunisticSweep %p %u %p %u\n", block, block->index(), freeList->block(), freeList->block() == freeList->block());
     auto addResult = m_opportunisticallySweptFreeLists.add(block->index() + 1, WTFMove(freeList));
-    // auto addResult = m_opportunisticallySweptFreeLists.add(block->index(), FreeList((unsigned)cellSize()));
-    // block->sweep(&(*addResult.iterator->value));
-    if (!addResult.iterator->value->block()) {
-        WTFLogAlways("afryer_opportunisticSweep_failed_sweep_to_freelist_in_hash_map\n");
-        RELEASE_ASSERT(false);
-    }
+    ASSERT_UNUSED(addResult, addResult.iterator->value->block());
     {
         Locker locker { m_bitvectorLock };
         setIsOpportunisticallyFreeListed(block, true);
         setIsCanAllocateButNotEmpty(block, false);
         setIsEmpty(block, false);
     }
-    block->pastStates.append(MarkedBlock::Handle::State::OpportunisticallySwept);
+    // block->pastStates.append(MarkedBlock::Handle::State::OpportunisticallySwept);
     return true;
 }
 
@@ -487,9 +471,10 @@ std::optional<FreeList> BlockDirectory::findOpportunisticallyConstructedFreeList
     ASSERT(m_opportunisticallySweptFreeLists.contains(cursor + 1));
     FreeList freeList = *m_opportunisticallySweptFreeLists.take(cursor + 1);
     ASSERT(freeList.block()->index() == cursor);
-    freeList.block()->pastStates.append(MarkedBlock::Handle::State::TakeOpportunisticallyFreeListed);
+    // freeList.block()->pastStates.append(MarkedBlock::Handle::State::TakeOpportunisticallyFreeListed);
     if (areOpportunisticallySweptFreeListsStale()) {
-        freeList.block()->pastStates.append(MarkedBlock::Handle::State::TakeOpportunisticallyFreeListedUnsweep);
+        WTFLogAlways("afryer_unsweeping_opportunistically_constructed_FreeList %u\n", JSC::activeJSGlobalObjectSignpostIntervalCount.load());
+        // freeList.block()->pastStates.append(MarkedBlock::Handle::State::TakeOpportunisticallyFreeListedUnsweep);
         MarkedBlock::Handle* block = freeList.block();
         {
             Locker locker { m_bitvectorLock };
@@ -500,12 +485,12 @@ std::optional<FreeList> BlockDirectory::findOpportunisticallyConstructedFreeList
     }
     {
         Locker locker { m_bitvectorLock };
-        if (!freeList.block())
-            WTFLogAlways("afryer_findOpportunisticallyConstructedFreeList_nullptr_freelist_block\n");
+        // if (!freeList.block())
+        //     WTFLogAlways("afryer_findOpportunisticallyConstructedFreeList_nullptr_freelist_block\n");
         setIsOpportunisticallyFreeListed(freeList.block(), false);
         setIsInUse(freeList.block(), true);
     }
-    freeList.block()->sweepWeak();
+    // freeList.block()->sweepWeak();
     return { freeList };
 }
 

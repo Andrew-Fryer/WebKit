@@ -222,7 +222,7 @@ public:
         void dumpState(PrintStream&);
 
         enum State { AddedToDirectory, RemovedFromDirectory, Allocating, GCed, Sweeping, Swept, SweptAndFreeListed, Stolen, UnsweepWithNoNewlyAllocated, Shrink, DidConsumeFreeList, StopAllocating, StopAllocatingNotFreeListed, RemovingFromDirectory, ResumeAllocating, ResumeAllocatingNoNewlyAllocated, AllocationFailed, WeakAllocation, IsPendingDestructionUnFreeList, TakeOpportunisticallyFreeListed, TakeOpportunisticallyFreeListedUnsweep, OpportunisticallySwept, OpportunisticSweepFailedAllocation, OpportunisticUnFreeList, OpportunisticSweep, AllocatorResetCurrent, AllocatorResetLast };
-        Vector<State> pastStates;
+        // Vector<State> pastStates;
         
     private:
         Handle(Heap&, AlignedMemoryAllocator*, void*);
@@ -534,7 +534,7 @@ inline WeakSet& MarkedBlock::weakSet()
 inline void MarkedBlock::Handle::shrink()
 {
     m_weakSet.shrink();
-        pastStates.append(State::Shrink);
+        // pastStates.append(State::Shrink);
 }
 
 inline size_t MarkedBlock::Handle::cellSize()

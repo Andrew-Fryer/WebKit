@@ -91,7 +91,7 @@ public:
     JS_EXPORT_PRIVATE void initialize(FreeCell* head, uint64_t secret, unsigned bytes, MarkedBlock::Handle* block);
     JS_EXPORT_PRIVATE void initialize(FreeList &other);
 
-    MarkedBlock::Handle* block() { return m_block; }
+    ALWAYS_INLINE MarkedBlock::Handle* block() { return m_block; }
     
     bool allocationWillFail() const { return m_intervalStart >= m_intervalEnd && isSentinel(nextInterval()); }
     bool allocationWillSucceed() const { return !allocationWillFail(); }
@@ -129,6 +129,13 @@ private:
     unsigned m_originalSize { 0 };
     unsigned m_cellSize { 0 };
 };
+
+// struct FreeListCompressed {
+//     uint64_t secret;
+//     MarkedBlock::Handle* block;
+//     uint16_t headOffsetInCells;
+//     uint16_t originalSizeInCells;
+// };
 
 } // namespace JSC
 

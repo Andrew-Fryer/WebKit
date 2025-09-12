@@ -109,7 +109,7 @@ WeakBlock::FreeCell* WeakSet::addAllocator(CellContainer container)
     if (!isOnList())
         heap()->objectSpace().addActiveWeakSet(this);
     
-    WeakBlock* block = WeakBlock::create(*heap(), container);
+    WeakBlock* block = WeakBlock::create(*heap(), container); // heap() is giving bad address
     heap()->didAllocate(WeakBlock::blockSize);
     m_blocks.append(block);
     WeakBlock::SweepResult sweepResult = block->takeSweepResult();

@@ -51,7 +51,7 @@ void FreeList::initialize(FreeCell* start, uint64_t secret, unsigned bytes, Mark
 {
     if (!start) [[unlikely]] {
         clear();
-        WTFLogAlways("afryer_ahah_this_is_happening\n");
+        // WTFLogAlways("afryer_ahah_this_is_happening\n");
         // WTFReportBacktrace();
         return;
     }

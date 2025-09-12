@@ -489,10 +489,10 @@ void MarkedSpace::endMarking()
     
     m_isMarking = false;
 
-    forEachBlock(
-        [&] (MarkedBlock::Handle* handle) {
-            handle->pastStates.append(MarkedBlock::Handle::State::GCed);
-        });
+    // forEachBlock(
+    //     [&] (MarkedBlock::Handle* handle) {
+    //         handle->pastStates.append(MarkedBlock::Handle::State::GCed);
+    //     });
 }
 
 void MarkedSpace::willStartIterating()

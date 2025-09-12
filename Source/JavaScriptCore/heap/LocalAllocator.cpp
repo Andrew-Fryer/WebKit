@@ -46,11 +46,11 @@ LocalAllocator::LocalAllocator(BlockDirectory* directory)
 void LocalAllocator::reset()
 {
     m_freeList.clear();
-    if (m_currentBlock)
-        m_currentBlock->pastStates.append(MarkedBlock::Handle::State::AllocatorResetCurrent);
+    // if (m_currentBlock)
+    //     m_currentBlock->pastStates.append(MarkedBlock::Handle::State::AllocatorResetCurrent);
     m_currentBlock = nullptr;
-    if (m_lastActiveBlock)
-        m_lastActiveBlock->pastStates.append(MarkedBlock::Handle::State::AllocatorResetLast);
+    // if (m_lastActiveBlock)
+    //     m_lastActiveBlock->pastStates.append(MarkedBlock::Handle::State::AllocatorResetLast);
     m_lastActiveBlock = nullptr;
     m_allocationCursor = 0;
 }
@@ -201,6 +201,7 @@ void* LocalAllocator::tryAllocateWithoutCollecting(size_t cellSize)
             // m_directory->assertIsMutatorOrMutatorIsStopped();
             ASSERT(m_directory->isInUse(m_currentBlock));
         }
+        WTFLogAlways("afryer_allocating_from_opportunistically_constructed_FreeList\n");
         void* result = m_freeList.allocateWithCellSize([]() -> HeapCell* {
             RELEASE_ASSERT_NOT_REACHED();
             return nullptr;
@@ -226,7 +227,7 @@ void* LocalAllocator::tryAllocateWithoutCollecting(size_t cellSize)
         if (MarkedBlock::Handle* block = m_directory->m_subspace->findEmptyBlockToSteal()) {
             RELEASE_ASSERT(block->alignedMemoryAllocator() == m_directory->m_subspace->alignedMemoryAllocator());
 
-            block->pastStates.append(MarkedBlock::Handle::State::Stolen);
+            // block->pastStates.append(MarkedBlock::Handle::State::Stolen);
             
             block->sweep(nullptr);
             
@@ -266,13 +267,13 @@ void* LocalAllocator::tryAllocateIn(MarkedBlock::Handle* block, size_t cellSize)
         ASSERT(!block->isFreeListed());
         ASSERT(!m_directory->isEmpty(block));
         ASSERT(!m_directory->isCanAllocateButNotEmpty(block));
-        block->pastStates.append(MarkedBlock::Handle::State::AllocationFailed);
+        // block->pastStates.append(MarkedBlock::Handle::State::AllocationFailed);
         return nullptr;
     }
     
     m_currentBlock = block;
     
-    block->pastStates.append(MarkedBlock::Handle::State::Allocating);
+    // block->pastStates.append(MarkedBlock::Handle::State::Allocating);
     void* result = m_freeList.allocateWithCellSize(
         []() -> HeapCell* {
             RELEASE_ASSERT_NOT_REACHED();

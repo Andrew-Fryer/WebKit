@@ -50,7 +50,7 @@ bool HeapCell::isPendingDestruction()
         Locker locker { markedBlockHandle.directory()->bitvectorLock() };
         if (!markedBlockHandle.directory()->isOpportunisticallyFreeListed(&markedBlockHandle) || !markedBlockHandle.directory()->areOpportunisticallySweptFreeListsStale())
             return false;
-        markedBlockHandle.pastStates.append(MarkedBlock::Handle::State::IsPendingDestructionUnFreeList);
+        // markedBlockHandle.pastStates.append(MarkedBlock::Handle::State::IsPendingDestructionUnFreeList);
         markedBlockHandle.directory()->takeOpportunisticallyConstructedFreeList(&markedBlockHandle).unfreelist();
         return !isZapped();
     }
