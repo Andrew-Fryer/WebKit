@@ -381,6 +381,7 @@ CString String::ascii() const
     // preserved, characters outside of this range are converted to '?'.
 
     if (isEmpty()) {
+        // TODO: I think this should return a pointer to some const static memory.
         std::span<char> characterBuffer;
         return CString::newUninitialized(0, characterBuffer);
     }

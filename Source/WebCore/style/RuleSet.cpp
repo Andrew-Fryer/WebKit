@@ -170,6 +170,7 @@ void RuleSet::addRule(RuleData&& ruleData, CascadeLayerIdentifier cascadeLayerId
     const CSSSelector* linkSelector = nullptr;
     const CSSSelector* focusSelector = nullptr;
     const CSSSelector* rootElementSelector = nullptr;
+    std::optional<AtomString> typeAttributeSelectorValue;
     const CSSSelector* hostPseudoClassSelector = nullptr;
     const CSSSelector* customPseudoElementSelector = nullptr;
     const CSSSelector* slottedPseudoElementSelector = nullptr;
@@ -207,6 +208,8 @@ void RuleSet::addRule(RuleData&& ruleData, CascadeLayerIdentifier cascadeLayerId
         case CSSSelector::Match::End:
             if (shouldHaveBucketForAttributeName(*selector))
                 attributeSelector = selector;
+            if (selector->attribute().localNameLowercase() == HTMLNames::typeAttr)
+                typeAttributeSelectorValue = selector->value().convertToASCIILowercase();
             break;
         case CSSSelector::Match::Tag:
             if (selector->tagQName().localName() != starAtom())
@@ -357,6 +360,16 @@ void RuleSet::addRule(RuleData&& ruleData, CascadeLayerIdentifier cascadeLayerId
         return;
     }
 
+    if (typeAttributeSelectorValue && !typeAttributeSelectorValue->isNull()) {
+        // WTFLogAlways("afryer_adding_rule_with_attr\n");
+        // WTFLogAlways("afryer_adding_rule_with_attr %d %s %d %s %s\n", !!typeAttributeSelectorValue, typeAttributeSelectorValue ? typeAttributeSelectorValue->string().ascii().data() : "None", !!tagSelector, tagSelector ? tagSelector->tagLowercaseLocalName().string().ascii().data() : "", HTMLNames::inputTag->toString().ascii().data());
+        if (tagSelector && tagSelector->tagLowercaseLocalName() == HTMLNames::inputTag) {
+            // WTFLogAlways("afryer_addRule_for_input_tag_attribute_type_with_value %s\n", typeAttributeSelectorValue->string().ascii().data());
+            addToRuleSet(*typeAttributeSelectorValue, m_inputElementRules, ruleData);
+            return;
+        }
+    }
+
     if (attributeSelector) {
         addToRuleSet(attributeSelector->attribute().localName(), m_attributeLocalNameRules, ruleData);
         addToRuleSet(attributeSelector->attribute().localNameLowercase(), m_attributeLowercaseLocalNameRules, ruleData);
@@ -438,6 +451,8 @@ void RuleSet::traverseRuleDatas(Function&& function)
     traverseVector(m_partPseudoElementRules);
     traverseVector(m_focusPseudoClassRules);
     traverseVector(m_rootElementRules);
+    for (auto& vector : m_inputElementRules)
+        traverseVector(*vector.value);
     traverseVector(m_universalRules);
 }
 
@@ -540,6 +555,8 @@ void RuleSet::shrinkToFit()
     m_partPseudoElementRules.shrinkToFit();
     m_focusPseudoClassRules.shrinkToFit();
     m_rootElementRules.shrinkToFit();
+    for (auto& vector : m_inputElementRules)
+        vector.value->shrinkToFit();
     m_universalRules.shrinkToFit();
 
     m_pageRules.shrinkToFit();

@@ -234,7 +234,7 @@ void ElementRuleCollector::collectMatchingRules(const MatchRequest& matchRequest
     }
     if (element.hasAttributesWithoutUpdate() && matchRequest.ruleSet.hasAttributeRules()) {
         Vector<const RuleSet::RuleDataVector*, 4> ruleVectors;
-        for (auto& attribute : element.attributes()) {
+        for (auto& attribute : element.attributes()) { // go through all element attributes here...
             if (auto* rules = matchRequest.ruleSet.attributeRules(attribute.localName(), isHTML))
                 ruleVectors.append(rules);
         }
@@ -249,6 +249,11 @@ void ElementRuleCollector::collectMatchingRules(const MatchRequest& matchRequest
         collectMatchingRulesForList(matchRequest.ruleSet.focusPseudoClassRules(), matchRequest);
     if (&element == element.document().documentElement())
         collectMatchingRulesForList(matchRequest.ruleSet.rootElementRules(), matchRequest);
+    if (element.hasLocalName(HTMLNames::inputTag->localName())) {
+        auto typeAttr = element.getAttribute(HTMLNames::typeAttr);
+        if (!typeAttr.isNull())
+            collectMatchingRulesForList(matchRequest.ruleSet.inputElementRules(typeAttr), matchRequest);
+    }
     collectMatchingRulesForList(matchRequest.ruleSet.tagRules(element.localName(), isHTML), matchRequest);
     collectMatchingRulesForList(matchRequest.ruleSet.universalRules(), matchRequest);
 }

@@ -111,6 +111,8 @@ public:
     const RuleDataVector& partPseudoElementRules() const { return m_partPseudoElementRules; }
     const RuleDataVector* focusPseudoClassRules() const { return &m_focusPseudoClassRules; }
     const RuleDataVector* rootElementRules() const { return &m_rootElementRules; }
+    // bool containsInputElementRules() const { return m_inputElementRules.size(); } // I don't think this actually helps perf
+    const RuleDataVector* inputElementRules(AtomString& type) const { return m_inputElementRules.get(type); }
     const RuleDataVector* universalRules() const { return &m_universalRules; }
 
     const Vector<StyleRulePage*>& pageRules() const { return m_pageRules; }
@@ -215,6 +217,7 @@ private:
     RuleDataVector m_partPseudoElementRules;
     RuleDataVector m_focusPseudoClassRules;
     RuleDataVector m_rootElementRules;
+    AtomRuleMap m_inputElementRules;
     RuleDataVector m_universalRules;
     Vector<StyleRulePage*> m_pageRules;
     RefPtr<StyleRuleViewTransition> m_viewTransitionRule;
