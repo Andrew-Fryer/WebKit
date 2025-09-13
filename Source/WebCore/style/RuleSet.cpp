@@ -170,6 +170,7 @@ void RuleSet::addRule(RuleData&& ruleData, CascadeLayerIdentifier cascadeLayerId
     const CSSSelector* linkSelector = nullptr;
     const CSSSelector* focusSelector = nullptr;
     const CSSSelector* rootElementSelector = nullptr;
+    AtomString typeExactAttributeSelectorValue;
     const CSSSelector* hostPseudoClassSelector = nullptr;
     const CSSSelector* customPseudoElementSelector = nullptr;
     const CSSSelector* slottedPseudoElementSelector = nullptr;
@@ -199,6 +200,9 @@ void RuleSet::addRule(RuleData&& ruleData, CascadeLayerIdentifier cascadeLayerId
             break;
         }
         case CSSSelector::Match::Exact:
+            if (selector->attribute().localNameLowercase() == HTMLNames::typeAttr)
+                typeExactAttributeSelectorValue = selector->value().convertToASCIILowercase();
+            // fallthrough
         case CSSSelector::Match::Set:
         case CSSSelector::Match::List:
         case CSSSelector::Match::Hyphen:
@@ -357,6 +361,13 @@ void RuleSet::addRule(RuleData&& ruleData, CascadeLayerIdentifier cascadeLayerId
         return;
     }
 
+    if (!typeExactAttributeSelectorValue.isNull()) {
+        if (tagSelector && tagSelector->tagLowercaseLocalName() == HTMLNames::inputTag) {
+            addToRuleSet(typeExactAttributeSelectorValue, m_inputElementRules, ruleData);
+            return;
+        }
+    }
+
     if (attributeSelector) {
         addToRuleSet(attributeSelector->attribute().localName(), m_attributeLocalNameRules, ruleData);
         addToRuleSet(attributeSelector->attribute().localNameLowercase(), m_attributeLowercaseLocalNameRules, ruleData);
@@ -438,6 +449,8 @@ void RuleSet::traverseRuleDatas(Function&& function)
     traverseVector(m_partPseudoElementRules);
     traverseVector(m_focusPseudoClassRules);
     traverseVector(m_rootElementRules);
+    for (auto& vector : m_inputElementRules)
+        traverseVector(*vector.value);
     traverseVector(m_universalRules);
 }
 
@@ -540,6 +553,8 @@ void RuleSet::shrinkToFit()
     m_partPseudoElementRules.shrinkToFit();
     m_focusPseudoClassRules.shrinkToFit();
     m_rootElementRules.shrinkToFit();
+    for (auto& vector : m_inputElementRules)
+        vector.value->shrinkToFit();
     m_universalRules.shrinkToFit();
 
     m_pageRules.shrinkToFit();
