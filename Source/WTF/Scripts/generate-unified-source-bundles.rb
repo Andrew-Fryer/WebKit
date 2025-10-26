@@ -504,17 +504,37 @@ sourceListFiles.each_with_index {
 
 log("Found sources: #{sourceFiles.sort}")
 
-sourceFiles.sort.each {
-    | sourceFile |
+# Separate unifiable from non-unifiable files
+unifiableFiles = []
+nonUnifiableFiles = []
+
+sourceFiles.each do |sourceFile|
     case $mode
     when :GenerateBundles, :GenerateXCFilelists
-        ProcessFileForUnifiedSourceGeneration(sourceFile)
+        if $bundleManagers[sourceFile.path.extname] && sourceFile.unifiable
+            unifiableFiles << sourceFile
+        else
+            nonUnifiableFiles << sourceFile
+        end
     when :PrintAllSources
         $generatedSources << sourceFile
     when :PrintBundledSources
         $generatedSources << sourceFile if $bundleManagers[sourceFile.path.extname] && sourceFile.unifiable
     end
-}
+end
+
+# Process non-unifiable files the traditional way
+nonUnifiableFiles.sort.each do |sourceFile|
+    case $mode
+    when :GenerateBundles, :GenerateXCFilelists
+        ProcessFileForUnifiedSourceGeneration(sourceFile)
+    end
+end
+
+# Process unifiable files using bottom-up directory approach
+if ($mode == :GenerateBundles || $mode == :GenerateXCFilelists) && !unifiableFiles.empty?
+    processDirectoriesBottomUp(unifiableFiles)
+end
 
 if $mode != :PrintAllSources
     $bundleManagers.each_value {
