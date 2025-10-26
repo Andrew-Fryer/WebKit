@@ -310,6 +310,161 @@ def ProcessFileForUnifiedSourceGeneration(sourceFile)
     end
 end
 
+# Build a directory tree structure to organize files by directory
+def buildDirectoryTree(sourceFiles)
+    tree = {}
+
+    sourceFiles.each do |sourceFile|
+        next unless sourceFile.unifiable
+
+        extension = sourceFile.path.extname
+        next unless $bundleManagers[extension]
+
+        dir = sourceFile.path.dirname
+        tree[dir] ||= {}
+        tree[dir][extension] ||= []
+        tree[dir][extension] << sourceFile
+    end
+
+    tree
+end
+
+# Check if a directory has any subdirectories with source files
+def hasSourceSubdirectories(dir, tree)
+    tree.keys.any? { |d| d != dir && d.to_s.start_with?(dir.to_s + "/") }
+end
+
+# Get all subdirectories of a given directory that contain sources
+def getSourceSubdirectories(dir, tree)
+    tree.keys.select { |d| d != dir && d.to_s.start_with?(dir.to_s + "/") }
+end
+
+# Process directories bottom-up for unified source generation
+def processDirectoriesBottomUp(sourceFiles)
+    tree = buildDirectoryTree(sourceFiles)
+    processed = {}
+    overflow = {}
+
+    # Process directories from deepest to shallowest
+    sortedDirs = tree.keys.sort_by { |dir| -dir.to_s.count("/") }
+
+    sortedDirs.each do |dir|
+        next if processed[dir]
+
+        # Only process if this is a leaf directory (no subdirectories with sources)
+        unless hasSourceSubdirectories(dir, tree)
+            log("Processing leaf directory: #{dir}")
+
+            # Collect all files for this directory by extension
+            dirFiles = {}
+            if tree[dir]
+                tree[dir].each do |ext, files|
+                    dirFiles[ext] ||= []
+                    dirFiles[ext].concat(files)
+                end
+            end
+
+            # Add any overflow from subdirectories
+            if overflow[dir]
+                overflow[dir].each do |ext, files|
+                    dirFiles[ext] ||= []
+                    dirFiles[ext].concat(files)
+                end
+            end
+
+            # Process each extension separately
+            dirFiles.each do |ext, files|
+                # Sort files within the directory alphabetically for consistency
+                files.sort!
+
+                # Bundle files in groups of maxBundleSize
+                bundlePrefix, bundleSize = BundlePrefixAndSizeForPath(dir)
+
+                while files.length >= bundleSize
+                    files.slice!(0, bundleSize).each do |file|
+                        $bundleManagers[ext].addFile(file)
+                    end
+                end
+
+                # Handle overflow - pass remaining files to parent directory
+                if files.length > 0
+                    parentDir = dir.dirname
+                    if parentDir != dir  # Not at root
+                        overflow[parentDir] ||= {}
+                        overflow[parentDir][ext] ||= []
+                        overflow[parentDir][ext].concat(files)
+                        log("Passing #{files.length} #{ext} files from #{dir} to parent #{parentDir}")
+                    else
+                        # At root level, just add remaining files normally
+                        files.each do |file|
+                            $bundleManagers[ext].addFile(file)
+                        end
+                    end
+                end
+            end
+
+            processed[dir] = true
+        end
+    end
+
+    # Process remaining directories that have subdirectories (going up the tree)
+    sortedDirs.each do |dir|
+        next if processed[dir]
+
+        log("Processing parent directory: #{dir}")
+
+        # Collect files for this directory
+        dirFiles = {}
+        if tree[dir]
+            tree[dir].each do |ext, files|
+                dirFiles[ext] ||= []
+                dirFiles[ext].concat(files)
+            end
+        end
+
+        # Add any overflow from subdirectories
+        if overflow[dir]
+            overflow[dir].each do |ext, files|
+                dirFiles[ext] ||= []
+                dirFiles[ext].concat(files)
+            end
+        end
+
+        # Process each extension separately
+        dirFiles.each do |ext, files|
+            # Sort files within the directory alphabetically for consistency
+            files.sort!
+
+            # Bundle files in groups of maxBundleSize
+            bundlePrefix, bundleSize = BundlePrefixAndSizeForPath(dir)
+
+            while files.length >= bundleSize
+                files.slice!(0, bundleSize).each do |file|
+                    $bundleManagers[ext].addFile(file)
+                end
+            end
+
+            # Handle overflow - pass remaining files to parent directory
+            if files.length > 0
+                parentDir = dir.dirname
+                if parentDir != dir  # Not at root
+                    overflow[parentDir] ||= {}
+                    overflow[parentDir][ext] ||= []
+                    overflow[parentDir][ext].concat(files)
+                    log("Passing #{files.length} #{ext} files from #{dir} to parent #{parentDir}")
+                else
+                    # At root level, just add remaining files normally
+                    files.each do |file|
+                        $bundleManagers[ext].addFile(file)
+                    end
+                end
+            end
+        end
+
+        processed[dir] = true
+    end
+end
+
 $bundleManagers = {
     ".cpp" => BundleManager.new("cpp", $maxCppBundleCount),
     ".c" => BundleManager.new("c", $maxCBundleCount),
