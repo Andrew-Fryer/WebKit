@@ -20,6 +20,7 @@
 #include "config.h"
 #include "CryptoAlgorithmX25519.h"
 
+#include "CryptoAlgorithmEd25519.h"
 #include "CryptoKeyOKP.h"
 #if HAVE(SWIFT_CPP_INTEROP)
 #include <pal/PALSwift.h>

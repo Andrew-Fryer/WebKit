@@ -28,6 +28,8 @@
 
 #if ENABLE(PAYMENT_REQUEST)
 
+#include "ExceptionOr.h"
+
 #include "Document.h"
 #include "PaymentRequest.h"
 #include <wtf/TZoneMallocInlines.h>

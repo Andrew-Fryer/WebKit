@@ -26,12 +26,13 @@
 #pragma once
 
 #include <pal/crypto/CryptoDigest.h>
+#include <wtf/Compiler.h>
 
 #include "CryptoAlgorithm.h"
 
 namespace WebCore {
 
-static std::optional<PAL::CryptoDigest::Algorithm> cryptoDigestAlgorithm(CryptoAlgorithmIdentifier hashFunction)
+inline std::optional<PAL::CryptoDigest::Algorithm> cryptoDigestAlgorithm(CryptoAlgorithmIdentifier hashFunction)
 {
     switch (hashFunction) {
     case CryptoAlgorithmIdentifier::SHA_1:

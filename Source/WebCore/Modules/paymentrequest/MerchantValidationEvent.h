@@ -34,6 +34,7 @@ namespace WebCore {
 
 class DOMPromise;
 class Document;
+template<typename> class ExceptionOr;
 
 class MerchantValidationEvent final : public Event {
     WTF_MAKE_TZONE_OR_ISO_ALLOCATED(MerchantValidationEvent);
