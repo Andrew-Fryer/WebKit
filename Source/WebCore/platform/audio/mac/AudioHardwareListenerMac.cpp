@@ -31,6 +31,10 @@
 #include <algorithm>
 #include <wtf/StdLibExtras.h>
 
+enum {
+    kAudioHardwarePropertyProcessIsRunning = 'prun'
+};
+
 namespace WebCore {
     
 static AudioHardwareActivityType isAudioHardwareProcessRunning()
