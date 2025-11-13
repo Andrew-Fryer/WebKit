@@ -117,7 +117,7 @@ void MarkedBlock::Handle::unsweepWithNoNewlyAllocated()
     m_directory->didFinishUsingBlock(this);
 }
 
-void MarkedBlock::Handle::stopAllocating(const FreeList& freeList)
+void MarkedBlock::Handle::stopAllocating(FreeList& freeList)
 {
     Locker locker { blockHeader().m_lock };
     
@@ -151,7 +151,7 @@ void MarkedBlock::Handle::stopAllocating(const FreeList& freeList)
             return IterationStatus::Continue;
         });
 
-    freeList.forEach(
+    freeList.forEachRemaining(
         [&] (HeapCell* cell) {
             if constexpr (MarkedBlockInternal::verbose)
                 dataLog("Free cell: ", RawPointer(cell), "\n");
@@ -159,6 +159,25 @@ void MarkedBlock::Handle::stopAllocating(const FreeList& freeList)
                 cell->zap(HeapCell::StopAllocating);
             block().clearNewlyAllocated(cell);
         });
+
+    // unsigned currentAllocationIndex = freeList.currentAllocationIndex();
+    // block().newlyAllocated().setFirstNBits(currentAllocationIndex);
+    // // block().newlyAllocated().setAll(); // todo: I think this is not necessary
+    // if (m_attributes.destruction != DoesNotNeedDestruction) {
+    //     // block().newlyAllocated().setAll();
+    //     freeList.forEachRemaining(
+    //         [&] (HeapCell* cell) {
+    //             if constexpr (MarkedBlockInternal::verbose)
+    //                 dataLog("Free cell: ", RawPointer(cell), "\n");
+    //             cell->zap(HeapCell::StopAllocating);
+    //         });
+    // }
+    // // WTF::BitSet<MarkedBlock::atomsPerBlock> newlyAllocatedFilter = freeList.live();
+    // // newlyAllocatedFilter.setRange(0, currentAllocationIndex);
+    // // // block().clearNewlyAllocated(freeList.live()); // I think this would be fast as a bit operation (not in this loop), but this probably doesn't matter for perf anyway
+    // // block().newlyAllocated() &= newlyAllocatedFilter;
+
+    // // block().newlyAllocated().setFirstNBits(currentAllocationIndex);
     
     m_isFreeListed = false;
     directory()->didFinishUsingBlock(this);
