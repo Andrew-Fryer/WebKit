@@ -32,14 +32,22 @@ namespace JSC {
 FreeList::FreeList(unsigned cellSize)
     : m_cellSize(cellSize)
 {
-    ASSERT(cellSize % MarkedBlock::atomSize == 0);
+    ASSERT(!(cellSize % MarkedBlock::atomSize));
     // We only use every Nth bit in m_live.
     // Precompute a bitmask filter so that allocation is fast.
-    uint64_t bitmask = 0;
-    uint64_t one = 1;
-    for (uint64_t i = 0; i < 64; i += atomsPerCell()) {
+
+    // Wait, can't we just do N**k - 1?
+
+    // todo: should really do this in BlockDirectory
+    unsigned numberOfUnallocatableAtoms = MarkedBlock::numberOfPayloadAtoms % atomsPerCell();
+    unsigned startAtom = MarkedBlock::firstPayloadRegionAtom + numberOfUnallocatableAtoms;
+
+    WTF::BitSet<MarkedBlock::atomsPerBlock> bitmask;
+    unsigned stride = atomsPerCell();
+    for (uint64_t i = startAtom; i < MarkedBlock::atomsPerBlock; i += stride) {
         // bitmask |= 1 << (63 - i); // wrong because bitset is little endian
-        bitmask |= one << i;
+        // bitmask |= one << i;
+        bitmask.set(i);
         // WTFLogAlways("afryer_bitmask_wip %llu : %llx\n", i, bitmask);
     }
     m_bitmask = bitmask;
@@ -64,6 +72,7 @@ void FreeList::initialize(MarkedBlock::Handle* block, const WTF::BitSet<MarkedBl
     m_live = live;
     m_startIndex = startIndex;
     m_originalSize = bytes;
+    // WTFLogAlways("afryer_initialize %u\n", countIntervals());
     findNextInterval();
 }
 
@@ -75,6 +84,8 @@ void FreeList::initializeEmpty(MarkedBlock::Handle* block, char* intervalStart, 
     m_intervalStart = intervalStart;
     m_intervalEnd = intervalEnd;
     m_startIndex = MarkedBlock::atomsPerBlock; // No more intervals to find. Note that we are lazy and don't clear m_live
+    // WTFLogAlways("afryer_initializeEmpty %u\n", (unsigned)1);
+    // m_live.clearAll(); // just for now; I think this might be important for stopAllocating
 }
 
 void FreeList::dump(PrintStream& out) const

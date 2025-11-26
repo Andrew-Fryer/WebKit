@@ -60,7 +60,7 @@ public:
     template<typename Func>
     HeapCell* allocateWithCellSize(const Func& slowPath, size_t cellSize);
     
-    WTF::BitSet<MarkedBlock::atomsPerBlock> live() { return m_live; }
+    const WTF::BitSet<MarkedBlock::atomsPerBlock>& live() { return m_live; }
     template<typename Func>
     void forEachRemaining(const Func&);
     
@@ -70,6 +70,8 @@ public:
     static constexpr ptrdiff_t offsetOfIntervalEnd() { return OBJECT_OFFSETOF(FreeList, m_intervalEnd); }
     static constexpr ptrdiff_t offsetOfOriginalSize() { return OBJECT_OFFSETOF(FreeList, m_originalSize); }
     static constexpr ptrdiff_t offsetOfCellSize() { return OBJECT_OFFSETOF(FreeList, m_cellSize); }
+    static constexpr ptrdiff_t offsetOfNumCachedIntervals() { return OBJECT_OFFSETOF(FreeList, m_numCachedIntervals); }
+    static constexpr ptrdiff_t offsetOfCachedIntervals() { return OBJECT_OFFSETOF(FreeList, m_cachedIntervals); }
     
     JS_EXPORT_PRIVATE void dump(PrintStream&) const;
 
@@ -80,12 +82,14 @@ public:
         return m_cellSize / MarkedBlock::atomSize;
     }
     
-private:
+// private:
     template<bool value> // which value to find
     ALWAYS_INLINE bool findFreeCellFast() {
+        uint64_t ones = ~((uint64_t)0x00);
         unsigned atomsPerCell = m_cellSize >> 4;
         static_assert(MarkedBlock::atomsPerBlock == 1024);
         uint64_t* bits = std::bit_cast<uint64_t*>(&m_live);
+        uint64_t* bitmaskBits = std::bit_cast<uint64_t*>(&m_bitmask);
         ASSERT(bits == &m_live.storage()[0]);
         // unsigned startIndexOriginal = m_startIndex;
         ASSERT((uint32_t*)bits == std::bit_cast<uint32_t*>(&m_live));
@@ -94,9 +98,9 @@ private:
         while (startIndex < MarkedBlock::atomsPerBlock) {
             unsigned startIndexWordIndex = startIndex >> 6;
             unsigned startIndexBitIndex = startIndex & 0x3F;
-            uint64_t bitmask = m_bitmask << startIndexBitIndex;
+            uint64_t bitmask = bitmaskBits[startIndexWordIndex];
             uint64_t word = bits[startIndexWordIndex];
-            uint64_t searchResults = (value ? word : ~word) & bitmask; // has a 1 on each bit we're looking for
+            uint64_t searchResults = (value ? word : ~word) & bitmask & (ones << startIndexBitIndex); // has a 1 on each bit we're looking for
             if (searchResults) {
                 // find in word
                 // WTFLogAlways("afryer_findFreeCell_ctzll %d %llx %llx %llx %llx %llu\n", value, word, m_bitmask, bitmask, searchResults, (uint64_t)__builtin_ctzll(searchResults));
@@ -118,12 +122,20 @@ private:
     ALWAYS_INLINE bool findNextIntervalFast() {
         if (m_startIndex >= MarkedBlock::atomsPerBlock)
             return false;
-        ASSERT(m_intervalStart >= m_intervalEnd); // you should only advance to the next interval it the current interval is depleted
+        ASSERT(m_intervalStart >= m_intervalEnd); // you should only advance to the next interval if the current interval is depleted
         if (findFreeCellFast<false>()) {
             m_intervalStart = (char*)m_block->atomAt(m_startIndex);
-            findFreeCellFast<true>();
+            bool r = findFreeCellFast<true>();
+            (void)r;
+            ASSERT(r || m_startIndex == 1024);
             ASSERT(m_startIndex <= 1024);
             m_intervalEnd = (char*)m_block->atomAt(m_startIndex);
+            // for (char* p = m_intervalStart; p < m_intervalEnd; p += m_cellSize) {
+            //     if (m_live.get(m_block->block().candidateAtomNumber(p)))
+            //         WTFLogAlways("afryer_findNextIntervalFast_failed %lu\n", m_block->block().candidateAtomNumber(p));
+            // }
+            // if (m_startIndex < 1024 && !m_live.get(m_block->block().candidateAtomNumber(m_intervalEnd)))
+            //     WTFLogAlways("afryer_findNextIntervalFast_failed2 %lu\n", m_block->block().candidateAtomNumber(m_intervalEnd));
             return true;
         }
         return false;
@@ -150,13 +162,153 @@ private:
         // }
         // return false;
     }
+
+    unsigned countIntervals() {
+        bool inInterval = false;
+        unsigned result = 0;
+        m_bitmask.forEachSetBit([&](unsigned i) {
+            if (!m_live.get(i) != inInterval) {
+                inInterval = !inInterval;
+                result++;
+            }
+        });
+        return result;
+    }
+
+    ALWAYS_INLINE WTF::BitSet<MarkedBlock::atomsPerBlock> allocatedBits(unsigned start) {
+        unsigned startOriginal = start;
+        unsigned atomsPerCell = m_cellSize >> 4;
+        unsigned endIndex = currentAllocationIndex() - 1; // -1 makes inclusive
+        unsigned endWord = endIndex >> 6;
+        unsigned endBit = endIndex & 0x3F;
+        WTF::BitSet<MarkedBlock::atomsPerBlock> result;
+        uint64_t* resultBits = std::bit_cast<uint64_t*>(&result);
+        while (start < MarkedBlock::atomsPerBlock) {
+            unsigned startWord = start >> 6;
+            unsigned startBit = start & 0x3F;
+            uint64_t bitmask = std::bit_cast<uint64_t*>(&m_bitmask)[startWord];
+            resultBits[startWord] = bitmask;
+            if (startWord >= endWord) { // should be exactly equal
+                resultBits[startWord] &= (~((uint64_t)0x00)) >> (63 - endBit);
+                break;
+            }
+            unsigned skipSize = ((atomsPerCell + (64 - startBit) - 1) / atomsPerCell) * atomsPerCell;
+            start += skipSize;
+        }
+        // WTFLogAlways("afryer_allocatedBits %u %u %u %u\n", endWord, endBit & 0x3F, startOriginal >> 6, startOriginal & 0x3F);
+        return result;
+    }
+
+/*
+
+I think I should actually store m_free and clear the bits as we use them so that finding the next interval becomes:
+word;
+// i is a member variable
+while (true) {
+    if (!(i < 16)) {
+        return false;
+    }
+    word = m_freeBits[i];
+    if (word)
+        break;
+    i++;
+}
+m_start = get_ptr(i << 6 + ctz(word));
+while (true) {
+    if (!(i < 16)) {
+        m_end = get_ptr(i); // i == 16
+        return true;
+    }
+    word = m_freeBits[i] ^ m_bitmaskBits[i];
+    if (word)
+        break;
+    m_freeBits[i] = 0x00;
+    i++;
+}
+bitInd = ctz(word);
+m_end = get_ptr(i << 6 + bitInd);
+m_freeBits[i] &= ~((uint64_t)0x00) << bitInd;
+
+One benefit of the above is that stopAllocating can compute newlyAllocated as:
+ASSERT(m_bitmask.subsumes(m_freeBits));
+m_bitmask ^ m_freeBits
+
+
+Actually, I think I should instrument to find the distribution of the number of intervals in a block.
+I wouldn't be surprised if it is almost always very low.
+In that case, we could just store a std::array that is sufficient for most cases and then getting the next interval becomes:
+if (i >= l)
+    slowPath();
+start, end = arr[i];
+i++;
+...where arr is a pointer to either the std::array in the FreeList or to a std::array that is heap allocated...
+Actually, the slow case could just call into c++ that looks at m_free.
+The std::array only needs to store 2 values < 1024, so 2 `uint16_t`s for each interval.
+We could easily stick 32 intervals into 16 `uint64_t`s, which I bet covers close to 100% of the cases in real life.
+Actually, if l is small in practice than it's probably faster to store full pointers in arr, so each entry is 128 bytes.
+
+
+I don't really think there's a benefit to storing m_free instead of m_live, although maybe there is slightly.
+What actually makes things complicated is that a word in the BitSet might contain several intervals.
+This means you need to do some bit operations to occlude any interval that's already used.
+You can either write this to the BitSet, or filter when reading.
+I think it's probably a bit better to write this to the BitSet.
+
+*/
+
+    ALWAYS_INLINE WTF::BitSet<MarkedBlock::atomsPerBlock> nonRemainingBits() {
+        unsigned current = currentAllocationIndex() - 1;
+        WTF::BitSet<MarkedBlock::atomsPerBlock> result = m_bitmask;
+        if (current >= 1023)
+            return result;
+        unsigned currentWord = current >> 6;
+        unsigned currentBit = current & 0x3F;
+        uint64_t* resultBits = std::bit_cast<uint64_t*>(&result);
+        uint64_t* liveBits = std::bit_cast<uint64_t*>(&m_live);
+        uint64_t ones = ~((uint64_t)0x00);
+        resultBits[currentWord] &= ones >> (64 - currentBit);
+        resultBits[currentWord] |= (ones << currentBit) & liveBits[currentWord];
+        for (unsigned wordIndex = currentWord + 1; wordIndex < 16; wordIndex++) {
+            resultBits[wordIndex] = liveBits[wordIndex];
+        }
+        // WTFLogAlways("afryer_nonRemainingBits %u %u\n", currentWord, currentBit);
+        return result;
+    }
+
+    const WTF::BitSet<MarkedBlock::atomsPerBlock>& bitmask() {
+        return m_bitmask;
+    }
+
+    ALWAYS_INLINE WTF::BitSet<MarkedBlock::atomsPerBlock> allocatedBitsIncludingPreviouslyMarked() {
+        // first clean up m_live because it might have stale data from initializeEmpty
+        if (m_intervalEnd >= (char*)m_block->atomAt(MarkedBlock::atomsPerBlock))
+            m_live.clearAll();
+
+        WTF::BitSet<MarkedBlock::atomsPerBlock> result;
+        uint64_t* resultBits = std::bit_cast<uint64_t*>(&result);
+        uint64_t* liveBits = std::bit_cast<uint64_t*>(&m_live);
+        uint64_t* maskBits = std::bit_cast<uint64_t*>(&m_bitmask);
+        constexpr uint64_t ones = ~((uint64_t)0x00);
+
+        unsigned lastAllocated = currentAllocationIndex() - 1;
+        unsigned lastAllocatedWord = lastAllocated >> 6;
+        unsigned lastAllocatedBit = lastAllocated & 0x3F;
+        for (unsigned i = 0; i < 16; i++) {
+            bool allocated = i < lastAllocatedWord;
+            resultBits[i] = liveBits[i] | (allocated * maskBits[i]);
+        }
+        resultBits[lastAllocatedWord] |= (ones >> (63 - lastAllocatedBit)) & maskBits[lastAllocatedWord];
+        return result;
+    }
     
     char* m_intervalStart { nullptr };
     char* m_intervalEnd { nullptr };
     unsigned m_cellSize { 0 };
+    unsigned m_numCachedIntervals { 0 };
+    std::array<std::pair<char*, char*>, 16> m_cachedIntervals;
 
     MarkedBlock::Handle* m_block { nullptr };
-    uint64_t m_bitmask { 0 };
+    WTF::BitSet<MarkedBlock::atomsPerBlock> m_bitmask;
     unsigned m_startIndex { MarkedBlock::atomsPerBlock }; // could be just uin16_t // FreeList should fail allocation until it is initialized
 
     WTF::BitSet<MarkedBlock::atomsPerBlock> m_live;

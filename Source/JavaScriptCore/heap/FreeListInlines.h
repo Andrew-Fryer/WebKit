@@ -55,7 +55,7 @@ ALWAYS_INLINE HeapCell* FreeList::allocateWithCellSize(const Func& slowPath, siz
 template<typename Func>
 void FreeList::forEachRemaining(const Func& func)
 {
-    // WTFLogAlways("afryer_forEachRemaining\n");
+    // WTFLogAlways("afryer_forEachRemaining %u\n", m_cellSize);
     while (true) {
         while (m_intervalStart < m_intervalEnd) {
             func(std::bit_cast<HeapCell*>(m_intervalStart));
