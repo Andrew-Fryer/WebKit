@@ -176,7 +176,7 @@ public:
     }
 
     ALWAYS_INLINE WTF::BitSet<MarkedBlock::atomsPerBlock> allocatedBits(unsigned start) {
-        unsigned startOriginal = start;
+        // unsigned startOriginal = start;
         unsigned atomsPerCell = m_cellSize >> 4;
         unsigned endIndex = currentAllocationIndex() - 1; // -1 makes inclusive
         unsigned endWord = endIndex >> 6;
