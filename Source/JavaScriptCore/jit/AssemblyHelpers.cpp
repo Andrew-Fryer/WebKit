@@ -937,18 +937,19 @@ void AssemblyHelpers::emitRandomThunk(VM& vm, GPRReg scratch0, GPRReg scratch1, 
 
 void AssemblyHelpers::emitAllocateWithNonNullAllocator(GPRReg resultGPR, const JITAllocator& allocator, GPRReg allocatorGPR, GPRReg scratchGPR, JumpList& slowPath, SlowAllocationResult slowAllocationResult)
 {
-    // WTFLogAlways("afryer_emitAllocateWithNonNullAllocator\n");
+    WTFLogAlways("afryer_emitAllocateWithNonNullAllocator\n");
     if (Options::forceGCSlowPaths()) {
         slowPath.append(jump());
         return;
     }
+    WTFLogAlways("afryer_emitAllocateWithNonNullAllocator_emitting_fast_path\n");
 
     // NOTE, some invariants of this function:
     // - When going to the slow path, we must leave resultGPR with zero in it.
     // - We *can not* use RegisterSetBuilder::macroScratchRegisters on x86.
     // - We *can* use RegisterSetBuilder::macroScratchRegisters on ARM.
 
-    // Jump popPath;
+    Jump popPath;
     Jump zeroPath;
     Jump done;
 
@@ -970,8 +971,8 @@ void AssemblyHelpers::emitAllocateWithNonNullAllocator(GPRReg resultGPR, const J
 
     JIT_COMMENT(*this, "Bump allocation (fast path)");
     loadPairPtr(allocatorGPR, TrustedImm32(LocalAllocator::offsetOfFreeList() + FreeList::offsetOfIntervalStart()), resultGPR, scratchGPR);
-    zeroPath = branchPtr(RelationalCondition::AboveOrEqual, resultGPR, scratchGPR);
-    // auto bumpLabel = label();
+    popPath = branchPtr(RelationalCondition::AboveOrEqual, resultGPR, scratchGPR);
+    auto bumpLabel = label();
     if (allocator.isConstant())
         addPtr(TrustedImm32(allocator.allocator().cellSize()), resultGPR, scratchGPR);
     else {
@@ -980,6 +981,29 @@ void AssemblyHelpers::emitAllocateWithNonNullAllocator(GPRReg resultGPR, const J
     }
     storePtr(scratchGPR, Address(allocatorGPR, LocalAllocator::offsetOfFreeList() + FreeList::offsetOfIntervalStart()));
     done = jump();
+
+    JIT_COMMENT(*this, "Get next interval (slower path)");
+    popPath.link(this);
+    // if we store a pointer to a 
+    // scratchGPR <- offsetOfNextCachedInterval
+    loadPtr(Address(allocatorGPR, LocalAllocator::offsetOfFreeList() + FreeList::offsetOfNextCachedInterval()), scratchGPR);
+    // resultGPR <- &offsetOfCachedIntervals
+    addPtr(TrustedImm32(LocalAllocator::offsetOfFreeList() + FreeList::offsetOfCachedIntervals()), allocatorGPR, resultGPR);
+    // take slowPath if scratchGPR < resultGPR (this means we have no cached intervals)
+    zeroPath = branchPtr(RelationalCondition::Below, scratchGPR, resultGPR);
+    // scratchGPr <- scratchGPR - 16 (this goes to the next cached interval)
+    subPtr(TrustedImm32(16), scratchGPR);
+    // offsetOfNextCachedInterval <- scratchGPR
+    storePtr(scratchGPR, Address(allocatorGPR, LocalAllocator::offsetOfFreeList() + FreeList::offsetOfNextCachedInterval()));
+    // load intervalStart and intervalEnd (with offset to current interval since we ...) // TODO: maybe it's better to store offsetOfPrevCachedInterval?
+    loadPairPtr(scratchGPR, TrustedImm32(16), resultGPR, scratchGPR);
+
+    // update intervalEnd for future fast paths (intervalStart is updated in the fast path, so we don't need to do that here)
+    // storePtr(scratchGPR, Address(allocatorGPR, LocalAllocator::offsetOfFreeList() + FreeList::offsetOfIntervalEnd()));
+    // ^^^ intentional error
+
+    // jump back to the fast path since we've queued another interval
+    jump(bumpLabel);
 
     // JIT_COMMENT(*this, "Get next interval (slower path)");
     // popPath.link(this);

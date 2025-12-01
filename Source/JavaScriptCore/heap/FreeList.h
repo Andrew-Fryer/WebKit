@@ -70,7 +70,7 @@ public:
     static constexpr ptrdiff_t offsetOfIntervalEnd() { return OBJECT_OFFSETOF(FreeList, m_intervalEnd); }
     static constexpr ptrdiff_t offsetOfOriginalSize() { return OBJECT_OFFSETOF(FreeList, m_originalSize); }
     static constexpr ptrdiff_t offsetOfCellSize() { return OBJECT_OFFSETOF(FreeList, m_cellSize); }
-    static constexpr ptrdiff_t offsetOfNumCachedIntervals() { return OBJECT_OFFSETOF(FreeList, m_numCachedIntervals); }
+    static constexpr ptrdiff_t offsetOfNextCachedInterval() { return OBJECT_OFFSETOF(FreeList, m_nextCachedInterval); }
     static constexpr ptrdiff_t offsetOfCachedIntervals() { return OBJECT_OFFSETOF(FreeList, m_cachedIntervals); }
     
     JS_EXPORT_PRIVATE void dump(PrintStream&) const;
@@ -119,30 +119,63 @@ public:
         return false;
     }
 
-    ALWAYS_INLINE bool findNextIntervalFast() {
+    ALWAYS_INLINE bool findNextIntervalFast(char*& intervalStart, char*& intervalEnd) {
         if (m_startIndex >= MarkedBlock::atomsPerBlock)
             return false;
-        ASSERT(m_intervalStart >= m_intervalEnd); // you should only advance to the next interval if the current interval is depleted
+        // ASSERT(m_intervalStart >= m_intervalEnd); // you should only advance to the next interval if the current interval is depleted
         if (findFreeCellFast<false>()) {
-            m_intervalStart = (char*)m_block->atomAt(m_startIndex);
+            intervalStart = (char*)m_block->atomAt(m_startIndex);
             bool r = findFreeCellFast<true>();
             (void)r;
             ASSERT(r || m_startIndex == 1024);
             ASSERT(m_startIndex <= 1024);
-            m_intervalEnd = (char*)m_block->atomAt(m_startIndex);
+            intervalEnd = (char*)m_block->atomAt(m_startIndex);
             // for (char* p = m_intervalStart; p < m_intervalEnd; p += m_cellSize) {
             //     if (m_live.get(m_block->block().candidateAtomNumber(p)))
             //         WTFLogAlways("afryer_findNextIntervalFast_failed %lu\n", m_block->block().candidateAtomNumber(p));
             // }
             // if (m_startIndex < 1024 && !m_live.get(m_block->block().candidateAtomNumber(m_intervalEnd)))
             //     WTFLogAlways("afryer_findNextIntervalFast_failed2 %lu\n", m_block->block().candidateAtomNumber(m_intervalEnd));
+            WTFLogAlways("afryer_findNextIntervalFast %p %p %p\n", this, intervalStart, intervalEnd);
             return true;
         }
         return false;
     }
 
     ALWAYS_INLINE bool findNextInterval() {
-        return findNextIntervalFast();
+        // I'm changing this to actually queue up the next (up to) 16 intervals in m_cachedIntervals
+        // if we don't already have an interval cached.
+        if (m_nextCachedInterval >= &m_cachedIntervals[0]) {
+            // std::pair<char*, char*> interval = *(std::bit_cast<std::pair<char*, char*>*>(m_nextCachedInterval));
+            m_intervalStart = m_nextCachedInterval->first;
+            m_intervalEnd = m_nextCachedInterval->second;
+            // m_nextCachedInterval -= sizeof(std::pair<char*, char*>);
+            m_nextCachedInterval--;
+            WTFLogAlways("afryer_findNextIntervalFast1 %p %p %p\n", this, m_intervalStart, m_intervalEnd);
+            return true;
+        }
+        m_nextCachedInterval = &m_cachedIntervals[0];
+        m_nextCachedInterval--; // this means no cached intervals
+        // We reverse the order of results here so that we allocate in the order the intervals are in the block.
+        // This makes things easier for stopAllocating and is a bit more intuitive IMHO.
+        std::array<std::pair<char*, char*>, 16> intervalStack;
+        unsigned i = 0;
+        while (i < 16 && findNextIntervalFast(intervalStack[i].first, intervalStack[i].second))
+            i++;
+        bool result = !!i;
+        while (i) {
+            i--;
+            m_nextCachedInterval++;
+            *m_nextCachedInterval = intervalStack[i];
+        }
+        if (result) {
+            m_intervalStart = m_nextCachedInterval->first;
+            m_intervalEnd = m_nextCachedInterval->second;
+            // m_nextCachedInterval -= sizeof(std::pair<char*, char*>);
+            m_nextCachedInterval--;
+            WTFLogAlways("afryer_findNextIntervalFast2 %p %p %p\n", this, m_intervalStart, m_intervalEnd);
+        }
+        return result;
         // // Todo: optimize this using word iteration and bitmask
         // ASSERT(m_block);
         // unsigned stride = cellSize >> 4; // cellSize / MarkedBlock::atomSize
@@ -304,7 +337,8 @@ I think it's probably a bit better to write this to the BitSet.
     char* m_intervalStart { nullptr };
     char* m_intervalEnd { nullptr };
     unsigned m_cellSize { 0 };
-    unsigned m_numCachedIntervals { 0 };
+    unsigned m_originalSize { 0 };
+    std::pair<char*, char*>* m_nextCachedInterval { nullptr };
     std::array<std::pair<char*, char*>, 16> m_cachedIntervals;
 
     MarkedBlock::Handle* m_block { nullptr };
@@ -312,7 +346,6 @@ I think it's probably a bit better to write this to the BitSet.
     unsigned m_startIndex { MarkedBlock::atomsPerBlock }; // could be just uin16_t // FreeList should fail allocation until it is initialized
 
     WTF::BitSet<MarkedBlock::atomsPerBlock> m_live;
-    unsigned m_originalSize { 0 };
 };
 
 } // namespace JSC

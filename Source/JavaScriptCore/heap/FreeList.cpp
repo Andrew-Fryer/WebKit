@@ -60,6 +60,7 @@ FreeList::~FreeList()
 
 void FreeList::clear()
 {
+    m_nextCachedInterval = nullptr;
     m_intervalEnd = nullptr; // No more cells in current interval
     m_startIndex = MarkedBlock::atomsPerBlock; // No more intervals to find. Note that we are lazy and don't clear m_live
     m_originalSize = 0;
@@ -67,6 +68,7 @@ void FreeList::clear()
 
 void FreeList::initialize(MarkedBlock::Handle* block, const WTF::BitSet<MarkedBlock::atomsPerBlock>& live, unsigned startIndex, unsigned bytes)
 {
+    m_nextCachedInterval = nullptr;
     // WTFLogAlways("afryer_initalize\n");
     m_block = block;
     m_live = live;
@@ -78,6 +80,7 @@ void FreeList::initialize(MarkedBlock::Handle* block, const WTF::BitSet<MarkedBl
 
 void FreeList::initializeEmpty(MarkedBlock::Handle* block, char* intervalStart, char* intervalEnd)
 {
+    m_nextCachedInterval = nullptr;
     // WTFLogAlways("afryer_initalizeEmpty\n");
     m_block = block;
     m_originalSize = intervalEnd - intervalStart;
