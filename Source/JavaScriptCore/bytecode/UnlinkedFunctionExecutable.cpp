@@ -303,20 +303,18 @@ UnlinkedFunctionExecutable::RareData& UnlinkedFunctionExecutable::ensureRareData
 void UnlinkedFunctionExecutable::finalizeUnconditionally(VM& vm, CollectionScope)
 {
     if (codeBlockEdgeMayBeWeak()) {
-        bool isCleared = false;
         bool isStillValid = false;
         auto clearIfDead = [&] (WriteBarrier<UnlinkedFunctionCodeBlock>& unlinkedCodeBlock) {
             if (!unlinkedCodeBlock)
                 return;
-            if (!vm.heap.isMarked(unlinkedCodeBlock.get())) {
+            if (!vm.heap.isMarked(unlinkedCodeBlock.get()))
                 unlinkedCodeBlock.clear();
-                isCleared = true;
-            } else
+            else
                 isStillValid = true;
         };
         clearIfDead(m_unlinkedCodeBlockForCall);
         clearIfDead(m_unlinkedCodeBlockForConstruct);
-        if (isCleared && !isStillValid) {
+        if (!isStillValid) {
             // FIXME GlobalGC: Need syncrhonization here for accessing the Heap server.
             vm.heap.unlinkedFunctionExecutableSpaceAndSet.set.remove(this);
         }
