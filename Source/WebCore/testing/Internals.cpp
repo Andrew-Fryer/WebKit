@@ -1861,14 +1861,6 @@ unsigned Internals::minimumExpectedVoiceCount()
 
 #if ENABLE(WEB_RTC)
 
-void Internals::emulateRTCPeerConnectionPlatformEvent(RTCPeerConnection& connection, const String& action)
-{
-    if (!WebRTCProvider::webRTCAvailable())
-        return;
-
-    connection.emulatePlatformEvent(action);
-}
-
 void Internals::useMockRTCPeerConnectionFactory(const String& testCase)
 {
     if (!WebRTCProvider::webRTCAvailable())

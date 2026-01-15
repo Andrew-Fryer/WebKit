@@ -740,11 +740,6 @@ ScriptExecutionContext* RTCPeerConnection::scriptExecutionContext() const
     return ActiveDOMObject::scriptExecutionContext();
 }
 
-void RTCPeerConnection::emulatePlatformEvent(const String& action)
-{
-    protectedBackend()->emulatePlatformEvent(action);
-}
-
 void RTCPeerConnection::stop()
 {
     doClose();

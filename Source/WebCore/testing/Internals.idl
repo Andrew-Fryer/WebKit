@@ -1083,7 +1083,6 @@ enum ContentsFormat {
 
     [Conditional=WEB_AUDIO] undefined useMockAudioDestinationCocoa();
 
-    [Conditional=WEB_RTC] undefined emulateRTCPeerConnectionPlatformEvent(RTCPeerConnection connection, DOMString action);
     [Conditional=WEB_RTC] undefined useMockRTCPeerConnectionFactory(DOMString testCase);
     [Conditional=WEB_RTC] undefined setICECandidateFiltering(boolean enabled);
     [Conditional=WEB_RTC] undefined setEnumeratingAllNetworkInterfacesEnabled(boolean enabled);

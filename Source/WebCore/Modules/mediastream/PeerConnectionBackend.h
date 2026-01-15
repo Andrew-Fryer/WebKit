@@ -139,8 +139,6 @@ public:
     void markAsNeedingNegotiation(uint32_t);
     virtual bool isNegotiationNeeded(uint32_t) const = 0;
 
-    virtual void emulatePlatformEvent(const String& action) = 0;
-
     struct DescriptionStates {
         std::optional<RTCSignalingState> signalingState;
         std::optional<RTCSdpType> currentLocalDescriptionSdpType;

@@ -173,9 +173,6 @@ public:
     ScriptExecutionContext* scriptExecutionContext() const final;
     using ActiveDOMObject::protectedScriptExecutionContext;
 
-    // Used for testing with a mock
-    WEBCORE_EXPORT void emulatePlatformEvent(const String& action);
-
     // API used by PeerConnectionBackend and relatives
     void updateIceGatheringState(RTCIceGatheringState);
     void updateIceConnectionState(RTCIceConnectionState);
