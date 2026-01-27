@@ -879,6 +879,12 @@ public:
 
     // Anonymous blocks that are part of of a continuation chain will return their inline continuation's outline style instead.
     // This is typically only relevant when repainting.
+    virtual const RenderStyle& outlineStyleForRepaint() const { return style(); }
+
+    // Paint optimization: allows renderers to skip paint phases when their content is clipped out.
+    // Returns true if all paint phases can be skipped for this renderer.
+    virtual bool shouldSkipPaint(const PaintInfo&, const LayoutPoint&) const { return false; }
+
     virtual const RenderStyle& outlineStyleForRepaint() const;
 
     virtual CursorDirective getCursor(const LayoutPoint&, Cursor&) const;
