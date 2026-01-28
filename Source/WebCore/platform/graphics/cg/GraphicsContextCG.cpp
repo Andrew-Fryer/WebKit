@@ -706,7 +706,7 @@ void GraphicsContextCG::drawPath(const Path& path)
 
 void GraphicsContextCG::fillPath(const Path& path)
 {
-    incrementDrawingOperationCount();
+    // incrementDrawingOperationCount();
     if (path.isEmpty())
         return;
 
@@ -756,7 +756,7 @@ void GraphicsContextCG::fillPath(const Path& path)
 
 void GraphicsContextCG::strokePath(const Path& path)
 {
-    incrementDrawingOperationCount();
+    // incrementDrawingOperationCount();
     if (path.isEmpty())
         return;
 
@@ -818,7 +818,7 @@ void GraphicsContextCG::strokePath(const Path& path)
 
 void GraphicsContextCG::fillRect(const FloatRect& rect, RequiresClipToRect requiresClipToRect)
 {
-    incrementDrawingOperationCount();
+    // incrementDrawingOperationCount();
     CGContextRef context = platformContext();
 
     if (RefPtr fillGradient = this->fillGradient()) {
@@ -1256,7 +1256,7 @@ void GraphicsContextCG::clearRect(const FloatRect& r)
 
 void GraphicsContextCG::strokeRect(const FloatRect& rect, float lineWidth)
 {
-    incrementDrawingOperationCount();
+    // incrementDrawingOperationCount();
     CGContextRef context = platformContext();
 
     if (RefPtr strokeGradient = this->strokeGradient()) {
