@@ -4359,7 +4359,7 @@ void RenderLayer::paintForegroundForFragments(const LayerFragments& layerFragmen
         // Early exit optimization for SVG renderers
         bool anyFragmentWouldPaint = false;
         for (const auto& fragment : layerFragments) {
-            if (fragment.shouldPaintContent && !fragment.foregroundRect.isEmpty()) {
+            if (fragment.shouldPaintContent && !fragment.dirtyForegroundRect().isEmpty()) {
                 anyFragmentWouldPaint = true;
                 break;
             }
@@ -4372,9 +4372,9 @@ void RenderLayer::paintForegroundForFragments(const LayerFragments& layerFragmen
 
         // Additional check: even if fragments would paint, check if content is clipped out.
         const auto& firstFragment = layerFragments.first();
-        if (firstFragment.shouldPaintContent && !firstFragment.foregroundRect.isEmpty()) {
+        if (firstFragment.shouldPaintContent && !firstFragment.dirtyForegroundRect().isEmpty()) {
             LayoutPoint paintOffset = paintOffsetForRenderer(firstFragment, localPaintingInfo);
-            PaintInfo testPaintInfo(context, firstFragment.foregroundRect.rect(), PaintPhase::Foreground, localPaintBehavior, subtreePaintRootForRenderer);
+            PaintInfo testPaintInfo(context, firstFragment.dirtyForegroundRect().rect(), PaintPhase::Foreground, localPaintBehavior, subtreePaintRootForRenderer);
             if (renderer().shouldSkipPaint(testPaintInfo, paintOffset)) {
                 // WTFLogAlways("SVG EARLY EXIT: clipped out for %s", renderer().renderName().characters());
                 return;
@@ -4390,7 +4390,7 @@ void RenderLayer::paintForegroundForFragments(const LayerFragments& layerFragmen
     // that have no visual content to paint.
     bool anyFragmentWouldPaint = false;
     for (const auto& fragment : layerFragments) {
-        if (fragment.shouldPaintContent && !fragment.foregroundRect.isEmpty()) {
+        if (fragment.shouldPaintContent && !fragment.dirtyForegroundRect().isEmpty()) {
             anyFragmentWouldPaint = true;
             break;
         }
@@ -4403,9 +4403,9 @@ void RenderLayer::paintForegroundForFragments(const LayerFragments& layerFragmen
 
     // Additional check: even if fragments would paint, check if content is clipped out.
     const auto& firstFragment = layerFragments.first();
-    if (firstFragment.shouldPaintContent && !firstFragment.foregroundRect.isEmpty()) {
+    if (firstFragment.shouldPaintContent && !firstFragment.dirtyForegroundRect().isEmpty()) {
         LayoutPoint paintOffset = paintOffsetForRenderer(firstFragment, localPaintingInfo);
-        PaintInfo testPaintInfo(context, firstFragment.foregroundRect.rect(), PaintPhase::Foreground, localPaintBehavior, subtreePaintRootForRenderer);
+        PaintInfo testPaintInfo(context, firstFragment.dirtyForegroundRect().rect(), PaintPhase::Foreground, localPaintBehavior, subtreePaintRootForRenderer);
         if (renderer().shouldSkipPaint(testPaintInfo, paintOffset)) {
             // WTFLogAlways("EARLY EXIT: clipped out for %s", renderer().renderName().characters());
             return;
