@@ -2043,6 +2043,52 @@ std::optional<std::pair<CheckedPtr<RenderElement>, FloatRect>> Element::bounding
 FloatRect Element::boundingClientRect()
 {
     Ref document = this->document();
+
+    // // DEBUG - understand why resize-below-min-size.html fails
+    // bool needsStyle = needsStyleRecalc();
+    // WTFLogAlways("getBCR: tag=%s needsStyleRecalc=%d", tagName().utf8().data(), needsStyle);
+    // if (CheckedPtr r = this->renderer()) {
+    //     WTFLogAlways("getBCR: selfNeedsLayout=%d normalChildNeedsLayout=%d",
+    //         r->selfNeedsLayout(), r->normalChildNeedsLayout());
+    //     if (auto* box = dynamicDowncast<RenderBox>(r.get())) {
+    //         WTFLogAlways("getBCR: widthFit=%d autoHeight=%d",
+    //             box->sizesPreferredLogicalWidthToFitContent(),
+    //             box->hasAutoHeightOrContainingBlockWithAutoHeight());
+    //     }
+    // }
+    // // END DEBUG
+
+    // Optimization: If dimensions are CSS-determined (not content-dependent), we can return
+    // cached dimensions without forcing layout. This helps cases like TipTap where
+    // getBoundingClientRect is called on body with height:100vh while children need layout.
+    // We must first check needsStyleRecalc() because layout flags only reflect the state
+    // AFTER style recalc - pending style changes (like setting style.width) haven't updated
+    // selfNeedsLayout() yet.
+    if (!needsStyleRecalc()) {
+        if (CheckedPtr renderer = this->renderer()) {
+            // Only apply if the element itself doesn't need layout
+            if (!renderer->selfNeedsLayout()) {
+
+                // Check if dimensions are CSS-determined (not content-dependent)
+                if (CheckedPtr box = dynamicDowncast<RenderBox>(*renderer)) {
+                    bool widthDependsOnContent = box->sizesPreferredLogicalWidthToFitContent();
+                    bool heightDependsOnContent = box->hasAutoHeightOrContainingBlockWithAutoHeight();
+
+                    if (!widthDependsOnContent && !heightDependsOnContent) {
+                        // Dimensions are CSS-determined, no need to wait for child layout
+                        // WTFLogAlways("getBCR_OPT: HIT - CSS-determined dimensions, skipping layout");
+                        auto pair = boundingAbsoluteRectWithoutLayout();
+                        if (pair) {
+                            FloatRect result = pair->second;
+                            document->convertAbsoluteToClientRect(result, renderer->style());
+                            return result;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     document->updateLayoutIfDimensionsOutOfDate(*this, { DimensionsCheck::Left, DimensionsCheck::Top, DimensionsCheck::Width, DimensionsCheck::Height, DimensionsCheck::IgnoreOverflow }, { LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible, LayoutOptions::CanDeferUpdateLayerPositions, LayoutOptions::IgnorePendingStylesheets });
     LocalFrameView::AutoPreventLayerAccess preventAccess(document->view());
     auto pair = boundingAbsoluteRectWithoutLayout();
