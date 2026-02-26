@@ -2108,16 +2108,17 @@ FloatRect Element::boundingClientRect()
         return foundHeight;
     };
 
+    // DEBUG: Store what optimization would return, then compare with actual result
+    std::optional<FloatRect> optimizedResult;
     if (canSkipLayout()) {
         auto pair = boundingAbsoluteRectWithoutLayout();
         if (pair) {
-            FloatRect result = pair->second;
-            document->convertAbsoluteToClientRect(result, pair->first->style());
-            return result;
+            optimizedResult = pair->second;
+            document->convertAbsoluteToClientRect(*optimizedResult, pair->first->style());
         }
     }
 
-    // Normal path - do layout
+    // Always do layout (for testing)
     document->updateLayoutIfDimensionsOutOfDate(*this, { DimensionsCheck::Left, DimensionsCheck::Top, DimensionsCheck::Width, DimensionsCheck::Height, DimensionsCheck::IgnoreOverflow }, { LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible, LayoutOptions::CanDeferUpdateLayerPositions, LayoutOptions::IgnorePendingStylesheets });
     LocalFrameView::AutoPreventLayerAccess preventAccess(document->view());
     auto pair = boundingAbsoluteRectWithoutLayout();
@@ -2126,6 +2127,19 @@ FloatRect Element::boundingClientRect()
     CheckedPtr renderer = WTF::move(pair->first);
     FloatRect result = pair->second;
     document->convertAbsoluteToClientRect(result, renderer->style());
+
+    // DEBUG: Compare and log if different
+    if (optimizedResult && *optimizedResult != result) {
+        WTFLogAlways("getBCR MISMATCH: tag=%s id=%s",
+            tagName().utf8().data(),
+            getIdAttribute().string().utf8().data());
+        WTFLogAlways("  optimized: (%.1f,%.1f,%.1f,%.1f)",
+            optimizedResult->x(), optimizedResult->y(),
+            optimizedResult->width(), optimizedResult->height());
+        WTFLogAlways("  actual:    (%.1f,%.1f,%.1f,%.1f)",
+            result.x(), result.y(), result.width(), result.height());
+    }
+
     return result;
 }
 
