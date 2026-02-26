@@ -2044,76 +2044,67 @@ FloatRect Element::boundingClientRect()
 {
     Ref document = this->document();
 
-    CheckedPtr renderer = this->renderer();
-    renderer->containingBlock
-
     // Optimization: Skip layout if this element's bounding rect is stable.
-    // This requires checking that neither this element nor any ancestor in
-    // the containing block chain needs style recalc or layout.
+    // We walk the ancestor chain and verify:
+    // - All ancestors are in-flow blocks with no previous siblings
+    // - No ancestor needs style recalc or layout
+    // - Height is defined somewhere (viewport provides width)
     auto canSkipLayout = [&]() -> bool {
-//         // This element must not need style recalc
-//         if (needsStyleRecalc()) // want only for self
-//             return false;
+        CheckedPtr renderer = this->renderer();
+        if (!renderer)
+            return false;
 
-//         CheckedPtr renderer = this->renderer();
-//         if (!renderer)
-//             return false;
+        CheckedPtr box = dynamicDowncast<RenderBox>(*renderer);
+        if (!box)
+            return false;
 
-//         // This element must not need layout
-//         if (renderer->selfNeedsLayout())
-//             return false;
+        // Height must be defined by self (if we have children) or found in ancestor chain
+        auto definesHeight = [](const RenderBox& renderBox) {
+            auto& style = renderBox.style();
+            // Height is defined if it's not auto and not a percentage
+            return !style.height().isAuto() && !style.height().isPercentOrCalculated();
+        };
 
-//         CheckedPtr box = dynamicDowncast<RenderBox>(*renderer);
-//         if (!box)
-//             return false;
-        
-// box->
+        bool foundHeight = !box->firstChild() || definesHeight(*box);
 
-//         // No transforms (they affect getBoundingClientRect result)
-//         if (box->style().hasTransformRelatedProperty())
-//             return false;
-
-//         // Dimensions must be CSS-determined (not content-dependent)
-//         if (box->sizesPreferredLogicalWidthToFitContent())
-//             return false;
-//         if (box->hasAutoHeightOrContainingBlockWithAutoHeight())
-//             return false;
-
-        bool foundWidth = false;
-        bool foundHeight = false;
-
-        // Walk containing block chain - all must be stable
-        for (auto* ancestor = box->containingBlock(); ancestor; ancestor = ancestor->containingBlock()) {
-            foundWidth | ancestor->style->fixedWidth;
-            ...
-
-            if (foundWidth && foundHeight) {
-                // do the optimization!
-                return true;
-            }
-            ancestor->
-            // Any ancestor needing layout affects our position/size
-            if (ancestor->needsLayout())
+        // Walk ancestor chain including self
+        for (CheckedPtr current = renderer.get(); current; current = current->parent()) {
+            // Must be in normal flow (not floated, not out-of-flow positioned)
+            if (current->isFloating() || current->isOutOfFlowPositioned())
                 return false;
 
-            // Any ancestor needing style recalc could affect layout
-            if (auto* element = ancestor->element()) {
-                if (element->needsStyleRecalc()) // todo
+            // Must be a block
+            if (!current->isRenderBlock())
+                return false;
+
+            // Must not need layout
+            if (current->selfNeedsLayout())
+                return false;
+
+            // Must not need style recalc
+            if (auto* element = current->element()) {
+                if (element->needsStyleRecalc())
                     return false;
             }
 
-            // Not a flex/grid item (parent can override size)
-            if (box->isFlexItem() || box->isGridItem())
+            // Must not have previous siblings (their layout affects our position)
+            if (current->previousSibling())
                 return false;
-            
-            if (box->isTab)
 
-            // Stop at viewport (RenderView)
-            if (ancestor->isRenderView())
-                break;
+            // Check if this ancestor defines height
+            if (!foundHeight) {
+                if (auto* ancestorBox = dynamicDowncast<RenderBox>(current.get())) {
+                    if (definesHeight(*ancestorBox))
+                        foundHeight = true;
+                }
+            }
+
+            // Stop at RenderView (viewport)
+            if (current->isRenderView())
+                break; // I think not necessary, but whatever
         }
 
-        return true;
+        return foundHeight;
     };
 
     if (canSkipLayout()) {
