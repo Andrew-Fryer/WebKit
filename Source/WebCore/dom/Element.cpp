@@ -2044,52 +2044,88 @@ FloatRect Element::boundingClientRect()
 {
     Ref document = this->document();
 
-    // // DEBUG - understand why resize-below-min-size.html fails
-    // bool needsStyle = needsStyleRecalc();
-    // WTFLogAlways("getBCR: tag=%s needsStyleRecalc=%d", tagName().utf8().data(), needsStyle);
-    // if (CheckedPtr r = this->renderer()) {
-    //     WTFLogAlways("getBCR: selfNeedsLayout=%d normalChildNeedsLayout=%d",
-    //         r->selfNeedsLayout(), r->normalChildNeedsLayout());
-    //     if (auto* box = dynamicDowncast<RenderBox>(r.get())) {
-    //         WTFLogAlways("getBCR: widthFit=%d autoHeight=%d",
-    //             box->sizesPreferredLogicalWidthToFitContent(),
-    //             box->hasAutoHeightOrContainingBlockWithAutoHeight());
-    //     }
-    // }
-    // // END DEBUG
+    CheckedPtr renderer = this->renderer();
+    renderer->containingBlock
 
-    // Optimization: If dimensions are CSS-determined (not content-dependent), we can return
-    // cached dimensions without forcing layout. This helps cases like TipTap where
-    // getBoundingClientRect is called on body with height:100vh while children need layout.
-    // We must first check needsStyleRecalc() because layout flags only reflect the state
-    // AFTER style recalc - pending style changes (like setting style.width) haven't updated
-    // selfNeedsLayout() yet.
-    if (!needsStyleRecalc()) {
-        if (CheckedPtr renderer = this->renderer()) {
-            // Only apply if the element itself doesn't need layout
-            if (!renderer->selfNeedsLayout()) {
+    // Optimization: Skip layout if this element's bounding rect is stable.
+    // This requires checking that neither this element nor any ancestor in
+    // the containing block chain needs style recalc or layout.
+    auto canSkipLayout = [&]() -> bool {
+//         // This element must not need style recalc
+//         if (needsStyleRecalc()) // want only for self
+//             return false;
 
-                // Check if dimensions are CSS-determined (not content-dependent)
-                if (CheckedPtr box = dynamicDowncast<RenderBox>(*renderer)) {
-                    bool widthDependsOnContent = box->sizesPreferredLogicalWidthToFitContent();
-                    bool heightDependsOnContent = box->hasAutoHeightOrContainingBlockWithAutoHeight();
+//         CheckedPtr renderer = this->renderer();
+//         if (!renderer)
+//             return false;
 
-                    if (!widthDependsOnContent && !heightDependsOnContent) {
-                        // Dimensions are CSS-determined, no need to wait for child layout
-                        // WTFLogAlways("getBCR_OPT: HIT - CSS-determined dimensions, skipping layout");
-                        auto pair = boundingAbsoluteRectWithoutLayout();
-                        if (pair) {
-                            FloatRect result = pair->second;
-                            document->convertAbsoluteToClientRect(result, renderer->style());
-                            WTFLogAlways("afryer_getBCR_hit\n");
-                            return result;
-                        }
-                    }
-                }
+//         // This element must not need layout
+//         if (renderer->selfNeedsLayout())
+//             return false;
+
+//         CheckedPtr box = dynamicDowncast<RenderBox>(*renderer);
+//         if (!box)
+//             return false;
+        
+// box->
+
+//         // No transforms (they affect getBoundingClientRect result)
+//         if (box->style().hasTransformRelatedProperty())
+//             return false;
+
+//         // Dimensions must be CSS-determined (not content-dependent)
+//         if (box->sizesPreferredLogicalWidthToFitContent())
+//             return false;
+//         if (box->hasAutoHeightOrContainingBlockWithAutoHeight())
+//             return false;
+
+        bool foundWidth = false;
+        bool foundHeight = false;
+
+        // Walk containing block chain - all must be stable
+        for (auto* ancestor = box->containingBlock(); ancestor; ancestor = ancestor->containingBlock()) {
+            foundWidth | ancestor->style->fixedWidth;
+            ...
+
+            if (foundWidth && foundHeight) {
+                // do the optimization!
+                return true;
             }
+            ancestor->
+            // Any ancestor needing layout affects our position/size
+            if (ancestor->needsLayout())
+                return false;
+
+            // Any ancestor needing style recalc could affect layout
+            if (auto* element = ancestor->element()) {
+                if (element->needsStyleRecalc()) // todo
+                    return false;
+            }
+
+            // Not a flex/grid item (parent can override size)
+            if (box->isFlexItem() || box->isGridItem())
+                return false;
+            
+            if (box->isTab)
+
+            // Stop at viewport (RenderView)
+            if (ancestor->isRenderView())
+                break;
+        }
+
+        return true;
+    };
+
+    if (canSkipLayout()) {
+        auto pair = boundingAbsoluteRectWithoutLayout();
+        if (pair) {
+            FloatRect result = pair->second;
+            document->convertAbsoluteToClientRect(result, pair->first->style());
+            return result;
         }
     }
 
+    // Normal path - do layout
     document->updateLayoutIfDimensionsOutOfDate(*this, { DimensionsCheck::Left, DimensionsCheck::Top, DimensionsCheck::Width, DimensionsCheck::Height, DimensionsCheck::IgnoreOverflow }, { LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible, LayoutOptions::CanDeferUpdateLayerPositions, LayoutOptions::IgnorePendingStylesheets });
     LocalFrameView::AutoPreventLayerAccess preventAccess(document->view());
     auto pair = boundingAbsoluteRectWithoutLayout();
