@@ -2051,12 +2051,23 @@ FloatRect Element::boundingClientRect()
     // - Height is defined somewhere (viewport provides width)
     auto canSkipLayout = [&]() -> bool {
         CheckedPtr renderer = this->renderer();
-        if (!renderer)
+        if (!renderer) {
+            WTFLogAlways("getBCR_DEBUG: canSkipLayout=NO (no renderer)");
             return false;
+        }
 
         CheckedPtr box = dynamicDowncast<RenderBox>(*renderer);
-        if (!box)
+        if (!box) {
+            WTFLogAlways("getBCR_DEBUG: canSkipLayout=NO (not RenderBox)");
             return false;
+        }
+
+        // Check if element is in fragmented flow (multi-column)
+        auto flowState = renderer->fragmentedFlowState();
+        WTFLogAlways("getBCR_DEBUG: tag=%s id=%s fragmentedFlowState=%d",
+            tagName().utf8().data(),
+            getIdAttribute().string().utf8().data(),
+            static_cast<int>(flowState));
 
         // Height must be defined by self (if we have children) or found in ancestor chain
         auto definesHeight = [](const RenderBox& renderBox) {
@@ -2066,46 +2077,92 @@ FloatRect Element::boundingClientRect()
         };
 
         bool foundHeight = !box->firstChild() || definesHeight(*box);
+        WTFLogAlways("getBCR_DEBUG: hasChildren=%d selfDefinesHeight=%d foundHeight=%d",
+            box->firstChild() ? 1 : 0,
+            definesHeight(*box) ? 1 : 0,
+            foundHeight ? 1 : 0);
 
         // Walk ancestor chain including self
+        int depth = 0;
         for (CheckedPtr current = renderer.get(); current; current = current->parent()) {
+            const char* nodeName = current->element() ? current->element()->tagName().utf8().data() : "(anon)";
+            const char* nodeId = (current->element() && current->element()->hasID())
+                ? current->element()->getIdAttribute().string().utf8().data() : "";
+
             // Must be in normal block flow (not flex, grid, table, etc.)
             // RenderBlockFlow represents display-inside: flow
-            if (!current->isRenderBlockFlow())
+            if (!current->isRenderBlockFlow()) {
+                WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: not RenderBlockFlow (isRenderBlock=%d isFlexibleBox=%d isGrid=%d isTable=%d)",
+                    depth, nodeName, nodeId,
+                    current->isRenderBlock() ? 1 : 0,
+                    current->isFlexibleBox() ? 1 : 0,
+                    current->isRenderGrid() ? 1 : 0,
+                    current->isTable() ? 1 : 0);
                 return false;
+            }
 
             // Must be in normal flow (not floated, not out-of-flow positioned)
-            if (current->isFloating() || current->isOutOfFlowPositioned())
+            if (current->isFloating() || current->isOutOfFlowPositioned()) {
+                WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: not in flow (floating=%d outOfFlow=%d)",
+                    depth, nodeName, nodeId,
+                    current->isFloating() ? 1 : 0,
+                    current->isOutOfFlowPositioned() ? 1 : 0);
                 return false;
+            }
 
             // Must not need layout
-            if (current->selfNeedsLayout())
+            if (current->selfNeedsLayout()) {
+                WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: selfNeedsLayout",
+                    depth, nodeName, nodeId);
                 return false;
+            }
 
             // Must not need style recalc
             if (auto* element = current->element()) {
-                if (element->needsStyleRecalc())
+                if (element->needsStyleRecalc()) {
+                    WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: needsStyleRecalc",
+                        depth, nodeName, nodeId);
                     return false;
+                }
             }
 
             // Must not have previous siblings (their layout affects our position)
-            if (current->previousSibling())
+            if (current->previousSibling()) {
+                const char* prevName = current->previousSibling()->element()
+                    ? current->previousSibling()->element()->tagName().utf8().data() : "(anon)";
+                WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: has previousSibling (%s)",
+                    depth, nodeName, nodeId, prevName);
                 return false;
+            }
 
             // Check if this ancestor defines height
             if (!foundHeight) {
                 if (auto* ancestorBox = dynamicDowncast<RenderBox>(current.get())) {
-                    if (definesHeight(*ancestorBox))
+                    if (definesHeight(*ancestorBox)) {
                         foundHeight = true;
+                        WTFLogAlways("getBCR_DEBUG: [%d] %s#%s found height definition",
+                            depth, nodeName, nodeId);
+                    }
                 }
             }
 
+            WTFLogAlways("getBCR_DEBUG: [%d] %s#%s PASS (fragmentedFlowState=%d)",
+                depth, nodeName, nodeId, static_cast<int>(current->fragmentedFlowState()));
+
             // Stop at RenderView (viewport)
             if (current->isRenderView())
-                break; // I think not necessary, but whatever
+                break;
+
+            depth++;
         }
 
-        return foundHeight;
+        if (!foundHeight) {
+            WTFLogAlways("getBCR_DEBUG: canSkipLayout=NO (no height found)");
+            return false;
+        }
+
+        WTFLogAlways("getBCR_DEBUG: canSkipLayout=YES");
+        return true;
     };
 
     // DEBUG: Store what optimization would return, then compare with actual result
