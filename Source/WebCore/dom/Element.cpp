@@ -2069,12 +2069,13 @@ FloatRect Element::boundingClientRect()
 
         // Walk ancestor chain including self
         for (CheckedPtr current = renderer.get(); current; current = current->parent()) {
-            // Must be in normal flow (not floated, not out-of-flow positioned)
-            if (current->isFloating() || current->isOutOfFlowPositioned())
+            // Must be in normal block flow (not flex, grid, table, etc.)
+            // RenderBlockFlow represents display-inside: flow
+            if (!current->isRenderBlockFlow())
                 return false;
 
-            // Must be a block
-            if (!current->isRenderBlock())
+            // Must be in normal flow (not floated, not out-of-flow positioned)
+            if (current->isFloating() || current->isOutOfFlowPositioned())
                 return false;
 
             // Must not need layout
