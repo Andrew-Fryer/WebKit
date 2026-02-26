@@ -2085,26 +2085,24 @@ FloatRect Element::boundingClientRect()
         // Walk ancestor chain including self
         int depth = 0;
         for (CheckedPtr current = renderer.get(); current; current = current->parent()) {
-            const char* nodeName = current->element() ? current->element()->tagName().utf8().data() : "(anon)";
-            const char* nodeId = (current->element() && current->element()->hasID())
-                ? current->element()->getIdAttribute().string().utf8().data() : "";
+            String nodeNameStr = current->element() ? current->element()->tagName() : "(anon)"_s;
+            String nodeIdStr = (current->element() && current->element()->hasID())
+                ? current->element()->getIdAttribute().string() : ""_s;
 
             // Must be in normal block flow (not flex, grid, table, etc.)
             // RenderBlockFlow represents display-inside: flow
             if (!current->isRenderBlockFlow()) {
-                WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: not RenderBlockFlow (isRenderBlock=%d isFlexibleBox=%d isGrid=%d isTable=%d)",
-                    depth, nodeName, nodeId,
+                WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: not RenderBlockFlow (isRenderBlock=%d isRenderGrid=%d)",
+                    depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data(),
                     current->isRenderBlock() ? 1 : 0,
-                    current->isFlexibleBox() ? 1 : 0,
-                    current->isRenderGrid() ? 1 : 0,
-                    current->isTable() ? 1 : 0);
+                    current->isRenderGrid() ? 1 : 0);
                 return false;
             }
 
             // Must be in normal flow (not floated, not out-of-flow positioned)
             if (current->isFloating() || current->isOutOfFlowPositioned()) {
                 WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: not in flow (floating=%d outOfFlow=%d)",
-                    depth, nodeName, nodeId,
+                    depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data(),
                     current->isFloating() ? 1 : 0,
                     current->isOutOfFlowPositioned() ? 1 : 0);
                 return false;
@@ -2113,7 +2111,7 @@ FloatRect Element::boundingClientRect()
             // Must not need layout
             if (current->selfNeedsLayout()) {
                 WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: selfNeedsLayout",
-                    depth, nodeName, nodeId);
+                    depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data());
                 return false;
             }
 
@@ -2121,17 +2119,15 @@ FloatRect Element::boundingClientRect()
             if (auto* element = current->element()) {
                 if (element->needsStyleRecalc()) {
                     WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: needsStyleRecalc",
-                        depth, nodeName, nodeId);
+                        depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data());
                     return false;
                 }
             }
 
             // Must not have previous siblings (their layout affects our position)
             if (current->previousSibling()) {
-                const char* prevName = current->previousSibling()->element()
-                    ? current->previousSibling()->element()->tagName().utf8().data() : "(anon)";
-                WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: has previousSibling (%s)",
-                    depth, nodeName, nodeId, prevName);
+                WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: has previousSibling",
+                    depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data());
                 return false;
             }
 
@@ -2141,13 +2137,13 @@ FloatRect Element::boundingClientRect()
                     if (definesHeight(*ancestorBox)) {
                         foundHeight = true;
                         WTFLogAlways("getBCR_DEBUG: [%d] %s#%s found height definition",
-                            depth, nodeName, nodeId);
+                            depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data());
                     }
                 }
             }
 
             WTFLogAlways("getBCR_DEBUG: [%d] %s#%s PASS (fragmentedFlowState=%d)",
-                depth, nodeName, nodeId, static_cast<int>(current->fragmentedFlowState()));
+                depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data(), static_cast<int>(current->fragmentedFlowState()));
 
             // Stop at RenderView (viewport)
             if (current->isRenderView())
