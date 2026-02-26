@@ -2081,6 +2081,7 @@ FloatRect Element::boundingClientRect()
                         if (pair) {
                             FloatRect result = pair->second;
                             document->convertAbsoluteToClientRect(result, renderer->style());
+                            WTFLogAlways("afryer_getBCR_hit\n");
                             return result;
                         }
                     }
