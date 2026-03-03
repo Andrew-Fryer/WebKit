@@ -2172,7 +2172,7 @@ FloatRect Element::boundingClientRect()
         if (pair) {
             optimizedResult = pair->second;
             document->convertAbsoluteToClientRect(*optimizedResult, pair->first->style());
-            return *optimizedResult;
+            // return *optimizedResult;
         }
     }
 
@@ -2186,17 +2186,21 @@ FloatRect Element::boundingClientRect()
     FloatRect result = pair->second;
     document->convertAbsoluteToClientRect(result, renderer->style());
 
-    // // DEBUG: Compare and log if different
-    // if (optimizedResult && *optimizedResult != result) {
-    //     WTFLogAlways("getBCR MISMATCH: tag=%s id=%s",
-    //         tagName().utf8().data(),
-    //         getIdAttribute().string().utf8().data());
-    //     WTFLogAlways("  optimized: (%.1f,%.1f,%.1f,%.1f)",
-    //         optimizedResult->x(), optimizedResult->y(),
-    //         optimizedResult->width(), optimizedResult->height());
-    //     WTFLogAlways("  actual:    (%.1f,%.1f,%.1f,%.1f)",
-    //         result.x(), result.y(), result.width(), result.height());
-    // }
+    // DEBUG: Compare and log if different
+    if (optimizedResult) {
+        if (*optimizedResult == result) {
+            WTFLogAlways("getBCR HIT\n");
+        } else {
+            WTFLogAlways("getBCR MISMATCH: tag=%s id=%s",
+                tagName().utf8().data(),
+                getIdAttribute().string().utf8().data());
+            WTFLogAlways("  optimized: (%.1f,%.1f,%.1f,%.1f)",
+                optimizedResult->x(), optimizedResult->y(),
+                optimizedResult->width(), optimizedResult->height());
+            WTFLogAlways("  actual:    (%.1f,%.1f,%.1f,%.1f)",
+                result.x(), result.y(), result.width(), result.height());
+        }
+    }
 
     return result;
 }
