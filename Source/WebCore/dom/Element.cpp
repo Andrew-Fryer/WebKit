@@ -2064,6 +2064,7 @@ FloatRect Element::boundingClientRect()
 
         // Check if element is in fragmented flow (multi-column)
         auto flowState = renderer->fragmentedFlowState();
+        (void)flowState;
         // WTFLogAlways("getBCR_DEBUG: tag=%s id=%s fragmentedFlowState=%d",
         //     tagName().utf8().data(),
         //     getIdAttribute().string().utf8().data(),
@@ -2084,10 +2085,13 @@ FloatRect Element::boundingClientRect()
 
         // Walk ancestor chain including self
         int depth = 0;
+        (void)depth;
         for (CheckedPtr current = renderer.get(); current; current = current->parent()) {
             String nodeNameStr = current->element() ? current->element()->tagName() : "(anon)"_s;
             String nodeIdStr = (current->element() && current->element()->hasID())
                 ? current->element()->getIdAttribute().string() : ""_s;
+            (void)nodeNameStr;
+            (void)nodeIdStr;
 
             // Must be in normal block flow (not flex, grid, table, etc.)
             // RenderBlockFlow represents display-inside: flow
