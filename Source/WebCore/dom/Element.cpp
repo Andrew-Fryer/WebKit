@@ -2052,23 +2052,23 @@ FloatRect Element::boundingClientRect()
     auto canSkipLayout = [&]() -> bool {
         CheckedPtr renderer = this->renderer();
         if (!renderer) {
-            // WTFLogAlways("getBCR_DEBUG: canSkipLayout=NO (no renderer)");
+            WTFLogAlways("getBCR_DEBUG: canSkipLayout=NO (no renderer)");
             return false;
         }
 
         CheckedPtr box = dynamicDowncast<RenderBox>(*renderer);
         if (!box) {
-            // WTFLogAlways("getBCR_DEBUG: canSkipLayout=NO (not RenderBox)");
+            WTFLogAlways("getBCR_DEBUG: canSkipLayout=NO (not RenderBox)");
             return false;
         }
 
         // Check if element is in fragmented flow (multi-column)
         auto flowState = renderer->fragmentedFlowState();
         (void)flowState;
-        // WTFLogAlways("getBCR_DEBUG: tag=%s id=%s fragmentedFlowState=%d",
-        //     tagName().utf8().data(),
-        //     getIdAttribute().string().utf8().data(),
-        //     static_cast<int>(flowState));
+        WTFLogAlways("getBCR_DEBUG: tag=%s id=%s fragmentedFlowState=%d",
+            tagName().utf8().data(),
+            getIdAttribute().string().utf8().data(),
+            static_cast<int>(flowState));
 
         // Height must be defined by self (if we have children) or found in ancestor chain
         auto definesHeight = [](const RenderBox& renderBox) {
@@ -2078,10 +2078,10 @@ FloatRect Element::boundingClientRect()
         };
 
         bool foundHeight = !box->firstChild() || definesHeight(*box);
-        // WTFLogAlways("getBCR_DEBUG: hasChildren=%d selfDefinesHeight=%d foundHeight=%d",
-        //     box->firstChild() ? 1 : 0,
-        //     definesHeight(*box) ? 1 : 0,
-        //     foundHeight ? 1 : 0);
+        WTFLogAlways("getBCR_DEBUG: hasChildren=%d selfDefinesHeight=%d foundHeight=%d",
+            box->firstChild() ? 1 : 0,
+            definesHeight(*box) ? 1 : 0,
+            foundHeight ? 1 : 0);
 
         // Walk ancestor chain including self
         int depth = 0;
@@ -2096,42 +2096,42 @@ FloatRect Element::boundingClientRect()
             // Must be in normal block flow (not flex, grid, table, etc.)
             // RenderBlockFlow represents display-inside: flow
             if (!current->isRenderBlockFlow()) {
-                // WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: not RenderBlockFlow (isRenderBlock=%d isRenderGrid=%d)",
-                //     depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data(),
-                //     current->isRenderBlock() ? 1 : 0,
-                //     current->isRenderGrid() ? 1 : 0);
+                WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: not RenderBlockFlow (isRenderBlock=%d isRenderGrid=%d)",
+                    depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data(),
+                    current->isRenderBlock() ? 1 : 0,
+                    current->isRenderGrid() ? 1 : 0);
                 return false;
             }
 
             // Must be in normal flow (not floated, not out-of-flow positioned)
             if (current->isFloating() || current->isOutOfFlowPositioned()) {
-                // WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: not in flow (floating=%d outOfFlow=%d)",
-                //     depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data(),
-                //     current->isFloating() ? 1 : 0,
-                //     current->isOutOfFlowPositioned() ? 1 : 0);
+                WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: not in flow (floating=%d outOfFlow=%d)",
+                    depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data(),
+                    current->isFloating() ? 1 : 0,
+                    current->isOutOfFlowPositioned() ? 1 : 0);
                 return false;
             }
 
             // Must not need layout
             if (current->selfNeedsLayout()) {
-                // WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: selfNeedsLayout",
-                //     depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data());
+                WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: selfNeedsLayout",
+                    depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data());
                 return false;
             }
 
             // Must not need style recalc
             if (auto* element = current->element()) {
                 if (element->needsStyleRecalc()) {
-                    // WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: needsStyleRecalc",
-                    //     depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data());
+                    WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: needsStyleRecalc",
+                        depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data());
                     return false;
                 }
             }
 
             // Must not have previous siblings (their layout affects our position)
             if (current->previousSibling()) {
-                // WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: has previousSibling",
-                //     depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data());
+                WTFLogAlways("getBCR_DEBUG: [%d] %s#%s FAIL: has previousSibling",
+                    depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data());
                 return false;
             }
 
@@ -2140,14 +2140,14 @@ FloatRect Element::boundingClientRect()
                 if (auto* ancestorBox = dynamicDowncast<RenderBox>(current.get())) {
                     if (definesHeight(*ancestorBox)) {
                         foundHeight = true;
-                        // WTFLogAlways("getBCR_DEBUG: [%d] %s#%s found height definition",
-                        //     depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data());
+                        WTFLogAlways("getBCR_DEBUG: [%d] %s#%s found height definition",
+                            depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data());
                     }
                 }
             }
 
-            // WTFLogAlways("getBCR_DEBUG: [%d] %s#%s PASS (fragmentedFlowState=%d)",
-            //     depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data(), static_cast<int>(current->fragmentedFlowState()));
+            WTFLogAlways("getBCR_DEBUG: [%d] %s#%s PASS (fragmentedFlowState=%d)",
+                depth, nodeNameStr.utf8().data(), nodeIdStr.utf8().data(), static_cast<int>(current->fragmentedFlowState()));
 
             // Stop at RenderView (viewport)
             if (current->isRenderView())
@@ -2157,11 +2157,11 @@ FloatRect Element::boundingClientRect()
         }
 
         if (!foundHeight) {
-            // WTFLogAlways("getBCR_DEBUG: canSkipLayout=NO (no height found)");
+            WTFLogAlways("getBCR_DEBUG: canSkipLayout=NO (no height found)");
             return false;
         }
 
-        // WTFLogAlways("getBCR_DEBUG: canSkipLayout=YES");
+        WTFLogAlways("getBCR_DEBUG: canSkipLayout=YES");
         return true;
     };
 
