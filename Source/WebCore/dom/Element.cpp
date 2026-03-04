@@ -2050,17 +2050,17 @@ FloatRect Element::boundingClientRect()
     // - All ancestors are in-flow blocks with no previous siblings
     // - No ancestor needs style recalc or layout
     // - Height is defined somewhere (viewport provides width)
-    String skipReason;
+    // String skipReason;
     auto canSkipLayout = [&]() -> bool {
         CheckedPtr renderer = this->renderer();
         if (!renderer) {
-            skipReason = "no renderer"_s;
+            // skipReason = "no renderer"_s;
             return false;
         }
 
         CheckedPtr box = dynamicDowncast<RenderBox>(*renderer);
         if (!box) {
-            skipReason = "not RenderBox"_s;
+            // skipReason = "not RenderBox"_s;
             return false;
         }
 
@@ -2074,40 +2074,40 @@ FloatRect Element::boundingClientRect()
         bool foundHeight = !box->firstChild() || definesHeight(*box);
 
         // Walk ancestor chain including self
-        int depth = 0;
+        // int depth = 0;
         for (CheckedPtr current = renderer.get(); current; current = current->parent()) {
             // Must be in normal block flow (not flex, grid, table, etc.)
             // RenderBlockFlow represents display-inside: flow
             ;
             // if (!current->isRenderBlockFlow()) {
             if (current->style().display() != Style::DisplayType::BlockFlow && !(current == renderer.get() && current->style().display() == Style::DisplayType::BlockFlex)) {
-                skipReason = makeString("depth="_s, depth, " not RenderBlockFlow: "_s, current->style().display().toRaw());
+                // skipReason = makeString("depth="_s, depth, " not RenderBlockFlow: "_s, current->style().display().toRaw());
                 return false;
             }
 
             // Must be in normal flow (not floated, not out-of-flow positioned)
             if (current->isFloating() || current->isOutOfFlowPositioned()) {
-                skipReason = makeString("depth="_s, depth, " not in flow"_s);
+                // skipReason = makeString("depth="_s, depth, " not in flow"_s);
                 return false;
             }
 
             // Must not need layout
             if (current->selfNeedsLayout()) {
-                skipReason = makeString("depth="_s, depth, " selfNeedsLayout"_s);
+                // skipReason = makeString("depth="_s, depth, " selfNeedsLayout"_s);
                 return false;
             }
 
             // Must not need style recalc
             if (auto* element = current->element()) {
                 if (element->needsStyleRecalc()) {
-                    skipReason = makeString("depth="_s, depth, " needsStyleRecalc"_s);
+                    // skipReason = makeString("depth="_s, depth, " needsStyleRecalc"_s);
                     return false;
                 }
             }
 
             // Must not have previous siblings (their layout affects our position)
             if (current->previousSibling()) {
-                skipReason = makeString("depth="_s, depth, " has previousSibling"_s);
+                // skipReason = makeString("depth="_s, depth, " has previousSibling"_s);
                 return false;
             }
 
@@ -2123,11 +2123,11 @@ FloatRect Element::boundingClientRect()
             if (current->isRenderView())
                 break;
 
-            depth++;
+            // depth++;
         }
 
         if (!foundHeight) {
-            skipReason = "no height found"_s;
+            // skipReason = "no height found"_s;
             return false;
         }
 
@@ -2138,19 +2138,19 @@ FloatRect Element::boundingClientRect()
 
     // DEBUG: Store what optimization would return, then compare with actual result
     std::optional<FloatRect> optimizedResult;
-    if (true || canSkipLayout()) {
+    if (didHit) {
         auto pair = boundingAbsoluteRectWithoutLayout();
         if (pair) {
             optimizedResult = pair->second;
             document->convertAbsoluteToClientRect(*optimizedResult, pair->first->style());
-            // return *optimizedResult;
+            return *optimizedResult;
         }
     }
 
     // Always do layout (for testing)
-    auto layoutStart = MonotonicTime::now();
+    // auto layoutStart = MonotonicTime::now();
     document->updateLayoutIfDimensionsOutOfDate(*this, { DimensionsCheck::Left, DimensionsCheck::Top, DimensionsCheck::Width, DimensionsCheck::Height, DimensionsCheck::IgnoreOverflow }, { LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible, LayoutOptions::CanDeferUpdateLayerPositions, LayoutOptions::IgnorePendingStylesheets });
-    auto layoutDuration = MonotonicTime::now() - layoutStart;
+    // auto layoutDuration = MonotonicTime::now() - layoutStart;
     LocalFrameView::AutoPreventLayerAccess preventAccess(document->view());
     auto pair = boundingAbsoluteRectWithoutLayout();
     if (!pair)
@@ -2159,23 +2159,23 @@ FloatRect Element::boundingClientRect()
     FloatRect result = pair->second;
     document->convertAbsoluteToClientRect(result, renderer->style());
 
-    // DEBUG: Compare and log if different
-    if (optimizedResult && *optimizedResult == result) {
-        if (didHit)
-            WTFLogAlways("getBCR HIT\n");
-        else {
-            WTFLogAlways("getBCR MISMATCH: tag=%s id=%s skipReason=(%s) layoutTime=%.1fms",
-                tagName().utf8().data(),
-                getIdAttribute().string().utf8().data(),
-                skipReason.utf8().data(),
-                layoutDuration.milliseconds());
-            WTFLogAlways("  optimized: (%.1f,%.1f,%.1f,%.1f)",
-                optimizedResult->x(), optimizedResult->y(),
-                optimizedResult->width(), optimizedResult->height());
-            WTFLogAlways("  actual:    (%.1f,%.1f,%.1f,%.1f)",
-                result.x(), result.y(), result.width(), result.height());
-        }
-    }
+    // // DEBUG: Compare and log if different
+    // if (optimizedResult && *optimizedResult == result) {
+    //     if (didHit)
+    //         WTFLogAlways("getBCR HIT\n");
+    //     else {
+    //         WTFLogAlways("getBCR MISMATCH: tag=%s id=%s skipReason=(%s) layoutTime=%.1fms",
+    //             tagName().utf8().data(),
+    //             getIdAttribute().string().utf8().data(),
+    //             skipReason.utf8().data(),
+    //             layoutDuration.milliseconds());
+    //         WTFLogAlways("  optimized: (%.1f,%.1f,%.1f,%.1f)",
+    //             optimizedResult->x(), optimizedResult->y(),
+    //             optimizedResult->width(), optimizedResult->height());
+    //         WTFLogAlways("  actual:    (%.1f,%.1f,%.1f,%.1f)",
+    //             result.x(), result.y(), result.width(), result.height());
+    //     }
+    // }
 
     return result;
 }
