@@ -10438,7 +10438,7 @@ void Document::updateIntersectionObservations(const Vector<WeakPtr<IntersectionO
 
     for (auto& weakObserver : intersectionObserversWithPendingNotifications) {
         if (RefPtr observer = weakObserver.get())
-            observer->notify();
+            observer->notify(); // here
     }
 }
 
