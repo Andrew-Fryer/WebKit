@@ -234,6 +234,9 @@
         "ExportToWrappedFunction": {
             "contextsAllowed": ["interface"]
         },
+        "FastIndexOf": {
+            "contextsAllowed": ["interface"]
+        },
         "Exposed": {
             "contextsAllowed": ["interface", "namespace", "attribute", "operation", "constant"],
             "values": ["*"],

@@ -60,6 +60,7 @@ static constexpr unsigned GetOwnPropertySlotIsImpureForPropertyAbsence = 1 << 15
 static constexpr unsigned InterceptsGetOwnPropertySlotByIndexEvenWhenLengthIsNotZero = 1 << 16;
 static constexpr unsigned StructureIsImmortal = 1 << 17;
 static constexpr unsigned OverridesPut = 1 << 18;
+static constexpr unsigned HasFastCollectionIndexOf = 1 << 19;
 static constexpr unsigned GetOwnPropertySlotMayBeWrongAboutDontEnum = 1 << 20;
 static constexpr unsigned OverridesIsExtensible = 1 << 21;
 
@@ -106,6 +107,7 @@ public:
     bool overridesPut() const { return isSetOnFlags2<OverridesPut>(); }
     bool overridesGetPrototype() const { return isSetOnFlags1<OverridesGetPrototype>(); }
     bool overridesIsExtensible() const { return isSetOnFlags2<OverridesIsExtensible>(); }
+    bool hasFastCollectionIndexOf() const { return isSetOnFlags2<HasFastCollectionIndexOf>(); }
     bool prohibitsPropertyCaching() const { return isSetOnFlags2<ProhibitsPropertyCaching>(); }
     bool getOwnPropertySlotIsImpure() const { return isSetOnFlags2<GetOwnPropertySlotIsImpure>(); }
     bool getOwnPropertySlotIsImpureForPropertyAbsence() const { return isSetOnFlags2<GetOwnPropertySlotIsImpureForPropertyAbsence>(); }

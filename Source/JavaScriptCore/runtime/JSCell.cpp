@@ -70,6 +70,12 @@ void JSCell::analyzeHeap(JSCell*, HeapAnalyzer&)
 {
 }
 
+int64_t JSCell::fastCollectionIndexOf(JSObject*, JSGlobalObject*, JSValue, uint64_t, uint64_t)
+{
+    RELEASE_ASSERT_NOT_REACHED();
+    return -1;
+}
+
 bool JSCell::getString(JSGlobalObject* globalObject, String& stringValue) const
 {
     if (!isString())

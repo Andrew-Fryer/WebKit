@@ -123,6 +123,10 @@ struct MethodTable {
 
     ALWAYS_INLINE void visitOutputConstraints(JSCell* cell, SlotVisitor& visitor) const { visitOutputConstraintsWithSlotVisitor(cell, visitor); }
     ALWAYS_INLINE void visitOutputConstraints(JSCell* cell, AbstractSlotVisitor& visitor) const { visitOutputConstraintsWithAbstractSlotVisitor(cell, visitor); }
+
+    // Fast path for Array.prototype.indexOf when called on DOM collections (NodeList).
+    using FastCollectionIndexOfFunctionPtr = int64_t (*)(JSObject*, JSGlobalObject*, JSValue searchElement, uint64_t startIndex, uint64_t length);
+    FastCollectionIndexOfFunctionPtr METHOD_TABLE_ENTRY(fastCollectionIndexOf);
 };
 
 #undef METHOD_TABLE_ENTRY
@@ -154,6 +158,7 @@ struct MethodTable {
         &ClassName::visitChildren, \
         &ClassName::visitOutputConstraints, \
         &ClassName::visitOutputConstraints, \
+        &ClassName::fastCollectionIndexOf, \
     }, \
     sizeof(ClassName), \
     ClassName::isResizableOrGrowableSharedTypedArray, \

@@ -1352,6 +1352,12 @@ JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncIndexOf, (JSGlobalObject* globalObject, C
             return JSValue::encode(result);
     }
 
+    if (thisObject->structure()->typeInfo().hasFastCollectionIndexOf()) {
+        int64_t fastResult = thisObject->methodTable()->fastCollectionIndexOf(thisObject, globalObject, searchElement, index, length);
+        RETURN_IF_EXCEPTION(scope, { });
+        return JSValue::encode(jsNumber(fastResult));
+    }
+
     for (; index < length; ++index) {
         JSValue e = getProperty(globalObject, thisObject, index);
         RETURN_IF_EXCEPTION(scope, { });

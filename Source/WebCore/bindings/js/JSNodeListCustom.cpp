@@ -83,4 +83,19 @@ JSC::JSValue toJSNewlyCreated(JSGlobalObject*, JSDOMGlobalObject* globalObject, 
     return createWrapper(*globalObject, WTF::move(nodeList));
 }
 
+int64_t JSNodeList::fastCollectionIndexOf(JSObject* object, JSGlobalObject* lexicalGlobalObject, JSValue searchElement, uint64_t startIndex, uint64_t length)
+{
+    auto& vm = getVM(lexicalGlobalObject);
+    auto* unwrappedSearchElement = JSNode::toWrapped(vm, searchElement);
+    if (!unwrappedSearchElement)
+        return -1;
+    auto& collection = jsCast<JSNodeList*>(object)->wrapped();
+    uint64_t end = std::min(length, static_cast<uint64_t>(collection.length()));
+    for (uint64_t i = startIndex; i < end; ++i) {
+        if (collection.item(static_cast<unsigned>(i)) == unwrappedSearchElement)
+            return static_cast<int64_t>(i);
+    }
+    return -1;
+}
+
 } // namespace WebCore

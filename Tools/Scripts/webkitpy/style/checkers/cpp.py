@@ -4629,6 +4629,7 @@ def check_identifier_name_in_declaration(filename, line_number, line, file_state
                 and not modified_identifier == "DFG_OPERATION"
                 and not modified_identifier == "LIFETIME_BOUND"
                 and not modified_identifier == "LOG_CHANNEL"
+                and not modified_identifier == "METHOD_TABLE_ENTRY"
                 and not modified_identifier == "WTF_GUARDED_BY_LOCK"
                 and not modified_identifier == "WTF_GUARDED_BY_CAPABILITY"
                 and not modified_identifier.startswith("_AX")

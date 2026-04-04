@@ -3643,6 +3643,11 @@ sub GenerateHeader
         push(@headerContent, "    static void destroy(JSC::JSCell*);\n");
     }
 
+    if ($interface->extendedAttributes->{FastIndexOf}) {
+        push(@headerContent, "    static int64_t fastCollectionIndexOf(JSC::JSObject*, JSC::JSGlobalObject*, JSC::JSValue, uint64_t, uint64_t);\n");
+        $structureFlags{"JSC::HasFastCollectionIndexOf"} = 1;
+    }
+
     # Class info
     if ($interfaceName eq "Node") {
         push(@headerContent, "\n");

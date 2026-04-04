@@ -199,6 +199,8 @@ public:
 
     JS_EXPORT_PRIVATE static void analyzeHeap(JSCell*, HeapAnalyzer&);
 
+    JS_EXPORT_PRIVATE static int64_t fastCollectionIndexOf(JSObject*, JSGlobalObject*, JSValue, uint64_t, uint64_t);
+
     // Object operations, with the toObject operation included.
     const ClassInfo* classInfo() const;
     const MethodTable* methodTable() const;
