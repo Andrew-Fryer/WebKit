@@ -150,6 +150,7 @@ class StackFrame;
 class Structure;
 class Symbol;
 class TypedArrayController;
+class UnlinkedCodeBlock;
 class VMEntryScope;
 class TypeProfiler;
 class TypeProfilerLog;
@@ -981,6 +982,11 @@ public:
     DateCache dateCache;
 
     std::unique_ptr<Profiler::Database> m_perBytecodeProfiler;
+    String m_currentSignpostMessage;
+    const String& currentSignpostMessage() const { return m_currentSignpostMessage; }
+    Lock m_compilationEventLogLock;
+    UncheckedKeyHashSet<UnlinkedCodeBlock*> m_unlinkedCodeBlocksWithEvents;
+    void dumpAndClearCompilationEventLogs();
     RefPtr<TypedArrayController> m_typedArrayController;
     CrossTaskToken* crossTaskToken() const { return m_crossTaskToken.get(); }
     JS_EXPORT_PRIVATE void setCrossTaskToken(RefPtr<CrossTaskToken>&&);
