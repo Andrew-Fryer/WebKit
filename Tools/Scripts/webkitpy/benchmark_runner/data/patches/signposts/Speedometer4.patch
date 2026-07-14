@@ -39,3 +39,111 @@
          };
  
          const report = () => this.#callback(this.#step, syncTime, asyncTime);
+--- a/suites-experimental/javascript-wc-indexeddb/dist/src/speedometer-utils/test-runner.mjs
++++ b/suites-experimental/javascript-wc-indexeddb/dist/src/speedometer-utils/test-runner.mjs
+@@ -39,6 +39,8 @@
+         const syncStartLabel = `${suiteName}.${testName}-start`;
+         const syncEndLabel = `${suiteName}.${testName}-sync-end`;
+         const asyncEndLabel = `${suiteName}.${testName}-async-end`;
++        const syncName = `${suiteName}.${testName}-sync`;
++        const asyncName = `${suiteName}.${testName}-async`;
+ 
+         let syncTime;
+         let asyncStartTime;
+@@ -53,6 +55,7 @@
+                     continue;
+                 performance.mark("warmup-end");
+             }
++            __signpostStart(syncName);
+             performance.mark(syncStartLabel);
+             const syncStartTime = performance.now();
+ 
+@@ -63,9 +66,12 @@
+ 
+             const mark = performance.mark(syncEndLabel);
+             const syncEndTime = mark.startTime;
++            __signpostStop(syncName);
+ 
+             syncTime = syncEndTime - syncStartTime;
+-            asyncStartTime = syncEndTime;
++
++            __signpostStart(asyncName);
++            asyncStartTime = performance.now();
+         };
+         const measureAsync = () => {
+             // Some browsers don't immediately update the layout for paint.
+@@ -87,6 +93,7 @@
+                 performance.measure("warmup", "warmup-start", "warmup-end");
+             performance.measure(`${suiteName}.${testName}-sync`, syncStartLabel, syncEndLabel);
+             performance.measure(`${suiteName}.${testName}-async`, syncEndLabel, asyncEndLabel);
++            __signpostStop(asyncName);
+         };
+ 
+         const report = () => this.#callback(this.#test, syncTime, asyncTime);
+--- a/suites/todomvc/vanilla-examples/javascript-web-components/dist/src/speedometer-utils/test-runner.mjs
++++ b/suites/todomvc/vanilla-examples/javascript-web-components/dist/src/speedometer-utils/test-runner.mjs
+@@ -38,6 +38,8 @@
+         const syncStartLabel = `${suiteName}.${testName}-start`;
+         const syncEndLabel = `${suiteName}.${testName}-sync-end`;
+         const asyncEndLabel = `${suiteName}.${testName}-async-end`;
++        const syncName = `${suiteName}.${testName}-sync`;
++        const asyncName = `${suiteName}.${testName}-async`;
+ 
+         let syncTime;
+         let asyncStartTime;
+@@ -52,6 +54,7 @@
+                     continue;
+                 performance.mark("warmup-end");
+             }
++            __signpostStart(syncName);
+             performance.mark(syncStartLabel);
+             const syncStartTime = performance.now();
+ 
+@@ -62,9 +65,12 @@
+ 
+             const mark = performance.mark(syncEndLabel);
+             const syncEndTime = mark.startTime;
++            __signpostStop(syncName);
+ 
+             syncTime = syncEndTime - syncStartTime;
+-            asyncStartTime = syncEndTime;
++
++            __signpostStart(asyncName);
++            asyncStartTime = performance.now();
+         };
+         const measureAsync = () => {
+             const bodyReference = this.#frame ? this.#frame.contentDocument.body : document.body;
+@@ -83,6 +89,7 @@
+                 performance.measure("warmup", "warmup-start", "warmup-end");
+             performance.measure(`${suiteName}.${testName}-sync`, syncStartLabel, syncEndLabel);
+             performance.measure(`${suiteName}.${testName}-async`, syncEndLabel, asyncEndLabel);
++            __signpostStop(asyncName);
+         };
+ 
+         const report = () => this.#callback(this.#test, syncTime, asyncTime);
+--- a/suites-experimental/javascript-wc-indexeddb/dist/src/workload-test.mjs
++++ b/suites-experimental/javascript-wc-indexeddb/dist/src/workload-test.mjs
+@@ -22,8 +22,11 @@
+     window.addEventListener(promisesEventsNames.delete, () => resolve());
+ });
+ 
++const storageType = new URLSearchParams(window.location.search).get("storageType") || "vanilla";
++const suiteName = storageType === "dexie" ? "TodoMVC-WebComponents-DexieJS" : "TodoMVC-WebComponents-IndexedDB";
++
+ const suites = {
+-    default: new BenchmarkSuite("indexeddb", [
++    default: new BenchmarkSuite(suiteName, [
+         new BenchmarkStep(`Adding${numberOfItemsToAdd}Items`, async () => {
+             const input = document.querySelector("todo-app").shadowRoot.querySelector("todo-topbar").shadowRoot.querySelector(".new-todo-input");
+             for (let i = 0; i < numberOfItemsToAdd; i++) {
+--- a/suites/todomvc/vanilla-examples/javascript-web-components/dist/src/workload-test.mjs
++++ b/suites/todomvc/vanilla-examples/javascript-web-components/dist/src/workload-test.mjs
+@@ -7,7 +7,7 @@
+ export const appVersion = "1.0.0";
+ 
+ const suites = {
+-    default: new BenchmarkSuite("default", [
++    default: new BenchmarkSuite("TodoMVC-WebComponents-PostMessage", [
+         new BenchmarkStep("Adding-items", () => {
+             const input = getElement(".new-todo-input", ["todo-app", "todo-topbar"]);
+             for (let i = 0; i < numberOfItemsToAdd; i++) {
