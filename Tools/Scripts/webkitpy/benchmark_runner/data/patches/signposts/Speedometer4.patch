@@ -39,14 +39,14 @@
          };
  
          const report = () => this.#callback(this.#step, syncTime, asyncTime);
---- a/suites-experimental/javascript-wc-indexeddb/dist/src/speedometer-utils/test-runner.mjs
-+++ b/suites-experimental/javascript-wc-indexeddb/dist/src/speedometer-utils/test-runner.mjs
+--- a/suites-experimental/javascript-wc-indexeddb/dist/src/speedometer-utils/step-runner.mjs
++++ b/suites-experimental/javascript-wc-indexeddb/dist/src/speedometer-utils/step-runner.mjs
 @@ -39,6 +39,8 @@
-         const syncStartLabel = `${suiteName}.${testName}-start`;
-         const syncEndLabel = `${suiteName}.${testName}-sync-end`;
-         const asyncEndLabel = `${suiteName}.${testName}-async-end`;
-+        const syncName = `${suiteName}.${testName}-sync`;
-+        const asyncName = `${suiteName}.${testName}-async`;
+         const syncStartLabel = `${suiteName}.${stepName}-start`;
+         const syncEndLabel = `${suiteName}.${stepName}-sync-end`;
+         const asyncEndLabel = `${suiteName}.${stepName}-async-end`;
++        const syncName = `${suiteName}.${stepName}-sync`;
++        const asyncName = `${suiteName}.${stepName}-async`;
  
          let syncTime;
          let asyncStartTime;
@@ -74,24 +74,24 @@
              // Some browsers don't immediately update the layout for paint.
 @@ -87,6 +93,7 @@
                  performance.measure("warmup", "warmup-start", "warmup-end");
-             performance.measure(`${suiteName}.${testName}-sync`, syncStartLabel, syncEndLabel);
-             performance.measure(`${suiteName}.${testName}-async`, syncEndLabel, asyncEndLabel);
+             performance.measure(`${suiteName}.${stepName}-sync`, syncStartLabel, syncEndLabel);
+             performance.measure(`${suiteName}.${stepName}-async`, syncEndLabel, asyncEndLabel);
 +            __signpostStop(asyncName);
          };
  
-         const report = () => this.#callback(this.#test, syncTime, asyncTime);
---- a/suites/todomvc/vanilla-examples/javascript-web-components/dist/src/speedometer-utils/test-runner.mjs
-+++ b/suites/todomvc/vanilla-examples/javascript-web-components/dist/src/speedometer-utils/test-runner.mjs
-@@ -38,6 +38,8 @@
-         const syncStartLabel = `${suiteName}.${testName}-start`;
-         const syncEndLabel = `${suiteName}.${testName}-sync-end`;
-         const asyncEndLabel = `${suiteName}.${testName}-async-end`;
-+        const syncName = `${suiteName}.${testName}-sync`;
-+        const asyncName = `${suiteName}.${testName}-async`;
+         const report = () => this.#callback(this.#step, syncTime, asyncTime);
+--- a/suites/todomvc/vanilla-examples/javascript-web-components/dist/src/speedometer-utils/step-runner.mjs
++++ b/suites/todomvc/vanilla-examples/javascript-web-components/dist/src/speedometer-utils/step-runner.mjs
+@@ -39,6 +39,8 @@
+         const syncStartLabel = `${suiteName}.${stepName}-start`;
+         const syncEndLabel = `${suiteName}.${stepName}-sync-end`;
+         const asyncEndLabel = `${suiteName}.${stepName}-async-end`;
++        const syncName = `${suiteName}.${stepName}-sync`;
++        const asyncName = `${suiteName}.${stepName}-async`;
  
          let syncTime;
          let asyncStartTime;
-@@ -52,6 +54,7 @@
+@@ -53,6 +55,7 @@
                      continue;
                  performance.mark("warmup-end");
              }
@@ -99,7 +99,7 @@
              performance.mark(syncStartLabel);
              const syncStartTime = performance.now();
  
-@@ -62,9 +65,12 @@
+@@ -63,9 +66,12 @@
  
              const mark = performance.mark(syncEndLabel);
              const syncEndTime = mark.startTime;
@@ -112,15 +112,15 @@
 +            asyncStartTime = performance.now();
          };
          const measureAsync = () => {
-             const bodyReference = this.#frame ? this.#frame.contentDocument.body : document.body;
-@@ -83,6 +89,7 @@
+             // Some browsers don't immediately update the layout for paint.
+@@ -87,6 +93,7 @@
                  performance.measure("warmup", "warmup-start", "warmup-end");
-             performance.measure(`${suiteName}.${testName}-sync`, syncStartLabel, syncEndLabel);
-             performance.measure(`${suiteName}.${testName}-async`, syncEndLabel, asyncEndLabel);
+             performance.measure(`${suiteName}.${stepName}-sync`, syncStartLabel, syncEndLabel);
+             performance.measure(`${suiteName}.${stepName}-async`, syncEndLabel, asyncEndLabel);
 +            __signpostStop(asyncName);
          };
  
-         const report = () => this.#callback(this.#test, syncTime, asyncTime);
+         const report = () => this.#callback(this.#step, syncTime, asyncTime);
 --- a/suites-experimental/javascript-wc-indexeddb/dist/src/workload-test.mjs
 +++ b/suites-experimental/javascript-wc-indexeddb/dist/src/workload-test.mjs
 @@ -22,8 +22,11 @@
