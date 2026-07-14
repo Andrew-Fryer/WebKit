@@ -60,6 +60,7 @@ def config_argument_parser():
     parser.add_argument('--generate-pgo-profiles', dest="generate_pgo_profiles", action='store_true', help="Collect LLVM profiles for PGO, and copy them to the diagnostics directory.")
     parser.add_argument('--profile', dest='trace_type', default=None, choices=["full", "full-no-clpc", "ktrace-full", "ktrace-profile"], help="Collect profiling traces, and copy them to the diagnostic directory. 'ktrace' tracing types are deprecated, but currently supported for backwards compatibility.")
     parser.add_argument('--profiling-interval', default=None, help="Specify the profiling sampling rate.")
+    parser.add_argument('--trace-args', default=None, help='Additional arguments passed verbatim to the `trace record` command when using --profile, e.g. `--trace-args "--unsafe --kdebug-buffer-size 2048mb"`. Useful to avoid lost trace events on heavy traces.')
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--browser-path', help='Specify the path to a non-default copy of the target browser as a path to the .app.')
@@ -101,6 +102,7 @@ def run_benchmark_plan(args, plan):
                                     generate_pgo_profiles=args.generate_pgo_profiles,
                                     profile_output_dir=args.diagnose_dir if args.trace_type else None,
                                     trace_type=args.trace_type, profiling_interval=args.profiling_interval,
+                                    trace_args=args.trace_args,
                                     browser_args=args.browser_args, http_server_type=args.http_server_type,
                                     http_server_port=max(0, int(args.http_server_port)))
 

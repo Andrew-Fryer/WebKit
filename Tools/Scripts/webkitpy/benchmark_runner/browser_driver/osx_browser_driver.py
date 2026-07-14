@@ -1,6 +1,7 @@
 
 import logging
 import os
+import shlex
 import shutil
 import subprocess
 import time
@@ -43,8 +44,10 @@ class OSXBrowserDriver(BrowserDriver):
         self._terminate_processes(self.process_name, self.bundle_id)
 
     @contextmanager
-    def profile(self, output_path, profile_filename, profiling_interval, trace_type, timeout=300):
+    def profile(self, output_path, profile_filename, profiling_interval, trace_type, trace_args=None, timeout=300):
         if trace_type.startswith("ktrace-"):
+            if trace_args:
+                _log.warning('--trace-args is ignored for deprecated `ktrace` trace types.')
             yield from self.profile_deprecated(output_path, profile_filename, profiling_interval, trace_type, timeout)
             return
         trace_process = None
@@ -61,6 +64,8 @@ class OSXBrowserDriver(BrowserDriver):
             trace_command += additional_trace_arguments[trace_type]
             if profiling_interval:
                 trace_command += ['--profiling-interval', profiling_interval]
+            if trace_args:
+                trace_command += shlex.split(trace_args)
             _log.info('Running trace command: {}'.format(trace_command))
             trace_process = subprocess.Popen(trace_command)
             time.sleep(5)  # Wait a few seconds for `trace` process to start
