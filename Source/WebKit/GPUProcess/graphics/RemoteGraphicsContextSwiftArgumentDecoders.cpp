@@ -30,21 +30,25 @@
 
 #include "Decoder.h"
 #include "IPCArgDecodersSwiftBoundary.h"
+#include "IPCPathDecodeSwiftBoundary.h"
 #include "RemoteGradientIdentifier.h"
 #include <WebCore/AffineTransform.h>
 #include <WebCore/ColorTypes.h>
 #include <WebCore/FloatRect.h>
+#include <WebCore/FloatRoundedRect.h>
 #include <WebCore/GraphicsContext.h>
+#include <WebCore/Path.h>
+#include <WebCore/PathSegment.h>
 #include <WebCore/PathSegmentData.h>
 #include <WebCore/RotationDirection.h>
 #include <array>
 #include <bit>
 #include <span>
 #include <wtf/StdLibExtras.h>
+#include <wtf/Vector.h>
 
 #if ENABLE(SWIFT_KERNELS_VALIDATION)
 #include "SwiftKernelsValidation.h"
-#include <wtf/Vector.h>
 #endif
 
 // The arguments of the RemoteGraphicsContext messages that have the SwiftArgumentDecoder attribute are decoded in Swift
@@ -344,6 +348,289 @@ ALWAYS_INLINE std::optional<typename Message::Arguments> decodeArguments(IPC::De
 } // namespace SwiftArgumentDecoders
 } // namespace WebKit
 
+// The WebCore::Path arguments of StrokePath, FillPath, DrawPath, ClipOutToPath and ClipPath (the messages with a Path and
+// the SwiftArgumentDecoder attribute) are decoded in Swift too (Source/WebKit/swift/IPCPathDecode), which validates the
+// wire format and copies each segment's floats into a record; the C++ here builds the PathSegments from the records, the
+// Vector<PathSegment> with the capacity that VectorArgumentCoder gives it, and the Path with Path(Vector<PathSegment>&&),
+// as the generated coders do.
+
+namespace WebKit {
+namespace SwiftPathDecoders {
+
+using WebCore::FloatPoint;
+using WebCore::FloatRect;
+using WebCore::FloatSize;
+using WebCore::Path;
+using WebCore::PathSegment;
+
+static constexpr size_t recordWords = WebKitSwift_IPCPathDecode_RecordWords;
+using Record = std::span<const uint32_t, recordWords>;
+// The segments decoded per call into Swift. Most paths have fewer (those of MotionMark's canvas tests have about 3).
+static constexpr size_t recordCapacity = 16;
+using Records = std::array<uint32_t, recordCapacity * recordWords>;
+
+static_assert(WebKitSwift_IPCPathDecode_AlternativeCount == WTF::VariantSizeV<PathSegment::Data>);
+
+// A PathSegment holding alternative `index` of PathSegment::Data, built from `arguments` as its generated coder builds it,
+// and emplaced at that index as ArgumentCoder<Variant> does.
+template<size_t index, typename... Arguments>
+ALWAYS_INLINE PathSegment makeSegment(Arguments&&... arguments)
+{
+    using Alternative = WTF::VariantAlternativeT<index, PathSegment::Data>;
+    return PathSegment { PathSegment::Data { WTF::InPlaceIndex<index>, Alternative { std::forward<Arguments>(arguments)... } } };
+}
+
+// The segment of a record (IPCPathDecodeSwiftBoundary.h). The trailing enums are built from a 0 or 1, which is what
+// isValidEnum() accepts for RotationDirection and PathRoundedRect::Strategy.
+ALWAYS_INLINE PathSegment toPathSegment(Record record)
+{
+    auto value = [record](size_t i) { return std::bit_cast<float>(record[1 + i]); };
+    auto point = [&](size_t i) { return FloatPoint { value(i), value(i + 1) }; };
+    auto size = [&](size_t i) { return FloatSize { value(i), value(i + 1) }; };
+    auto rect = [&](size_t i) { return FloatRect { point(i), size(i + 2) }; };
+    uint8_t trailingEnum = static_cast<uint8_t>(record[0] >> 8);
+    auto direction = [trailingEnum] { return static_cast<WebCore::RotationDirection>(trailingEnum); };
+
+    switch (record[0] & 0xff) {
+    case 0: return makeSegment<0>(point(0)); // PathMoveTo
+    case 1: return makeSegment<1>(point(0)); // PathLineTo
+    case 2: return makeSegment<2>(point(0), point(2)); // PathQuadCurveTo
+    case 3: return makeSegment<3>(point(0), point(2), point(4)); // PathBezierCurveTo
+    case 4: return makeSegment<4>(point(0), point(2), value(4)); // PathArcTo
+    case 5: return makeSegment<5>(point(0), value(2), value(3), value(4), direction()); // PathArc
+    case 6: return makeSegment<6>(WebCore::PathArc { point(0), value(2), value(3), value(4), direction() }); // PathClosedArc
+    case 7: return makeSegment<7>(point(0), value(2), value(3), value(4), value(5), value(6), direction()); // PathEllipse
+    case 8: return makeSegment<8>(rect(0)); // PathEllipseInRect
+    case 9: return makeSegment<9>(rect(0)); // PathRect
+    case 10: // PathRoundedRect
+        return makeSegment<10>(WebCore::FloatRoundedRect { rect(0), size(4), size(6), size(8), size(10) }, static_cast<WebCore::PathRoundedRect::Strategy>(trailingEnum));
+    case 11: return makeSegment<11>(rect(0), value(4), value(5)); // PathContinuousRoundedRect
+    case 12: { // PathDataLine
+        std::array<float, 4> values { value(0), value(1), value(2), value(3) };
+        return makeSegment<12>(std::span<const float, 4> { values });
+    }
+    case 13: return makeSegment<13>(point(0), point(2), point(4)); // PathDataQuadCurve
+    case 14: return makeSegment<14>(point(0), point(2), point(4), point(6)); // PathDataBezierCurve
+    case 15: return makeSegment<15>(point(0), point(2), point(4), value(6)); // PathDataArc
+    case 16: return makeSegment<16>(); // PathCloseSubpath
+    default: RELEASE_ASSERT_NOT_REACHED();
+    }
+}
+
+ALWAYS_INLINE void appendSegments(Vector<PathSegment>& segments, const Records& records, size_t count)
+{
+    std::span<const uint32_t> all { records };
+    for (size_t i = 0; i < count; ++i)
+        segments.append(toPathSegment(all.subspan(i * recordWords).first<recordWords>()));
+}
+
+// decode<Path>() from `position` of `stream`: sets `path` and returns the new position, or returns
+// WebKitSwift_IPCArgDecoders_Invalid.
+inline intptr_t decodePath(std::span<const uint8_t> stream, size_t position, std::optional<Path>& path)
+{
+    Records records;
+    uint64_t segmentCount = 0;
+    intptr_t result = WebKitSwift_IPCPathDecode_decodePath(stream.data(), stream.size(), position, records.data(), recordCapacity, &segmentCount);
+    if (result < 0) [[unlikely]]
+        return result;
+    // As VectorArgumentCoder<false, PathSegment>::decode(), which reserves the capacity of vectors under 1 MB and grows
+    // and then shrinks larger ones. (Swift fails a segmentCount larger than the bytes left in the stream.)
+    Vector<PathSegment> segments;
+    bool reserve = segmentCount < 1024 * 1024 / sizeof(PathSegment);
+    if (reserve) [[likely]]
+        segments.reserveInitialCapacity(segmentCount);
+    size_t decoded = 0;
+    size_t count = std::min<uint64_t>(segmentCount, recordCapacity);
+    while (true) {
+        appendSegments(segments, records, count);
+        decoded += count;
+        if (decoded == segmentCount) [[likely]]
+            break;
+        count = std::min<uint64_t>(segmentCount - decoded, recordCapacity);
+        result = WebKitSwift_IPCPathDecode_decodePathSegments(stream.data(), stream.size(), result, records.data(), count);
+        if (result < 0) [[unlikely]]
+            return result;
+    }
+    if (!reserve)
+        segments.shrinkToFit();
+    path.emplace(WTF::move(segments));
+    return result;
+}
+
+// Arguments<std::tuple<...>>::decode(): the arguments of a message from `position` of `stream`, as decodePath().
+template<typename> struct Arguments;
+
+template<> struct Arguments<std::tuple<Path>> {
+    ALWAYS_INLINE static intptr_t decode(std::span<const uint8_t> stream, size_t position, std::optional<std::tuple<Path>>& arguments)
+    {
+        std::optional<Path> path;
+        intptr_t result = decodePath(stream, position, path);
+        if (result >= 0) [[likely]]
+            arguments.emplace(WTF::move(*path));
+        return result;
+    }
+};
+
+template<> struct Arguments<std::tuple<Path, WebCore::WindRule>> {
+    ALWAYS_INLINE static intptr_t decode(std::span<const uint8_t> stream, size_t position, std::optional<std::tuple<Path, WebCore::WindRule>>& arguments)
+    {
+        std::optional<Path> path;
+        intptr_t result = decodePath(stream, position, path);
+        if (result < 0) [[unlikely]]
+            return result;
+        uint8_t windRule = 0;
+        result = WebKitSwift_IPCPathDecode_decodeBoolEnum(stream.data(), stream.size(), result, &windRule);
+        if (result >= 0) [[likely]]
+            arguments.emplace(WTF::move(*path), static_cast<WebCore::WindRule>(windRule));
+        return result;
+    }
+};
+
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+// The bit patterns of decoded arguments, member by member.
+struct Bits {
+    Vector<uint32_t> values;
+    void append(uint32_t value) { values.append(value); }
+    void append(float value) { append(std::bit_cast<uint32_t>(value)); }
+    void append(const FloatPoint& point) { append(point.x()); append(point.y()); }
+    void append(const FloatSize& size) { append(size.width()); append(size.height()); }
+    void append(const FloatRect& rect) { append(rect.location()); append(rect.size()); }
+    void append(const WebCore::FloatRoundedRect& rect)
+    {
+        append(rect.rect());
+        append(rect.radii().topLeft()); append(rect.radii().topRight()); append(rect.radii().bottomLeft()); append(rect.radii().bottomRight());
+    }
+    template<typename Enum> requires std::is_enum_v<Enum> void append(Enum value)
+    {
+        static_assert(sizeof(Enum) == 1);
+        append(static_cast<uint32_t>(value));
+    }
+    void append(const WebCore::PathMoveTo& s) { append(s.point); }
+    void append(const WebCore::PathLineTo& s) { append(s.point); }
+    void append(const WebCore::PathQuadCurveTo& s) { append(s.controlPoint); append(s.endPoint); }
+    void append(const WebCore::PathBezierCurveTo& s) { append(s.controlPoint1); append(s.controlPoint2); append(s.endPoint); }
+    void append(const WebCore::PathArcTo& s) { append(s.controlPoint1); append(s.controlPoint2); append(s.radius); }
+    void append(const WebCore::PathArc& s) { append(s.center); append(s.radius); append(s.startAngle); append(s.endAngle); append(s.direction); }
+    void append(const WebCore::PathClosedArc& s) { append(s.arc); }
+    void append(const WebCore::PathEllipse& s)
+    {
+        append(s.center); append(s.radiusX); append(s.radiusY); append(s.rotation); append(s.startAngle); append(s.endAngle); append(s.direction);
+    }
+    void append(const WebCore::PathEllipseInRect& s) { append(s.rect); }
+    void append(const WebCore::PathRect& s) { append(s.rect); }
+    void append(const WebCore::PathRoundedRect& s) { append(s.roundedRect); append(s.strategy); }
+    void append(const WebCore::PathContinuousRoundedRect& s) { append(s.rect); append(s.cornerWidth); append(s.cornerHeight); }
+    void append(const WebCore::PathDataLine& s)
+    {
+        for (float value : s.span())
+            append(value);
+    }
+    void append(const WebCore::PathDataQuadCurve& s) { append(s.start); append(s.controlPoint); append(s.endPoint); }
+    void append(const WebCore::PathDataBezierCurve& s) { append(s.start); append(s.controlPoint1); append(s.controlPoint2); append(s.endPoint); }
+    void append(const WebCore::PathDataArc& s) { append(s.start); append(s.controlPoint1); append(s.controlPoint2); append(s.radius); }
+    void append(const WebCore::PathCloseSubpath&) { }
+    void append(const PathSegment& segment)
+    {
+        append(static_cast<uint32_t>(segment.data().index()));
+        WTF::switchOn(segment.data(), [&](const auto& alternative) { append(alternative); });
+    }
+    void append(const Path& path)
+    {
+        // Path(Vector<PathSegment>&&) is empty, a single segment, or a PathImpl (a PathStream) holding the vector.
+        auto* segments = path.segmentsIfExists();
+        append(static_cast<uint32_t>(segments ? 2 : path.singleSegmentIfExists() ? 1 : 0));
+        if (segments) {
+            append(static_cast<uint32_t>(segments->size()));
+            append(static_cast<uint32_t>(segments->capacity()));
+        }
+        for (auto& segment : path.segments())
+            append(segment);
+    }
+    template<typename... Elements> void append(const std::tuple<Elements...>& arguments)
+    {
+        std::apply([&](const auto&... element) { (append(element), ...); }, arguments);
+    }
+    bool operator==(const Bits&) const = default;
+};
+
+// As SwiftArgumentDecoders::decodeArgumentsAndValidate(): both decoders read one private snapshot of the stream, with
+// the message name, then the argument bytes at the same address modulo 8 as in the stream. A Path has no size bound, so
+// the snapshot holds the first 4 KB of what is left in the stream, and all of it if the arguments don't decode from
+// that. Both decoders must agree on every snapshot (they read nothing past its end); the last one is what is decoded.
+template<typename Message>
+NEVER_INLINE std::optional<typename Message::Arguments> decodeArgumentsAndValidate(IPC::Decoder& decoder)
+{
+    static constexpr size_t argumentsOffset = sizeof(IPC::MessageName);
+    static constexpr size_t firstSnapshotSize = 4096;
+
+    auto stream = decoder.span();
+    size_t position = decoder.currentBufferOffset();
+    auto remaining = stream.subspan(position);
+    // The arguments of a message without a reply ID follow its uint16_t name, which is 2-byte aligned.
+    auto argumentsAddress = reinterpret_cast<uintptr_t>(remaining.data());
+    RELEASE_ASSERT(!(argumentsAddress % alignof(IPC::MessageName)));
+
+    for (size_t size = std::min(remaining.size(), firstSnapshotSize); ; size = remaining.size()) {
+        Vector<uint8_t> storage(8 + argumentsOffset + size);
+        size_t start = (argumentsAddress + 16 - argumentsOffset - reinterpret_cast<uintptr_t>(storage.span().data()) % 8) % 8;
+        auto writableSnapshot = storage.mutableSpan().subspan(start, argumentsOffset + size);
+        auto name = Message::name();
+        memcpySpan(writableSnapshot.first(argumentsOffset), asByteSpan(name));
+        memcpySpan(writableSnapshot.subspan(argumentsOffset), remaining.first(size));
+        std::span<const uint8_t> snapshot { writableSnapshot };
+        RELEASE_ASSERT((reinterpret_cast<uintptr_t>(snapshot.data()) + argumentsOffset) % 8 == argumentsAddress % 8);
+
+        IPC::Decoder cxxDecoder { snapshot, 0 };
+        RELEASE_ASSERT(cxxDecoder.isValid() && cxxDecoder.messageName() == Message::name() && cxxDecoder.currentBufferOffset() == argumentsOffset);
+        auto cxxArguments = cxxDecoder.decode<typename Message::Arguments>();
+
+        std::optional<typename Message::Arguments> swiftArguments;
+        intptr_t result = Arguments<typename Message::Arguments>::decode(snapshot, argumentsOffset, swiftArguments);
+        RELEASE_ASSERT((result >= 0) == !!cxxArguments && (result >= 0) == !!swiftArguments);
+        RELEASE_ASSERT(cxxDecoder.isValid() == !!cxxArguments);
+#if ENABLE(IPC_TESTING_API)
+        RELEASE_ASSERT(!cxxDecoder.hasErrorString());
+#endif
+        if (result < 0) {
+            RELEASE_ASSERT(result == WebKitSwift_IPCArgDecoders_Invalid);
+            if (size < remaining.size())
+                continue;
+            decoder.markInvalid();
+            return std::nullopt;
+        }
+        RELEASE_ASSERT(static_cast<size_t>(result) == cxxDecoder.currentBufferOffset());
+        Bits swiftBits;
+        swiftBits.append(*swiftArguments);
+        Bits cxxBits;
+        cxxBits.append(*cxxArguments);
+        RELEASE_ASSERT(swiftBits == cxxBits);
+
+        decoder.setCurrentBufferOffset(position + result - argumentsOffset);
+        return swiftArguments;
+    }
+}
+#endif
+
+template<typename Message>
+ALWAYS_INLINE std::optional<typename Message::Arguments> decodeArguments(IPC::Decoder& decoder)
+{
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        return decodeArgumentsAndValidate<Message>(decoder);
+#endif
+    std::optional<typename Message::Arguments> arguments;
+    intptr_t result = Arguments<typename Message::Arguments>::decode(decoder.span(), decoder.currentBufferOffset(), arguments);
+    if (result < 0) [[unlikely]] {
+        decoder.markInvalid();
+        return std::nullopt;
+    }
+    decoder.setCurrentBufferOffset(result);
+    return arguments;
+}
+
+} // namespace SwiftPathDecoders
+} // namespace WebKit
+
 namespace Messages::RemoteGraphicsContext {
 
 #define DEFINE_SWIFT_ARGUMENT_DECODER(Message) \
@@ -367,6 +654,20 @@ DEFINE_SWIFT_ARGUMENT_DECODER(StrokeQuadCurve)
 DEFINE_SWIFT_ARGUMENT_DECODER(StrokeBezierCurve)
 
 #undef DEFINE_SWIFT_ARGUMENT_DECODER
+
+#define DEFINE_SWIFT_PATH_ARGUMENT_DECODER(Message) \
+    std::optional<Message::Arguments> Message::decodeArgumentsInSwift(IPC::Decoder& decoder) \
+    { \
+        return WebKit::SwiftPathDecoders::decodeArguments<Message>(decoder); \
+    }
+
+DEFINE_SWIFT_PATH_ARGUMENT_DECODER(ClipOutToPath)
+DEFINE_SWIFT_PATH_ARGUMENT_DECODER(ClipPath)
+DEFINE_SWIFT_PATH_ARGUMENT_DECODER(DrawPath)
+DEFINE_SWIFT_PATH_ARGUMENT_DECODER(FillPath)
+DEFINE_SWIFT_PATH_ARGUMENT_DECODER(StrokePath)
+
+#undef DEFINE_SWIFT_PATH_ARGUMENT_DECODER
 
 } // namespace Messages::RemoteGraphicsContext
 

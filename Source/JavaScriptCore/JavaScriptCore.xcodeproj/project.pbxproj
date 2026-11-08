@@ -2435,6 +2435,12 @@
 		85C34DCD2B053A13D9897FFF /* AvailabilityLocalsBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC5EEDB5BDF38D140BE95C5 /* AvailabilityLocalsBoundary.swift */; };
 		C748DEFCB0F4EB4FAFFCC663 /* ButterflyFill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D1408F4E733EE1AB7D7856 /* ButterflyFill.swift */; };
 		8ABA7749DBC9E48C43D7A04A /* ButterflyFillBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9569F7E0119B8483607FDABC /* ButterflyFillBoundary.swift */; };
+		EAA74ACC6D7A95E92FFBEFA8 /* DFGLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4D09B99AD905D0452F23169 /* DFGLiveness.swift */; };
+		2B988482423399E39A603D8B /* DFGLivenessBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0270A31E989ED9C075D2002D /* DFGLivenessBoundary.swift */; };
+		658B7FDF64FE784DFE0CA7C3 /* LexerEscapedLiterals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05A6CB660EE246087594EC4D /* LexerEscapedLiterals.swift */; };
+		7DF25872F7E3A66FB054F702 /* LexerEscapedLiteralsBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADA00F874491A0602064774E /* LexerEscapedLiteralsBoundary.swift */; };
+		E8E9964CDF8726F5229BCBB9 /* LexerRegExp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7859F94AE2C587D9E4940119 /* LexerRegExp.swift */; };
+		32CBB39C0B1C49FAB5191BB4 /* LexerRegExpBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 497CE475380AEEAB6FE5244D /* LexerRegExpBoundary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -6808,6 +6814,15 @@
 		72D1408F4E733EE1AB7D7856 /* ButterflyFill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButterflyFill/ButterflyFill.swift; sourceTree = "<group>"; };
 		9569F7E0119B8483607FDABC /* ButterflyFillBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButterflyFill/ButterflyFillBoundary.swift; sourceTree = "<group>"; };
 		FC7122E243FCDEEAB4B751AA /* ButterflyFillSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ButterflyFill/ButterflyFillSwiftBoundary.h; sourceTree = "<group>"; };
+		B4D09B99AD905D0452F23169 /* DFGLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DFGLiveness/DFGLiveness.swift; sourceTree = "<group>"; };
+		0270A31E989ED9C075D2002D /* DFGLivenessBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DFGLiveness/DFGLivenessBoundary.swift; sourceTree = "<group>"; };
+		993B25B70BF95C7F4C3A745E /* DFGLivenessSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DFGLiveness/DFGLivenessSwiftBoundary.h; sourceTree = "<group>"; };
+		05A6CB660EE246087594EC4D /* LexerEscapedLiterals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LexerEscapedLiterals/LexerEscapedLiterals.swift; sourceTree = "<group>"; };
+		ADA00F874491A0602064774E /* LexerEscapedLiteralsBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LexerEscapedLiterals/LexerEscapedLiteralsBoundary.swift; sourceTree = "<group>"; };
+		2360AE637806B8C2708C74DE /* LexerEscapedLiteralsSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LexerEscapedLiterals/LexerEscapedLiteralsSwiftBoundary.h; sourceTree = "<group>"; };
+		7859F94AE2C587D9E4940119 /* LexerRegExp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LexerRegExp/LexerRegExp.swift; sourceTree = "<group>"; };
+		497CE475380AEEAB6FE5244D /* LexerRegExpBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LexerRegExp/LexerRegExpBoundary.swift; sourceTree = "<group>"; };
+		64DD8A2C4FE86D410D189992 /* LexerRegExpSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LexerRegExp/LexerRegExpSwiftBoundary.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -11277,6 +11292,15 @@
 		D9E037DFCA8FE415AD30CF27 /* swift */ = {
 			isa = PBXGroup;
 			children = (
+				64DD8A2C4FE86D410D189992 /* LexerRegExpSwiftBoundary.h */,
+				497CE475380AEEAB6FE5244D /* LexerRegExpBoundary.swift */,
+				7859F94AE2C587D9E4940119 /* LexerRegExp.swift */,
+				2360AE637806B8C2708C74DE /* LexerEscapedLiteralsSwiftBoundary.h */,
+				ADA00F874491A0602064774E /* LexerEscapedLiteralsBoundary.swift */,
+				05A6CB660EE246087594EC4D /* LexerEscapedLiterals.swift */,
+				993B25B70BF95C7F4C3A745E /* DFGLivenessSwiftBoundary.h */,
+				0270A31E989ED9C075D2002D /* DFGLivenessBoundary.swift */,
+				B4D09B99AD905D0452F23169 /* DFGLiveness.swift */,
 				FC7122E243FCDEEAB4B751AA /* ButterflyFillSwiftBoundary.h */,
 				9569F7E0119B8483607FDABC /* ButterflyFillBoundary.swift */,
 				72D1408F4E733EE1AB7D7856 /* ButterflyFill.swift */,
@@ -14744,6 +14768,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				077B97302FD2BBE10042BC77 /* JavaScriptCore.swift in Sources */,
+				32CBB39C0B1C49FAB5191BB4 /* LexerRegExpBoundary.swift in Sources */,
+				E8E9964CDF8726F5229BCBB9 /* LexerRegExp.swift in Sources */,
+				7DF25872F7E3A66FB054F702 /* LexerEscapedLiteralsBoundary.swift in Sources */,
+				658B7FDF64FE784DFE0CA7C3 /* LexerEscapedLiterals.swift in Sources */,
+				2B988482423399E39A603D8B /* DFGLivenessBoundary.swift in Sources */,
+				EAA74ACC6D7A95E92FFBEFA8 /* DFGLiveness.swift in Sources */,
 				8ABA7749DBC9E48C43D7A04A /* ButterflyFillBoundary.swift in Sources */,
 				C748DEFCB0F4EB4FAFFCC663 /* ButterflyFill.swift in Sources */,
 				85C34DCD2B053A13D9897FFF /* AvailabilityLocalsBoundary.swift in Sources */,

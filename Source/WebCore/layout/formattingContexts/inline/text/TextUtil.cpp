@@ -52,6 +52,10 @@
 #include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/TextBreakIterator.h>
 
+#if USE(SWIFT_KERNELS) && ENABLE(SWIFT_KERNELS_VALIDATION)
+#include "SwiftKernelsValidation.h"
+#endif
+
 namespace WebCore {
 namespace Layout {
 
@@ -867,9 +871,25 @@ bool TextUtil::canUseSimplifiedTextMeasuring(StringView textContent, const FontC
 
     Ref primaryFont = fontCascade.primaryFont();
 
+#if USE(SWIFT_KERNELS)
+    // The loop runs in FontCascade's batch form (Swift for the cached answers); canUseSimplifiedTextMeasuringForCharacters
+    // is the original.
+    bool result = textContent.is8Bit()
+        ? fontCascade.canUseSimplifiedTextMeasuring(textContent.span8(), whitespaceIsCollapsed, primaryFont)
+        : fontCascade.canUseSimplifiedTextMeasuring(textContent.span16(), whitespaceIsCollapsed, primaryFont);
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]] {
+        RELEASE_ASSERT(result == (textContent.is8Bit()
+            ? canUseSimplifiedTextMeasuringForCharacters(textContent.span8(), fontCascade, primaryFont, whitespaceIsCollapsed)
+            : canUseSimplifiedTextMeasuringForCharacters(textContent.span16(), fontCascade, primaryFont, whitespaceIsCollapsed)));
+    }
+#endif
+    return result;
+#else
     if (textContent.is8Bit())
         return canUseSimplifiedTextMeasuringForCharacters(textContent.span8(), fontCascade, primaryFont, whitespaceIsCollapsed);
     return canUseSimplifiedTextMeasuringForCharacters(textContent.span16(), fontCascade, primaryFont, whitespaceIsCollapsed);
+#endif
 }
 
 bool TextUtil::hasPositionDependentContentWidth(StringView textContent)

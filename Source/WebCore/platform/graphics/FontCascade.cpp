@@ -48,6 +48,13 @@
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/TextStream.h>
 
+#if USE(SWIFT_KERNELS)
+#include "TextRunScannersSwiftBoundary.h"
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+#include "SwiftKernelsValidation.h"
+#endif
+#endif
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(FontCascade);
@@ -522,6 +529,61 @@ bool FontCascade::canUseSimplifiedTextMeasuring(char32_t character, FontVariant 
     return result;
 }
 
+#if USE(SWIFT_KERNELS)
+// canUseSimplifiedTextMeasuring(character, FontVariant::Auto, whitespaceIsCollapsed, primaryFont) for every character of
+// a run (the loop of Layout::TextUtil::canUseSimplifiedTextMeasuring). Swift answers the characters the per-font cache
+// knows (TextRunScanners.swift); each character it cannot answer goes through the function above, which looks up the
+// glyph and fills the cache, and the scan resumes after it.
+bool FontCascade::canUseSimplifiedTextMeasuring(std::span<const Latin1Character> characters, bool whitespaceIsCollapsed, const Font& primaryFont) const
+{
+    auto cache = m_canUseSimplifiedTextMeasuringForAutoVariantCache.storage();
+    static_assert(sizeof(cache[0]) == sizeof(uint64_t));
+    while (true) {
+        auto bytes = byteCast<uint8_t>(characters);
+        size_t scan = WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring8(bytes.data(), bytes.size(), reinterpret_cast<const uint64_t*>(cache.data()), cache.size(), whitespaceIsCollapsed);
+        if (scan & 1)
+            return false;
+        size_t index = scan >> 1;
+        if (index == characters.size())
+            return true;
+        if (!canUseSimplifiedTextMeasuring(characters[index], FontVariant::Auto, whitespaceIsCollapsed, primaryFont))
+            return false;
+        characters = characters.subspan(index + 1);
+    }
+}
+
+// The 16-bit run: as above while the characters are Latin-1 (the only cacheable ones). From the first other character
+// on, the rest of the run is checked one character at a time, so text that is mostly beyond Latin-1 does not cross
+// into Swift for every character.
+bool FontCascade::canUseSimplifiedTextMeasuring(std::span<const char16_t> characters, bool whitespaceIsCollapsed, const Font& primaryFont) const
+{
+    auto cache = m_canUseSimplifiedTextMeasuringForAutoVariantCache.storage();
+    static_assert(sizeof(cache[0]) == sizeof(uint64_t));
+    if (!(reinterpret_cast<uintptr_t>(characters.data()) & 1)) [[likely]] {
+        while (true) {
+            size_t scan = WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring16(characters.data(), characters.size(), reinterpret_cast<const uint64_t*>(cache.data()), cache.size(), whitespaceIsCollapsed);
+            if (scan & 1)
+                return false;
+            size_t index = scan >> 1;
+            if (index == characters.size())
+                return true;
+            if (!isLatin1(characters[index])) {
+                characters = characters.subspan(index);
+                break;
+            }
+            if (!canUseSimplifiedTextMeasuring(characters[index], FontVariant::Auto, whitespaceIsCollapsed, primaryFont))
+                return false;
+            characters = characters.subspan(index + 1);
+        }
+    }
+    for (auto character : characters) {
+        if (!canUseSimplifiedTextMeasuring(character, FontVariant::Auto, whitespaceIsCollapsed, primaryFont))
+            return false;
+    }
+    return true;
+}
+#endif // USE(SWIFT_KERNELS)
+
 // For font families where any of the fonts don't have a valid entry in the OS/2 table
 // for avgCharWidth, fallback to the legacy webkit behavior of getting the avgCharWidth
 // from the width of a '0'. This only seems to apply to a fixed number of Mac fonts,
@@ -743,7 +805,24 @@ FontCascade::CodePath FontCascade::codePath(const TextRun& run, std::optional<un
     return characterRangeCodePath(run.span16());
 }
 
+// The scan runs in Swift (TextRunScanners.swift); characterRangeCodePathCxx is the original.
 FontCascade::CodePath FontCascade::characterRangeCodePath(std::span<const char16_t> span)
+{
+#if USE(SWIFT_KERNELS)
+    if (reinterpret_cast<uintptr_t>(span.data()) & 1) [[unlikely]]
+        return characterRangeCodePathCxx(span);
+    auto result = static_cast<CodePath>(WebCoreSwift_TextRunScanners_characterRangeCodePath(span.data(), span.size()));
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        RELEASE_ASSERT(result == characterRangeCodePathCxx(span));
+#endif
+    return result;
+#else
+    return characterRangeCodePathCxx(span);
+#endif
+}
+
+FontCascade::CodePath FontCascade::characterRangeCodePathCxx(std::span<const char16_t> span)
 {
     // FIXME: Should use a UnicodeSet in ports where ICU is used. Note that we 
     // can't simply use UnicodeCharacter Property/class because some characters
