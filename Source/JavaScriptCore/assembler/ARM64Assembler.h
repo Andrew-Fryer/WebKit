@@ -475,6 +475,9 @@ public:
             } copyTypes;
             static_assert(sizeof(RealTypes) <= sizeof(CopyTypes), "LinkRecord's CopyStruct size must be <= CopyStruct");
         } data;
+        // LinkBuffer.cpp sorts LinkRecords in Swift (swift/LinkRecordSort), which moves each record as opaque
+        // 64-bit words and reads from() as word 0.
+        static_assert(!offsetof(decltype(data)::RealTypes, m_from));
     };
 
     // bits(N) VFPExpandImm(bits(8) imm8);
@@ -4156,11 +4159,14 @@ public:
         return linkType;
     }
 
-    Vector<LinkRecord, 0, UnsafeVectorOverflow>& jumpsToLink()
+    Vector<LinkRecord, 0, UnsafeVectorOverflow>& jumpsToLinkCxx()
     {
         std::ranges::sort(m_jumpsToLink, { }, &LinkRecord::from);
         return m_jumpsToLink;
     }
+
+    // Not sorted yet. LinkBuffer.cpp sorts it by from() (in Swift when USE(SWIFT_KERNELS), else with jumpsToLinkCxx()).
+    Vector<LinkRecord, 0, UnsafeVectorOverflow>& jumpsToLinkUnsorted() { return m_jumpsToLink; }
 
     template<RepatchingInfo repatch>
     static void ALWAYS_INLINE link(LinkRecord& record, uint8_t* from, const uint8_t* fromInstruction8, uint8_t* to)

@@ -35,6 +35,14 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 
+#if USE(SWIFT_KERNELS)
+#include "IPCStreamHeaderSwiftBoundary.h"
+#endif
+
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+#include "SwiftKernelsValidation.h"
+#endif
+
 namespace IPC {
 
 static MallocSpan<uint8_t> copyBuffer(std::span<const uint8_t> buffer)
@@ -115,11 +123,8 @@ Decoder::Decoder(std::span<const uint8_t> buffer, BufferDeallocator&& bufferDeal
     m_argumentsOffset = currentBufferOffset();
 }
 
-Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID)
-    : m_buffer { stream }
-    , m_bufferPosition { m_buffer.begin() }
-    , m_bufferDeallocator { nullptr }
-    , m_destinationID { destinationID }
+#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
+ALWAYS_INLINE void Decoder::decodeStreamHeaderCxx(uint64_t destinationID)
 {
     // 0 is a valid destinationID but we can at least reject -1 which is the HashTable deleted value.
     if (destinationID && !WTF::ObjectIdentifierGenericBase::isValidIdentifier(destinationID)) {
@@ -143,6 +148,89 @@ Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID)
         m_replyID = syncRequestID->toUInt64();
     }
     m_argumentsOffset = currentBufferOffset();
+}
+#endif
+
+#if USE(SWIFT_KERNELS)
+// The header is decoded in Swift (Source/WebKit/swift/IPCStreamHeader); decodeStreamHeaderCxx() is the original.
+// header is m_buffer, or a private snapshot of its start (decodeStreamHeaderAndValidate()).
+ALWAYS_INLINE void Decoder::decodeStreamHeader(std::span<const uint8_t> header, uint64_t destinationID)
+{
+    // messageIsAsyncWithReply() and messageIsSync() hold for exactly the names >= firstMessageNameWithReplyID, and
+    // AsyncReplyID and SyncRequestID have the same wire format and validator.
+    static constexpr auto firstMessageNameWithReplyID = std::min(MessageName::FirstAsyncWithReply, MessageName::FirstSynchronous);
+    uint64_t result = WebKitSwift_IPCStreamHeader_decode(header.data(), header.size(), destinationID,
+        std::to_underlying(MessageName::Last), std::to_underlying(firstMessageNameWithReplyID), &m_replyID);
+    auto status = static_cast<uint8_t>(result >> 16);
+    if (status == WebKitSwift_IPCStreamHeader_Success) [[likely]] {
+        m_messageName = static_cast<MessageName>(static_cast<uint16_t>(result));
+        m_argumentsOffset = static_cast<size_t>(result >> 24);
+        m_bufferPosition = m_buffer.begin() + m_argumentsOffset;
+    } else {
+        // The C++ stores the message name before decoding the reply ID, and reports it for an invalid message.
+        if (status == WebKitSwift_IPCStreamHeader_TruncatedReplyID || status == WebKitSwift_IPCStreamHeader_InvalidReplyID)
+            m_messageName = static_cast<MessageName>(static_cast<uint16_t>(result));
+#if ENABLE(IPC_TESTING_API)
+        if (status == WebKitSwift_IPCStreamHeader_InvalidReplyID)
+            setErrorString("Validation failed: WTF::ObjectIdentifierGenericBase::isValidIdentifier(*toUInt64)"_s);
+#endif
+        markInvalid();
+    }
+}
+#endif
+
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+// The stream is shared memory that the sending process can rewrite at any time, so a second read could see other bytes
+// than the Swift read did. Both decoders read one private snapshot of the header instead. It keeps the stream's address
+// modulo 8 (values are aligned in memory, not in the span) and at most 24 bytes (a header ends by offset 17, so every
+// larger size decodes the same), so decoding it is decoding the stream at the time of the copy.
+NEVER_INLINE void Decoder::decodeStreamHeaderAndValidate(uint64_t destinationID)
+{
+    auto stream = m_buffer;
+    alignas(8) std::array<uint8_t, 8 + 24> snapshotStorage;
+    auto snapshot = std::span { snapshotStorage }.subspan(reinterpret_cast<uintptr_t>(stream.data()) % 8, std::min<size_t>(stream.size(), 24));
+    memcpySpan(snapshot, stream.first(snapshot.size()));
+    decodeStreamHeader(snapshot, destinationID);
+
+    Decoder cxx { snapshot, destinationID, StreamHeaderCxxTag { } };
+    RELEASE_ASSERT(isValid() == cxx.isValid());
+    RELEASE_ASSERT(!isValid() || (m_buffer.data() == stream.data() && m_buffer.size() == stream.size()));
+    RELEASE_ASSERT(currentBufferOffset() == cxx.currentBufferOffset());
+    RELEASE_ASSERT(m_messageName == cxx.m_messageName);
+    RELEASE_ASSERT(m_replyID == cxx.m_replyID);
+    RELEASE_ASSERT(m_argumentsOffset == cxx.m_argumentsOffset);
+#if ENABLE(IPC_TESTING_API)
+    RELEASE_ASSERT(m_errorString == cxx.m_errorString);
+#endif
+}
+
+Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID, StreamHeaderCxxTag)
+    : m_buffer { stream }
+    , m_bufferPosition { m_buffer.begin() }
+    , m_bufferDeallocator { nullptr }
+    , m_destinationID { destinationID }
+{
+    decodeStreamHeaderCxx(destinationID);
+}
+#endif
+
+Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID)
+    : m_buffer { stream }
+    , m_bufferPosition { m_buffer.begin() }
+    , m_bufferDeallocator { nullptr }
+    , m_destinationID { destinationID }
+{
+#if USE(SWIFT_KERNELS)
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (WebKit::swiftKernelsValidationEnabled()) [[unlikely]] {
+        decodeStreamHeaderAndValidate(destinationID);
+        return;
+    }
+#endif
+    decodeStreamHeader(m_buffer, destinationID);
+#else
+    decodeStreamHeaderCxx(destinationID);
+#endif
 }
 
 Decoder::~Decoder()

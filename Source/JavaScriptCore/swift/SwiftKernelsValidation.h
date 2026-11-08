@@ -1,0 +1,50 @@
+/*
+ * Copyright (C) 2026 Apple Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#pragma once
+
+// JavaScriptCore kernels implemented in Swift (Source/JavaScriptCore/swift) are compiled when USE(SWIFT_KERNELS).
+// In non-Production builds, ENABLE(SWIFT_KERNELS_VALIDATION) also keeps the original C++ callable
+// so that, with WEBKIT_SWIFT_KERNELS_VALIDATE=1 in the environment, every Swift result is checked
+// against the C++ one and a mismatch crashes. That turns any test run into a differential test.
+
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+
+#include <stdlib.h>
+
+namespace JSC {
+
+inline bool swiftKernelsValidationEnabled()
+{
+    static const bool enabled = [] {
+        const char* value = getenv("WEBKIT_SWIFT_KERNELS_VALIDATE");
+        return value && *value && *value != '0';
+    }();
+    return enabled;
+}
+
+} // namespace JSC
+
+#endif // ENABLE(SWIFT_KERNELS_VALIDATION)

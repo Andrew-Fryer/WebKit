@@ -31,4 +31,10 @@ SKIP_INSTALL_NO = YES;
 SKIP_INSTALL_YES = NO;
 GCC_SYMBOLS_PRIVATE_EXTERN = YES;
 
+// Platform/IPC/Decoder.cpp calls the IPCStreamHeader Swift kernel (Source/WebKit/swift/IPCStreamHeader). Its Swift files
+// are compiled into this library too, because WebKit.framework and TestIPC both link it and the symbol is hidden.
+GCC_PREPROCESSOR_DEFINITIONS = $(inherited) $(WK_SWIFT_KERNELS_DEFINES);
+OTHER_SWIFT_FLAGS = $(inherited) $(WK_SWIFT_PGO_USE_FLAGS) $(WK_SWIFT_PGO_GEN_FLAGS);
+SWIFT_INSTALL_OBJC_HEADER = NO;
+
 OTHER_LDFLAGS = $(inherited) $(SOURCE_VERSION_LDFLAGS);

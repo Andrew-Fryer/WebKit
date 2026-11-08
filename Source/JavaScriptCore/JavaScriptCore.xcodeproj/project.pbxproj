@@ -2425,6 +2425,12 @@
 		FFF79F9D2FB2F1B2003FF02A /* DurationArithmetic.h in Headers */ = {isa = PBXBuildFile; fileRef = FFF79F942FB2F1B2003FF02A /* DurationArithmetic.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		FFFAF8CB2EC97B2B00042238 /* TestScripts.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FFFAF8CA2EC97B2B00042238 /* TestScripts.cpp */; };
 		FFFAF8CE2EC9A7C000042238 /* ExecutionHandlerTestSupport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FFFAF8CD2EC9A7C000042238 /* ExecutionHandlerTestSupport.cpp */; };
+		CDEB5483A86FBD15B5BB7369 /* ARM64LogicalImmediate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052E42BB24C8250342D59C62 /* ARM64LogicalImmediate.swift */; };
+		9D700B0D0CECD8B578B7C40B /* ARM64LogicalImmediateBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08DBAC577C3EFCF1D79B5E0F /* ARM64LogicalImmediateBoundary.swift */; };
+		A8B58BE920CA988D36795888 /* AbstractHeapLattice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AAF0214C697519AF7759678 /* AbstractHeapLattice.swift */; };
+		8386407455A828A94ADF64BA /* AbstractHeapLatticeBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F6DF9D99462FA783DB9B006 /* AbstractHeapLatticeBoundary.swift */; };
+		35BE035D44BC5EA84F30308A /* LinkRecordSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = 649836D439321539DE36E121 /* LinkRecordSort.swift */; };
+		18117B4D1365969B1009DD59 /* LinkRecordSortBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF56F666D4FCDC30D4B787CD /* LinkRecordSortBoundary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -6782,6 +6788,16 @@
 		FFFAF8CC2EC9A7C000042238 /* ExecutionHandlerTestSupport.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ExecutionHandlerTestSupport.h; sourceTree = "<group>"; };
 		FFFAF8CD2EC9A7C000042238 /* ExecutionHandlerTestSupport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ExecutionHandlerTestSupport.cpp; sourceTree = "<group>"; };
 		FFFAFBE02E6ABDCB006BFA2E /* WasmVirtualAddress.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = WasmVirtualAddress.cpp; sourceTree = "<group>"; };
+		052E42BB24C8250342D59C62 /* ARM64LogicalImmediate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARM64LogicalImmediate/ARM64LogicalImmediate.swift; sourceTree = "<group>"; };
+		08DBAC577C3EFCF1D79B5E0F /* ARM64LogicalImmediateBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARM64LogicalImmediate/ARM64LogicalImmediateBoundary.swift; sourceTree = "<group>"; };
+		DA4365604DDE5E0E5F2A9C66 /* ARM64LogicalImmediateSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ARM64LogicalImmediate/ARM64LogicalImmediateSwiftBoundary.h; sourceTree = "<group>"; };
+		1AAF0214C697519AF7759678 /* AbstractHeapLattice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AbstractHeapLattice/AbstractHeapLattice.swift; sourceTree = "<group>"; };
+		7F6DF9D99462FA783DB9B006 /* AbstractHeapLatticeBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AbstractHeapLattice/AbstractHeapLatticeBoundary.swift; sourceTree = "<group>"; };
+		FEDADB05BC9DAFDB422668C0 /* AbstractHeapLatticeSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AbstractHeapLattice/AbstractHeapLatticeSwiftBoundary.h; sourceTree = "<group>"; };
+		649836D439321539DE36E121 /* LinkRecordSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkRecordSort/LinkRecordSort.swift; sourceTree = "<group>"; };
+		FF56F666D4FCDC30D4B787CD /* LinkRecordSortBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkRecordSort/LinkRecordSortBoundary.swift; sourceTree = "<group>"; };
+		966D81BF524AEFCD15AB1AB3 /* LinkRecordSortSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LinkRecordSort/LinkRecordSortSwiftBoundary.h; sourceTree = "<group>"; };
+		7A71B701B076EBD200804F55 /* SwiftKernelsValidation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SwiftKernelsValidation.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -7032,6 +7048,7 @@
 		0867D691FE84028FC02AAC07 /* JavaScriptCore */ = {
 			isa = PBXGroup;
 			children = (
+				D9E037DFCA8FE415AD30CF27 /* swift */,
 				077B972F2FD2BBE10042BC77 /* JavaScriptCore.swift */,
 				530A63411FA3E31D0026A545 /* Sources.txt */,
 				530A63401FA3E31C0026A545 /* SourcesCocoa.txt */,
@@ -11247,6 +11264,23 @@
 			path = debugger;
 			sourceTree = "<group>";
 		};
+		D9E037DFCA8FE415AD30CF27 /* swift */ = {
+			isa = PBXGroup;
+			children = (
+				7A71B701B076EBD200804F55 /* SwiftKernelsValidation.h */,
+				966D81BF524AEFCD15AB1AB3 /* LinkRecordSortSwiftBoundary.h */,
+				FF56F666D4FCDC30D4B787CD /* LinkRecordSortBoundary.swift */,
+				649836D439321539DE36E121 /* LinkRecordSort.swift */,
+				FEDADB05BC9DAFDB422668C0 /* AbstractHeapLatticeSwiftBoundary.h */,
+				7F6DF9D99462FA783DB9B006 /* AbstractHeapLatticeBoundary.swift */,
+				1AAF0214C697519AF7759678 /* AbstractHeapLattice.swift */,
+				DA4365604DDE5E0E5F2A9C66 /* ARM64LogicalImmediateSwiftBoundary.h */,
+				08DBAC577C3EFCF1D79B5E0F /* ARM64LogicalImmediateBoundary.swift */,
+				052E42BB24C8250342D59C62 /* ARM64LogicalImmediate.swift */,
+			);
+			path = swift;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -14694,6 +14728,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				077B97302FD2BBE10042BC77 /* JavaScriptCore.swift in Sources */,
+				18117B4D1365969B1009DD59 /* LinkRecordSortBoundary.swift in Sources */,
+				35BE035D44BC5EA84F30308A /* LinkRecordSort.swift in Sources */,
+				8386407455A828A94ADF64BA /* AbstractHeapLatticeBoundary.swift in Sources */,
+				A8B58BE920CA988D36795888 /* AbstractHeapLattice.swift in Sources */,
+				9D700B0D0CECD8B578B7C40B /* ARM64LogicalImmediateBoundary.swift in Sources */,
+				CDEB5483A86FBD15B5BB7369 /* ARM64LogicalImmediate.swift in Sources */,
 				44F93E0E2AE71FBD00FFA37C /* JavaScriptCoreFramework.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

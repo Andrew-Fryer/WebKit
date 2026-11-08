@@ -7531,6 +7531,17 @@
 		807547D380B36BF6457BF6C4 /* ColorAppearance.h in Headers */ = {isa = PBXBuildFile; fileRef = A0FE1D51155B617031EC275F /* ColorAppearance.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		5A8EA984E6E737343E65221A /* ImageContentSettings.h in Headers */ = {isa = PBXBuildFile; fileRef = 9696F89359DB2093C05E5988 /* ImageContentSettings.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		DECA8791265D4C1DBC7BA7F1 /* PageAnimationAgent.h in Headers */ = {isa = PBXBuildFile; fileRef = 61D2ED4C387044AEAE6FA67C /* PageAnimationAgent.h */; };
+		1500387C2E7091829DC403F2 /* CGColorCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82615277A3BFE692A02D3FEE /* CGColorCache.swift */; };
+		51887F61AC530179078D27BF /* CGColorCacheBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0A0CFCBBDBD38B24CB5EB2A /* CGColorCacheBoundary.swift */; };
+		7458C5B3A42C50DA937E2EFE /* CSSColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FBC8FC3600E30C6C5BB0CD4 /* CSSColor.swift */; };
+		D898754F8CB5AC49B449B4E8 /* CSSColorBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB1DA8405653430617D8A1A1 /* CSSColorBoundary.swift */; };
+		75A36AD6A1BEDC980A609A0A /* CSSColorHSL.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC1643DDE02AF7E71E8A9E5 /* CSSColorHSL.swift */; };
+		C3DF5DE8347DC7244242CB93 /* PathFastBounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EA5236E21927211F84ECD29 /* PathFastBounds.swift */; };
+		13A7FEAA17E86199460393E8 /* PathFastBoundsBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22748BC1B79188C91233A9B4 /* PathFastBoundsBoundary.swift */; };
+		0B0B1725E8A5C6F25BA8FB58 /* RegionShape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 155FA44CCBA1A2899C09D875 /* RegionShape.swift */; };
+		342E0E7B0222F281D49E5B7A /* RegionShapeBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC123743416A1C2B37806136 /* RegionShapeBoundary.swift */; };
+		A21BAF14CFAB18AD57EAE686 /* SVGTransformBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D6712B0CA247C83DF82895 /* SVGTransformBoundary.swift */; };
+		A17E19F7159537E67AAF2BD2 /* SVGTransformLexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46164A44E99EF8D5612A8A86 /* SVGTransformLexer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -24155,6 +24166,23 @@
 		E0BA4176CB20FD04A40E4570 /* ImageRenditionOptions.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ImageRenditionOptions.cpp; sourceTree = "<group>"; };
 		61D2ED4C387044AEAE6FA67C /* PageAnimationAgent.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PageAnimationAgent.h; sourceTree = "<group>"; };
 		9829198B5E944BBE98399502 /* PageAnimationAgent.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PageAnimationAgent.cpp; sourceTree = "<group>"; };
+		82615277A3BFE692A02D3FEE /* CGColorCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGColorCache/CGColorCache.swift; sourceTree = "<group>"; };
+		E0A0CFCBBDBD38B24CB5EB2A /* CGColorCacheBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGColorCache/CGColorCacheBoundary.swift; sourceTree = "<group>"; };
+		13E8AFF2EEB404171C67C967 /* CGColorCacheSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CGColorCache/CGColorCacheSwiftBoundary.h; sourceTree = "<group>"; };
+		5FBC8FC3600E30C6C5BB0CD4 /* CSSColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSColor/CSSColor.swift; sourceTree = "<group>"; };
+		EB1DA8405653430617D8A1A1 /* CSSColorBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSColor/CSSColorBoundary.swift; sourceTree = "<group>"; };
+		8AC1643DDE02AF7E71E8A9E5 /* CSSColorHSL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSColor/CSSColorHSL.swift; sourceTree = "<group>"; };
+		7B561609AAEB201368BC58D1 /* CSSColorSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CSSColor/CSSColorSwiftBoundary.h; sourceTree = "<group>"; };
+		0EA5236E21927211F84ECD29 /* PathFastBounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathFastBounds/PathFastBounds.swift; sourceTree = "<group>"; };
+		22748BC1B79188C91233A9B4 /* PathFastBoundsBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathFastBounds/PathFastBoundsBoundary.swift; sourceTree = "<group>"; };
+		4BDEF7FEECE04D7B16B95135 /* PathFastBoundsSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PathFastBounds/PathFastBoundsSwiftBoundary.h; sourceTree = "<group>"; };
+		155FA44CCBA1A2899C09D875 /* RegionShape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionShape/RegionShape.swift; sourceTree = "<group>"; };
+		AC123743416A1C2B37806136 /* RegionShapeBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionShape/RegionShapeBoundary.swift; sourceTree = "<group>"; };
+		A84284E6CDE8635189716EE4 /* RegionShapeSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RegionShape/RegionShapeSwiftBoundary.h; sourceTree = "<group>"; };
+		28D6712B0CA247C83DF82895 /* SVGTransformBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGTransform/SVGTransformBoundary.swift; sourceTree = "<group>"; };
+		46164A44E99EF8D5612A8A86 /* SVGTransformLexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGTransform/SVGTransformLexer.swift; sourceTree = "<group>"; };
+		DFBFE255E385DD217435B700 /* SVGTransformSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SVGTransform/SVGTransformSwiftBoundary.h; sourceTree = "<group>"; };
+		A2BE542B555FF7806837B532 /* SwiftKernelsValidation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SwiftKernelsValidation.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -24810,6 +24838,7 @@
 		0867D691FE84028FC02AAC07 /* WebCore */ = {
 			isa = PBXGroup;
 			children = (
+				91EC392E6A5F6B385F6BCD04 /* swift */,
 				1C09D04B1E31C32800725F18 /* PAL.xcodeproj */,
 				65C97AF208EA908800ACD273 /* config.h */,
 				07E047C2305A9DB000DFCC4B /* SwiftStub.swift */,
@@ -44231,6 +44260,30 @@
 			path = cocoa;
 			sourceTree = "<group>";
 		};
+		91EC392E6A5F6B385F6BCD04 /* swift */ = {
+			isa = PBXGroup;
+			children = (
+				A2BE542B555FF7806837B532 /* SwiftKernelsValidation.h */,
+				DFBFE255E385DD217435B700 /* SVGTransformSwiftBoundary.h */,
+				46164A44E99EF8D5612A8A86 /* SVGTransformLexer.swift */,
+				28D6712B0CA247C83DF82895 /* SVGTransformBoundary.swift */,
+				A84284E6CDE8635189716EE4 /* RegionShapeSwiftBoundary.h */,
+				AC123743416A1C2B37806136 /* RegionShapeBoundary.swift */,
+				155FA44CCBA1A2899C09D875 /* RegionShape.swift */,
+				4BDEF7FEECE04D7B16B95135 /* PathFastBoundsSwiftBoundary.h */,
+				22748BC1B79188C91233A9B4 /* PathFastBoundsBoundary.swift */,
+				0EA5236E21927211F84ECD29 /* PathFastBounds.swift */,
+				7B561609AAEB201368BC58D1 /* CSSColorSwiftBoundary.h */,
+				8AC1643DDE02AF7E71E8A9E5 /* CSSColorHSL.swift */,
+				EB1DA8405653430617D8A1A1 /* CSSColorBoundary.swift */,
+				5FBC8FC3600E30C6C5BB0CD4 /* CSSColor.swift */,
+				13E8AFF2EEB404171C67C967 /* CGColorCacheSwiftBoundary.h */,
+				E0A0CFCBBDBD38B24CB5EB2A /* CGColorCacheBoundary.swift */,
+				82615277A3BFE692A02D3FEE /* CGColorCache.swift */,
+			);
+			path = swift;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -51330,6 +51383,17 @@
 				41514FDB2E92DC40002074EA /* StreamPipeToUtilities.cpp in Sources */,
 				A833C7CA0A2CF06B00D57664 /* SVGNames.cpp in Sources */,
 				07E047C3305A9DB000DFCC4B /* SwiftStub.swift in Sources */,
+				A17E19F7159537E67AAF2BD2 /* SVGTransformLexer.swift in Sources */,
+				A21BAF14CFAB18AD57EAE686 /* SVGTransformBoundary.swift in Sources */,
+				342E0E7B0222F281D49E5B7A /* RegionShapeBoundary.swift in Sources */,
+				0B0B1725E8A5C6F25BA8FB58 /* RegionShape.swift in Sources */,
+				13A7FEAA17E86199460393E8 /* PathFastBoundsBoundary.swift in Sources */,
+				C3DF5DE8347DC7244242CB93 /* PathFastBounds.swift in Sources */,
+				75A36AD6A1BEDC980A609A0A /* CSSColorHSL.swift in Sources */,
+				D898754F8CB5AC49B449B4E8 /* CSSColorBoundary.swift in Sources */,
+				7458C5B3A42C50DA937E2EFE /* CSSColor.swift in Sources */,
+				51887F61AC530179078D27BF /* CGColorCacheBoundary.swift in Sources */,
+				1500387C2E7091829DC403F2 /* CGColorCache.swift in Sources */,
 				07E047C5305A9DB000DFCC4B /* SwiftStubInterop.cpp in Sources */,
 				C1692DD223D23ABD006E88F7 /* SystemBattery.mm in Sources */,
 				329C0C2328BD96D600F187D2 /* TagName.cpp in Sources */,

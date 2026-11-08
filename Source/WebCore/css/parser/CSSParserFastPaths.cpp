@@ -53,6 +53,13 @@
 #include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringParsingBuffer.h>
 
+#if USE(SWIFT_KERNELS)
+#include "CSSColorSwiftBoundary.h"
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+#include "SwiftKernelsValidation.h"
+#endif
+#endif
+
 namespace WebCore {
 
 std::optional<CSS::Range> CSSParserFastPaths::lengthValueRangeForPropertiesSupportingSimpleLengths(CSSPropertyID propertyId)
@@ -597,7 +604,7 @@ template<typename CharacterType> static std::optional<SRGBA<uint8_t>> parseHSL(s
 }
 
 template<typename CharacterType>
-static std::optional<SRGBA<uint8_t>> parseNumericColor(std::span<const CharacterType> characters, const CSSParserContext& context)
+static std::optional<SRGBA<uint8_t>> parseNumericColorCxx(std::span<const CharacterType> characters, const CSSParserContext& context)
 {
     if (characters.size() >= 4 && characters.front() == '#') {
         if (auto hexColor = parseHexColorInternal(characters.subspan(1)))
@@ -658,6 +665,37 @@ static std::optional<SRGBA<uint8_t>> parseNumericColor(std::span<const Character
         return parseHSL(characters.subspan(4));
 
     return std::nullopt;
+}
+
+#if USE(SWIFT_KERNELS)
+// Number parsing for the hue of hsl()/hsla() in the Swift port: `context` is the std::span being parsed.
+static double parseNumberForSwiftCSSColor(const void* context, size_t offset, size_t length, bool* ok)
+{
+    auto& characters = *static_cast<const std::span<const Latin1Character>*>(context);
+    return charactersToDouble(characters.subspan(offset, length), ok);
+}
+#endif
+
+template<typename CharacterType>
+static std::optional<SRGBA<uint8_t>> parseNumericColor(std::span<const CharacterType> characters, const CSSParserContext& context)
+{
+#if USE(SWIFT_KERNELS)
+    if constexpr (std::is_same_v<CharacterType, Latin1Character>) {
+        auto bytes = byteCast<uint8_t>(characters);
+        auto packed = WebCoreSwift_CSSColor_parseNumericColor8(bytes.data(), bytes.size(), isQuirksModeBehavior(context.mode), &characters, parseNumberForSwiftCSSColor);
+        std::optional<SRGBA<uint8_t>> result;
+        if (packed)
+            result = asSRGBA(PackedColor::RGBA { static_cast<uint32_t>(packed) });
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+        if (swiftKernelsValidationEnabled()) [[unlikely]]
+            RELEASE_ASSERT(result == parseNumericColorCxx(characters, context));
+#endif
+        return result;
+    } else
+        return parseNumericColorCxx(characters, context);
+#else
+    return parseNumericColorCxx(characters, context);
+#endif
 }
 
 static std::optional<SRGBA<uint8_t>> parseNumericColor(StringView string, const CSSParserContext& context)
