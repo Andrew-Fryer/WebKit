@@ -33,6 +33,7 @@ GPUProcess/graphics/DisplayListDataTester.cpp
 GPUProcess/graphics/ImageBufferShareableAllocator.cpp
 GPUProcess/graphics/RemoteDisplayListRecorder.cpp
 GPUProcess/graphics/RemoteGraphicsContext.cpp @cost:3
+GPUProcess/graphics/RemoteGraphicsContextSwiftArgumentDecoders.cpp
 GPUProcess/graphics/RemoteGraphicsContextGL.cpp @cost:3
 GPUProcess/graphics/RemoteGraphicsContextGLFunctionsGenerated.cpp @cost:3
 GPUProcess/graphics/RemoteImageBuffer.cpp

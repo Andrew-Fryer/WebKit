@@ -30,25 +30,25 @@
 messages -> RemoteGraphicsContext Stream {
     Save() StreamBatched
     Restore() StreamBatched
-    Translate(float x, float y) StreamBatched
+    Translate(float x, float y) StreamBatched SwiftArgumentDecoder
     Rotate(float angle) StreamBatched
     Scale(WebCore::FloatSize scale) StreamBatched
     SetCTM(WebCore::AffineTransform ctm) StreamBatched
     ConcatCTM(WebCore::AffineTransform ctm) StreamBatched
     SetFillPackedColor(struct WebCore::PackedColor::RGBA color) StreamBatched
     SetFillColor(WebCore::Color color) StreamBatched
-    SetFillCachedGradient(WebKit::RemoteGradientIdentifier identifier, WebCore::AffineTransform spaceTransform) StreamBatched
+    SetFillCachedGradient(WebKit::RemoteGradientIdentifier identifier, WebCore::AffineTransform spaceTransform) StreamBatched SwiftArgumentDecoder
     SetFillGradient(Ref<WebCore::Gradient> gradient, WebCore::AffineTransform spaceTransform) StreamBatched
     SetFillPatternNativeImage(WebCore::RenderingResourceIdentifier nativeImageIdentifier, WebCore::PatternParameters pattern) StreamBatched
     SetFillPatternImageBuffer(WebCore::RenderingResourceIdentifier imageBufferIdentifier, WebCore::PatternParameters pattern) StreamBatched
     SetFillRule(enum:bool WebCore::WindRule rule) StreamBatched
     SetStrokePackedColor(WebCore::PackedColor::RGBA color) StreamBatched
     SetStrokeColor(WebCore::Color color) StreamBatched
-    SetStrokeCachedGradient(WebKit::RemoteGradientIdentifier identifier, WebCore::AffineTransform spaceTransform) StreamBatched
+    SetStrokeCachedGradient(WebKit::RemoteGradientIdentifier identifier, WebCore::AffineTransform spaceTransform) StreamBatched SwiftArgumentDecoder
     SetStrokeGradient(Ref<WebCore::Gradient> gradient, WebCore::AffineTransform spaceTransform) StreamBatched
     SetStrokePatternNativeImage(WebCore::RenderingResourceIdentifier nativeImageIdentifier, WebCore::PatternParameters pattern) StreamBatched
     SetStrokePatternImageBuffer(WebCore::RenderingResourceIdentifier imageBufferIdentifier, WebCore::PatternParameters pattern) StreamBatched
-    SetStrokePackedColorAndThickness(WebCore::PackedColor::RGBA color, float thickness) StreamBatched
+    SetStrokePackedColorAndThickness(WebCore::PackedColor::RGBA color, float thickness) StreamBatched SwiftArgumentDecoder
     SetStrokeThickness(float thickness) StreamBatched
     SetStrokeStyle(enum:uint8_t WebCore::StrokeStyle style) StreamBatched
     SetCompositeMode(struct WebCore::CompositeMode mode) StreamBatched
@@ -99,7 +99,7 @@ messages -> RemoteGraphicsContext Stream {
     DrawPath(WebCore::Path path) StreamBatched
     DrawFocusRingPath(WebCore::Path path, float outlineWidth, WebCore::Color color, float zoomFactor) StreamBatched
     DrawFocusRingRects(Vector<WebCore::FloatRect> rects, float outlineWidth, WebCore::Color color, float zoomFactor) StreamBatched
-    FillRect(WebCore::FloatRect rect, enum:bool WebCore::RequiresClipToRect requiresClipToRect) StreamBatched
+    FillRect(WebCore::FloatRect rect, enum:bool WebCore::RequiresClipToRect requiresClipToRect) StreamBatched SwiftArgumentDecoder
     FillRectWithColor(WebCore::FloatRect rect, WebCore::Color color) StreamBatched
     FillRectWithGradient(WebCore::FloatRect rect, Ref<WebCore::Gradient> gradient) StreamBatched
     FillRectWithGradientAndSpaceTransform(WebCore::FloatRect rect, Ref<WebCore::Gradient> gradient, WebCore::AffineTransform transform, enum:bool WebCore::RequiresClipToRect requiresClipToRect) StreamBatched
@@ -107,10 +107,10 @@ messages -> RemoteGraphicsContext Stream {
     FillRoundedRect(WebCore::FloatRoundedRect rect, WebCore::Color color, enum:uint8_t WebCore::BlendMode blendMode) StreamBatched
     FillRectWithRoundedHole(WebCore::FloatRect rect, WebCore::FloatRoundedRect roundedHoleRect, WebCore::Color color) StreamBatched
     FillLine(struct WebCore::PathDataLine line) StreamBatched
-    FillArc(struct WebCore::PathArc arc) StreamBatched
-    FillClosedArc(struct WebCore::PathClosedArc closedArc) StreamBatched
-    FillQuadCurve(struct WebCore::PathDataQuadCurve curve) StreamBatched
-    FillBezierCurve(struct WebCore::PathDataBezierCurve curve) StreamBatched
+    FillArc(struct WebCore::PathArc arc) StreamBatched SwiftArgumentDecoder
+    FillClosedArc(struct WebCore::PathClosedArc closedArc) StreamBatched SwiftArgumentDecoder
+    FillQuadCurve(struct WebCore::PathDataQuadCurve curve) StreamBatched SwiftArgumentDecoder
+    FillBezierCurve(struct WebCore::PathDataBezierCurve curve) StreamBatched SwiftArgumentDecoder
     FillPathSegment(WebCore::PathSegment segment) StreamBatched
     FillPath(WebCore::Path path) StreamBatched
     FillCachedPath(WebKit::RemotePathImplIdentifier identifier) StreamBatched
@@ -118,10 +118,10 @@ messages -> RemoteGraphicsContext Stream {
     StrokeRect(WebCore::FloatRect rect, float lineWidth) StreamBatched
     StrokeLine(struct WebCore::PathDataLine line) StreamBatched
     StrokeLinesWithColorAndThickness(std::span<const WebCore::PathDataLineColorThickness> lines) StreamBatched
-    StrokeArc(struct WebCore::PathArc arc) StreamBatched
-    StrokeClosedArc(struct WebCore::PathClosedArc closedArc) StreamBatched
-    StrokeQuadCurve(struct WebCore::PathDataQuadCurve curve) StreamBatched
-    StrokeBezierCurve(struct WebCore::PathDataBezierCurve curve) StreamBatched
+    StrokeArc(struct WebCore::PathArc arc) StreamBatched SwiftArgumentDecoder
+    StrokeClosedArc(struct WebCore::PathClosedArc closedArc) StreamBatched SwiftArgumentDecoder
+    StrokeQuadCurve(struct WebCore::PathDataQuadCurve curve) StreamBatched SwiftArgumentDecoder
+    StrokeBezierCurve(struct WebCore::PathDataBezierCurve curve) StreamBatched SwiftArgumentDecoder
     StrokePathSegment(WebCore::PathSegment segment) StreamBatched
     StrokePath(WebCore::Path path) StreamBatched
     StrokeEllipse(WebCore::FloatRect rect) StreamBatched

@@ -451,6 +451,19 @@ template<typename... T> struct AwaitableReturnTuple<Awaitable<T...>> {
     static constexpr bool hasParameters = true;
 };
 
+// Messages with the SwiftArgumentDecoder attribute declare decodeArgumentsInSwift(), which decodes their arguments in
+// Swift exactly as decoder.decode<Arguments>() does (see Source/WebKit/swift/IPCArgDecoders).
+template<typename MessageType>
+std::optional<typename MessageType::Arguments> decodeMessageArguments(Decoder& decoder)
+{
+#if USE(SWIFT_KERNELS)
+    if constexpr (requires { MessageType::decodeArgumentsInSwift(decoder); })
+        return MessageType::decodeArgumentsInSwift(decoder);
+    else
+#endif
+        return decoder.decode<typename MessageType::Arguments>();
+}
+
 // Main dispatch functions
 
 template<typename MessageType, typename C, typename T, typename U, typename MF>
@@ -459,7 +472,7 @@ void handleMessage(C& connection, Decoder& decoder, T* object, MF U::* function)
     using ValidationType = MethodSignatureValidation<MF>;
     static_assert(std::is_same_v<typename ValidationType::MessageArguments, typename MessageType::Arguments>);
 
-    auto arguments = decoder.decode<typename MessageType::Arguments>();
+    auto arguments = decodeMessageArguments<MessageType>(decoder);
     if (!arguments) [[unlikely]]
         return;
 

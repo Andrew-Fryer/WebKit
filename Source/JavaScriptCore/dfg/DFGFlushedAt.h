@@ -75,6 +75,17 @@ public:
     void dumpInContext(PrintStream&, DumpContext*) const;
     
 private:
+#if USE(SWIFT_KERNELS)
+    // AvailabilityLocals.swift (called by DFGAvailabilityMap.cpp) reads and writes a FlushedAt as a 64-bit word:
+    // byte 0 the format, bytes 1-3 padding, bytes 4-7 the virtual register.
+    static void staticAssertLayoutForSwift()
+    {
+        static_assert(sizeof(FlushedAt) == 8 && offsetof(FlushedAt, m_format) == 0 && offsetof(FlushedAt, m_virtualRegister) == 4);
+        static_assert(sizeof(FlushFormat) == 1 && DeadFlush == 0 && ConflictingFlush == 7);
+        static_assert(sizeof(VirtualRegister) == 4 && VirtualRegister::invalidVirtualRegister == 0x3fffffff);
+    }
+#endif
+
     FlushFormat m_format;
     VirtualRegister m_virtualRegister;
 };

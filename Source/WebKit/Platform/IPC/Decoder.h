@@ -119,6 +119,13 @@ public:
 
     std::span<const uint8_t> span() const { return m_buffer; }
     size_t currentBufferOffset() const { return std::distance(m_buffer.begin(), m_bufferPosition); }
+    // For decoders that read span() directly, such as the argument decoders implemented in Swift
+    // (GPUProcess/graphics/RemoteGraphicsContextSwiftArgumentDecoders.cpp): moves past what they decoded.
+    void setCurrentBufferOffset(size_t offset)
+    {
+        RELEASE_ASSERT(offset <= m_buffer.size());
+        m_bufferPosition = m_buffer.begin() + offset;
+    }
 
     [[nodiscard]] bool isValid() const { return !!m_buffer.data(); }
     void markInvalid()

@@ -61,6 +61,7 @@ NOT_STREAM_ENCODABLE_REPLY_ATTRIBUTE = 'NotStreamEncodableReply'
 STREAM_BATCHED_ATTRIBUTE = 'StreamBatched'
 CAN_DISPATCH_OUT_OF_ORDER_ATTRIBUTE = 'CanDispatchOutOfOrder'
 REPLY_CAN_DISPATCH_OUT_OF_ORDER_ATTRIBUTE = 'ReplyCanDispatchOutOfOrder'
+SWIFT_ARGUMENT_DECODER_ATTRIBUTE = 'SwiftArgumentDecoder'
 
 PROCESS_NAMES = ["UI", "Networking", "GPU", "WebContent", "Model"]
 
@@ -320,6 +321,12 @@ def message_to_struct_declaration(receiver, message):
                 sys.stderr.write("Error: %s::%s has a reply but is marked as batched. Messages with replies are intended to be sent without latency.\n" % (receiver.name, message.name))
                 sys.exit(1)
         result.append('    static constexpr bool isStreamBatched = %s;\n' % ('false', 'true')[message.has_attribute(STREAM_BATCHED_ATTRIBUTE)])
+    if message.has_attribute(SWIFT_ARGUMENT_DECODER_ATTRIBUTE):
+        if message.reply_parameters is not None:
+            sys.stderr.write("Error: %s::%s has a reply but is marked as %s. Only messages without a reply are dispatched by IPC::handleMessage(), which calls decodeArgumentsInSwift().\n" % (receiver.name, message.name, SWIFT_ARGUMENT_DECODER_ATTRIBUTE))
+            sys.exit(1)
+        result.append('    // Decodes the arguments in Swift, exactly as IPC::Decoder::decode<Arguments>() does. Defined by hand.\n')
+        result.append('    static std::optional<Arguments> decodeArgumentsInSwift(IPC::Decoder&);\n')
 
     result.append('\n')
     if message.reply_parameters != None:

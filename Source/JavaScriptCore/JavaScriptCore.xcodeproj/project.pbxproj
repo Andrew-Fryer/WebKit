@@ -2431,6 +2431,10 @@
 		8386407455A828A94ADF64BA /* AbstractHeapLatticeBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F6DF9D99462FA783DB9B006 /* AbstractHeapLatticeBoundary.swift */; };
 		35BE035D44BC5EA84F30308A /* LinkRecordSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = 649836D439321539DE36E121 /* LinkRecordSort.swift */; };
 		18117B4D1365969B1009DD59 /* LinkRecordSortBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF56F666D4FCDC30D4B787CD /* LinkRecordSortBoundary.swift */; };
+		2090AB720360FD7729D37A59 /* AvailabilityLocals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E886273E2866C7CADB425EC /* AvailabilityLocals.swift */; };
+		85C34DCD2B053A13D9897FFF /* AvailabilityLocalsBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC5EEDB5BDF38D140BE95C5 /* AvailabilityLocalsBoundary.swift */; };
+		C748DEFCB0F4EB4FAFFCC663 /* ButterflyFill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D1408F4E733EE1AB7D7856 /* ButterflyFill.swift */; };
+		8ABA7749DBC9E48C43D7A04A /* ButterflyFillBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9569F7E0119B8483607FDABC /* ButterflyFillBoundary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -6798,6 +6802,12 @@
 		FF56F666D4FCDC30D4B787CD /* LinkRecordSortBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkRecordSort/LinkRecordSortBoundary.swift; sourceTree = "<group>"; };
 		966D81BF524AEFCD15AB1AB3 /* LinkRecordSortSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LinkRecordSort/LinkRecordSortSwiftBoundary.h; sourceTree = "<group>"; };
 		7A71B701B076EBD200804F55 /* SwiftKernelsValidation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SwiftKernelsValidation.h; sourceTree = "<group>"; };
+		9E886273E2866C7CADB425EC /* AvailabilityLocals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvailabilityLocals/AvailabilityLocals.swift; sourceTree = "<group>"; };
+		9FC5EEDB5BDF38D140BE95C5 /* AvailabilityLocalsBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvailabilityLocals/AvailabilityLocalsBoundary.swift; sourceTree = "<group>"; };
+		CDF4C9B94CA9D529A96759E6 /* AvailabilityLocalsSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AvailabilityLocals/AvailabilityLocalsSwiftBoundary.h; sourceTree = "<group>"; };
+		72D1408F4E733EE1AB7D7856 /* ButterflyFill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButterflyFill/ButterflyFill.swift; sourceTree = "<group>"; };
+		9569F7E0119B8483607FDABC /* ButterflyFillBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButterflyFill/ButterflyFillBoundary.swift; sourceTree = "<group>"; };
+		FC7122E243FCDEEAB4B751AA /* ButterflyFillSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ButterflyFill/ButterflyFillSwiftBoundary.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -11267,6 +11277,12 @@
 		D9E037DFCA8FE415AD30CF27 /* swift */ = {
 			isa = PBXGroup;
 			children = (
+				FC7122E243FCDEEAB4B751AA /* ButterflyFillSwiftBoundary.h */,
+				9569F7E0119B8483607FDABC /* ButterflyFillBoundary.swift */,
+				72D1408F4E733EE1AB7D7856 /* ButterflyFill.swift */,
+				CDF4C9B94CA9D529A96759E6 /* AvailabilityLocalsSwiftBoundary.h */,
+				9FC5EEDB5BDF38D140BE95C5 /* AvailabilityLocalsBoundary.swift */,
+				9E886273E2866C7CADB425EC /* AvailabilityLocals.swift */,
 				7A71B701B076EBD200804F55 /* SwiftKernelsValidation.h */,
 				966D81BF524AEFCD15AB1AB3 /* LinkRecordSortSwiftBoundary.h */,
 				FF56F666D4FCDC30D4B787CD /* LinkRecordSortBoundary.swift */,
@@ -14728,6 +14744,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				077B97302FD2BBE10042BC77 /* JavaScriptCore.swift in Sources */,
+				8ABA7749DBC9E48C43D7A04A /* ButterflyFillBoundary.swift in Sources */,
+				C748DEFCB0F4EB4FAFFCC663 /* ButterflyFill.swift in Sources */,
+				85C34DCD2B053A13D9897FFF /* AvailabilityLocalsBoundary.swift in Sources */,
+				2090AB720360FD7729D37A59 /* AvailabilityLocals.swift in Sources */,
 				18117B4D1365969B1009DD59 /* LinkRecordSortBoundary.swift in Sources */,
 				35BE035D44BC5EA84F30308A /* LinkRecordSort.swift in Sources */,
 				8386407455A828A94ADF64BA /* AbstractHeapLatticeBoundary.swift in Sources */,

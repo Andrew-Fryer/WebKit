@@ -41,6 +41,15 @@
 #include <ranges>
 #include <wtf/TZoneMallocInlines.h>
 
+#if USE(SWIFT_KERNELS)
+#include "ImmutableStyleProperties.h"
+#include "MutableStyleProperties.h"
+#include "PropertyCascadeSwiftBoundary.h"
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+#include "SwiftKernelsValidation.h"
+#endif
+#endif
+
 namespace WebCore {
 namespace Style {
 
@@ -112,7 +121,222 @@ PropertyCascade::AnimationLayer::AnimationLayer(const HashMap<AnimatableCSSPrope
     hasLineHeight = properties.contains(CSSPropertyID::LineHeight);
 }
 
+#if USE(SWIFT_KERNELS)
+
+// The layouts PropertyCascadeSwiftBoundary.h documents for the Swift kernel.
+static_assert(sizeof(PropertyCascade::Property) == 40);
+static_assert(offsetof(PropertyCascade::Property, id) == 0 && offsetof(PropertyCascade::Property, origin) == 2);
+static_assert(offsetof(PropertyCascade::Property, styleScopeOrdinal) == 3 && offsetof(PropertyCascade::Property, cascadeLayerPriority) == 4);
+static_assert(offsetof(PropertyCascade::Property, fromStyleAttribute) == 6 && offsetof(PropertyCascade::Property, cssValue) == 8);
+static_assert(offsetof(PropertyCascade::Property, origins) == 32 && sizeof(CSSValue*) == 8);
+static_assert(std::is_trivially_copyable_v<PropertyCascade::Property>);
+static_assert(sizeof(StylePropertyMetadata) == 4 && sizeof(CSSProperty) == 16 && alignof(CSSProperty) == 8 && sizeof(Ref<CSSValue>) == 8);
+static_assert(std::is_same_v<PropertyCascade::PropertyBitSet::WordType, uint64_t> && sizeof(CSSPropertyID) == 2);
+static_assert(std::to_underlying(CSSPropertyID::Custom) == 1 && cssPropertyIDEnumValueCount <= 0x8000);
+static_assert(SelectorChecker::MatchAll == 3 && std::to_underlying(IsCacheable::Partially) == 1);
+static_assert(std::to_underlying(ScopeOrdinal::Element) == 0 && RuleSet::cascadeLayerPriorityForUnlayered == 0xFFFF);
+static_assert(std::to_underlying(PropertyCascade::PropertyType::NonInherited) == 1 && std::to_underlying(PropertyCascade::PropertyType::Inherited) == 2);
+static_assert(std::to_underlying(PropertyCascade::PropertyType::ExplicitlyInherited) == 4 && std::to_underlying(PropertyCascade::PropertyType::AfterAnimation) == 8);
+static_assert(std::to_underlying(PropertyCascade::PropertyType::StartingStyle) == 16 && std::to_underlying(PropertyCascade::PropertyType::NonCacheable) == 32);
+static_assert(sizeof(MatchedProperties) == 16 && offsetof(MatchedProperties, linkMatchType) == 8 && offsetof(MatchedProperties, allowlistType) == 9);
+static_assert(offsetof(MatchedProperties, styleScopeOrdinal) == 10 && offsetof(MatchedProperties, fromStyleAttribute) == 11);
+static_assert(offsetof(MatchedProperties, cascadeLayerPriority) == 12 && offsetof(MatchedProperties, isStartingStyle) == 14 && offsetof(MatchedProperties, isCacheable) == 15);
+static_assert(sizeof(PropertyAllowlist) == 1 && sizeof(ScopeOrdinal) == 1 && sizeof(FromStyleAttribute) == 1 && sizeof(CascadeLayerPriority) == 2 && sizeof(IsStartingStyle) == 1 && sizeof(IsCacheable) == 1);
+static_assert(!std::to_underlying(PropertyAllowlist::None));
+
+// For each CSSPropertyID: cascadeAliasProperty(id) | CSSProperty::isInheritedProperty(id) << 15.
+static std::span<const uint16_t> propertyTableForSwift()
+{
+    static const std::array<uint16_t, cssPropertyIDEnumValueCount> table = [] {
+        std::array<uint16_t, cssPropertyIDEnumValueCount> table { };
+        for (uint16_t id = std::to_underlying(CSSPropertyID::Custom); id < cssPropertyIDEnumValueCount; ++id) {
+            auto propertyID = static_cast<CSSPropertyID>(id);
+            table[id] = std::to_underlying(cascadeAliasProperty(propertyID)) | (CSSProperty::isInheritedProperty(propertyID) ? 0x8000 : 0);
+        }
+        return table;
+    }();
+    return table;
+}
+
+#endif // USE(SWIFT_KERNELS)
+
 void PropertyCascade::buildCascade()
+{
+#if USE(SWIFT_KERNELS)
+    if (buildCascadeWithSwift()) {
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+        if (swiftKernelsValidationEnabled()) [[unlikely]]
+            validateSwiftCascade();
+#endif
+        return;
+    }
+#endif
+    buildCascadeCxx();
+}
+
+#if USE(SWIFT_KERNELS)
+
+// Builds the cascade with the Swift kernel. Returns false for the cascades the kernel leaves to
+// buildCascadeCxx(), with the cascade still in the fresh state buildCascadeCxx() starts from (the kernel
+// may have written Property records, which the C++ treats as uninitialized).
+bool PropertyCascade::buildCascadeWithSwift()
+{
+    if (m_ruleRollbackDepth || m_rollbackScope || m_maximumCascadeLayerPriorityForRollback || m_positionTryFallbackProperties || m_maximumOrigin != Origin::Author)
+        return false;
+    auto types = m_includedProperties.types;
+    if (types.contains(PropertyType::AfterAnimation) || (types.contains(PropertyType::ExplicitlyInherited) && !types.containsAll(normalPropertyTypes())))
+        return false;
+    ASSERT(m_propertyIsPresent.isEmpty() && !m_lastIndexForLogicalGroup && m_customProperties.isEmpty());
+
+    auto& userAgentDeclarations = m_matchResult.userAgentDeclarations;
+    auto& userDeclarations = m_matchResult.userDeclarations;
+    auto& authorDeclarations = m_matchResult.authorDeclarations;
+    size_t userAgentCount = userAgentDeclarations.size();
+    size_t userCount = userDeclarations.size();
+    size_t authorCount = authorDeclarations.size();
+
+    Vector<uint64_t, 3 * 32> matchWords(3 * (userAgentCount + userCount + authorCount));
+    auto matchWordSpan = matchWords.mutableSpan();
+    size_t wordIndex = 0;
+    size_t propertyTotal = 0;
+    for (auto* declarations : { &userAgentDeclarations, &userDeclarations, &authorDeclarations }) {
+        for (auto& matchedProperties : *declarations) {
+            if (matchedProperties.allowlistType != PropertyAllowlist::None)
+                return false;
+            auto& properties = matchedProperties.properties.get();
+            auto words = matchWordSpan.subspan(wordIndex).first<3>();
+            if (properties.isMutable()) {
+                auto storage = asByteSpan(uncheckedDowncast<MutableStyleProperties>(properties).propertySpan());
+                size_t count = storage.size() / sizeof(CSSProperty);
+                if (count >= 1u << 28)
+                    return false;
+                words[0] = reinterpret_cast<uintptr_t>(storage.data());
+                words[2] = storage.size() | uint64_t { count } << 32 | 1ull << 63;
+                propertyTotal += count;
+            } else {
+                auto& immutableProperties = uncheckedDowncast<ImmutableStyleProperties>(properties);
+                size_t count = immutableProperties.propertyCount();
+                words[0] = reinterpret_cast<uintptr_t>(&immutableProperties.m_storage);
+                words[2] = count * (sizeof(StylePropertyMetadata) + sizeof(PackedPtr<const CSSValue>)) | uint64_t { count } << 32;
+                propertyTotal += count;
+            }
+            // linkMatchType through isCacheable, in their byte order (static_asserted above).
+            memcpySpan(asMutableByteSpan(words[1]), asByteSpan(matchedProperties).subspan(offsetof(MatchedProperties, linkMatchType), sizeof(uint64_t)));
+            wordIndex += 3;
+        }
+    }
+
+    size_t scratchCount = std::max<size_t>({ logicalGroupPropertyCount, userAgentCount, userCount, authorCount });
+    Vector<uint64_t, 256> work(scratchCount + propertyTotal);
+    std::array<uint32_t, 7> config { static_cast<uint32_t>(userAgentCount), static_cast<uint32_t>(userCount), static_cast<uint32_t>(authorCount),
+        types.toRaw(), std::to_underlying(firstLogicalGroupProperty), sizeof(PackedPtr<const CSSValue>), static_cast<uint32_t>(scratchCount) };
+    std::array<uint32_t, 4> scalars { m_lastIndexForLogicalGroup, m_seenLogicalGroupPropertyCount,
+        std::to_underlying(m_lowestSeenLogicalGroupProperty), std::to_underlying(m_highestSeenLogicalGroupProperty) };
+    auto includedIDs = spanReinterpretCast<const uint16_t>(m_includedProperties.ids.span());
+    auto table = propertyTableForSwift();
+    auto properties = asMutableByteSpan(std::span { m_properties });
+    auto propertyIsPresent = m_propertyIsPresent.storage();
+    auto logicalGroupIDs = spanReinterpretCast<uint16_t>(std::span { m_logicalGroupPropertyIDs });
+
+    auto customCount = WebCoreSwift_PropertyCascade_build(matchWords.span().data(), matchWords.size(), config.data(), config.size(),
+        includedIDs.data(), includedIDs.size(), table.data(), table.size(), properties.data(), properties.size(),
+        propertyIsPresent.data(), propertyIsPresent.size(), m_logicalGroupPropertyIndices.data(), logicalGroupIDs.data(), logicalGroupPropertyCount,
+        scalars.data(), work.mutableSpan().data(), work.size());
+    if (customCount < 0)
+        return false;
+
+    m_lastIndexForLogicalGroup = scalars[0];
+    m_seenLogicalGroupPropertyCount = scalars[1];
+    m_lowestSeenLogicalGroupProperty = static_cast<CSSPropertyID>(scalars[2]);
+    m_highestSeenLogicalGroupProperty = static_cast<CSSPropertyID>(scalars[3]);
+
+    // The custom property sets, in cascade order.
+    for (auto entry : work.span().subspan(scratchCount, customCount)) {
+        size_t matchIndex = entry >> 32;
+        unsigned propertyIndex = static_cast<uint32_t>(entry);
+        auto origin = Origin::UserAgent;
+        auto* declarations = &userAgentDeclarations;
+        if (matchIndex >= userAgentCount + userCount) {
+            origin = Origin::Author;
+            declarations = &authorDeclarations;
+            matchIndex -= userAgentCount + userCount;
+        } else if (matchIndex >= userAgentCount) {
+            origin = Origin::User;
+            declarations = &userDeclarations;
+            matchIndex -= userAgentCount;
+        }
+        auto& matchedProperties = (*declarations)[matchIndex];
+        auto current = matchedProperties.properties->propertyAt(propertyIndex);
+        SUPPRESS_UNCOUNTED_ARG set(CSSPropertyID::Custom, *current.value(), matchedProperties, origin);
+    }
+
+    m_delayedRollbackProperties.clear();
+    return true;
+}
+
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+// Checks the cascade the Swift kernel built against buildCascadeCxx() on the same, freshly reset, state.
+void PropertyCascade::validateSwiftCascade()
+{
+    Vector<Property> swiftProperties(std::span<const Property> { m_properties });
+    auto swiftPropertyIsPresent = m_propertyIsPresent;
+    auto swiftLogicalGroupPropertyIndices = m_logicalGroupPropertyIndices;
+    auto swiftLastIndexForLogicalGroup = m_lastIndexForLogicalGroup;
+    auto swiftLogicalGroupPropertyIDs = m_logicalGroupPropertyIDs;
+    auto swiftSeenLogicalGroupPropertyCount = m_seenLogicalGroupPropertyCount;
+    auto swiftLowestSeenLogicalGroupProperty = m_lowestSeenLogicalGroupProperty;
+    auto swiftHighestSeenLogicalGroupProperty = m_highestSeenLogicalGroupProperty;
+    auto swiftCustomProperties = std::exchange(m_customProperties, { });
+
+    m_propertyIsPresent = { };
+    m_logicalGroupPropertyIndices = { };
+    m_lastIndexForLogicalGroup = 0;
+    m_logicalGroupPropertyIDs = { };
+    m_seenLogicalGroupPropertyCount = 0;
+    m_lowestSeenLogicalGroupProperty = lastLogicalGroupProperty;
+    m_highestSeenLogicalGroupProperty = firstLogicalGroupProperty;
+    buildCascadeCxx();
+
+    // Values are only meaningful where the cascade set them: origins[i] only where cssValue[i] is set.
+    auto sameProperty = [](const Property& a, const Property& b) {
+        if (a.id != b.id || a.origin != b.origin || a.styleScopeOrdinal != b.styleScopeOrdinal || a.cascadeLayerPriority != b.cascadeLayerPriority || a.fromStyleAttribute != b.fromStyleAttribute)
+            return false;
+        for (size_t i = 0; i < a.cssValue.size(); ++i) {
+            if (a.cssValue[i] != b.cssValue[i] || (a.cssValue[i] && a.origins[i] != b.origins[i]))
+                return false;
+        }
+        return true;
+    };
+    RELEASE_ASSERT(m_propertyIsPresent == swiftPropertyIsPresent);
+    RELEASE_ASSERT(m_logicalGroupPropertyIndices == swiftLogicalGroupPropertyIndices);
+    RELEASE_ASSERT(m_lastIndexForLogicalGroup == swiftLastIndexForLogicalGroup);
+    RELEASE_ASSERT(m_logicalGroupPropertyIDs == swiftLogicalGroupPropertyIDs);
+    RELEASE_ASSERT(m_seenLogicalGroupPropertyCount == swiftSeenLogicalGroupPropertyCount);
+    RELEASE_ASSERT(m_lowestSeenLogicalGroupProperty == swiftLowestSeenLogicalGroupProperty);
+    RELEASE_ASSERT(m_highestSeenLogicalGroupProperty == swiftHighestSeenLogicalGroupProperty);
+    for (size_t id = 0; id < m_properties.size(); ++id) {
+        bool isSet = id < std::to_underlying(firstLogicalGroupProperty) ? m_propertyIsPresent.get(id) && id != std::to_underlying(CSSPropertyID::Custom) : m_logicalGroupPropertyIndices[id - std::to_underlying(firstLogicalGroupProperty)];
+        if (isSet)
+            RELEASE_ASSERT(sameProperty(m_properties[id], swiftProperties[id]));
+    }
+    auto sameCustomProperties = [&] {
+        if (m_customProperties.size() != swiftCustomProperties.size())
+            return false;
+        auto swiftCustomProperty = swiftCustomProperties.begin();
+        for (auto& customProperty : m_customProperties) {
+            if (customProperty.key != swiftCustomProperty->key || !sameProperty(customProperty.value, swiftCustomProperty->value))
+                return false;
+            ++swiftCustomProperty;
+        }
+        return true;
+    };
+    RELEASE_ASSERT(sameCustomProperties());
+}
+#endif // ENABLE(SWIFT_KERNELS_VALIDATION)
+
+#endif // USE(SWIFT_KERNELS)
+
+void PropertyCascade::buildCascadeCxx()
 {
     std::array<bool, 3> originsWithImportant = { };
 
