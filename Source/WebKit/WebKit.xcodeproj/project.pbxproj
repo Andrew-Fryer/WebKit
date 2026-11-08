@@ -2874,6 +2874,8 @@
 		DE9B7DD307BFDC59AAD5A316 /* WebPhoneNumberPossessionCoordinator.h in Headers */ = {isa = PBXBuildFile; fileRef = 615CAF1FFF884BA22CC8F813 /* WebPhoneNumberPossessionCoordinator.h */; };
 		AD68F1ED46BFEA0437BA3D85 /* PhoneNumberPossessionManaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22FE3E4E5FDB2A3685605EB9 /* PhoneNumberPossessionManaging.swift */; };
 		3625771CD7ED2C7CCF7238E1 /* MockPhoneNumberPossessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FC558120E9C9FB6C819C9C /* MockPhoneNumberPossessionManager.swift */; };
+		0289463033A05583A18CAB84 /* IPCStreamHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91A785EC75E6738E7B10592 /* IPCStreamHeader.swift */; };
+		5711488664B450441FD43BB5 /* IPCStreamHeaderBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE33A68CAEE090B7D16C5E0B /* IPCStreamHeaderBoundary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -9471,6 +9473,10 @@
 		C5B999CD29BB9B11852EBA95 /* WebPhoneNumberPossessionCoordinatorProxyCocoa.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = WebPhoneNumberPossessionCoordinatorProxyCocoa.mm; sourceTree = "<group>"; };
 		22FE3E4E5FDB2A3685605EB9 /* PhoneNumberPossessionManaging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNumberPossessionManaging.swift; sourceTree = "<group>"; };
 		34FC558120E9C9FB6C819C9C /* MockPhoneNumberPossessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockPhoneNumberPossessionManager.swift; sourceTree = "<group>"; };
+		B91A785EC75E6738E7B10592 /* IPCStreamHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCStreamHeader/IPCStreamHeader.swift; sourceTree = "<group>"; };
+		EE33A68CAEE090B7D16C5E0B /* IPCStreamHeaderBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCStreamHeader/IPCStreamHeaderBoundary.swift; sourceTree = "<group>"; };
+		4E963CE5BE3A06EA8FE7CE21 /* IPCStreamHeaderSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = IPCStreamHeader/IPCStreamHeaderSwiftBoundary.h; sourceTree = "<group>"; };
+		4E34BC58816DEF0E82D80B4F /* SwiftKernelsValidation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SwiftKernelsValidation.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -10059,6 +10065,7 @@
 		0867D691FE84028FC02AAC07 /* WebKit2 */ = {
 			isa = PBXGroup;
 			children = (
+				F975F0A9A3659FE82E0A1E33 /* swift */,
 				DA97E4AC2B6BCCF20009E90B /* WebExtension.serialization.in */,
 				1A4F9769100E7B6600637A18 /* Configurations */,
 				C0CE729D1247E71D00BC0EC4 /* Derived Sources */,
@@ -18138,6 +18145,17 @@
 			path = PhoneNumberPossession;
 			sourceTree = "<group>";
 		};
+		F975F0A9A3659FE82E0A1E33 /* swift */ = {
+			isa = PBXGroup;
+			children = (
+				4E34BC58816DEF0E82D80B4F /* SwiftKernelsValidation.h */,
+				4E963CE5BE3A06EA8FE7CE21 /* IPCStreamHeaderSwiftBoundary.h */,
+				EE33A68CAEE090B7D16C5E0B /* IPCStreamHeaderBoundary.swift */,
+				B91A785EC75E6738E7B10592 /* IPCStreamHeader.swift */,
+			);
+			path = swift;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -22286,6 +22304,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5711488664B450441FD43BB5 /* IPCStreamHeaderBoundary.swift in Sources */,
+				0289463033A05583A18CAB84 /* IPCStreamHeader.swift in Sources */,
 				51FFD3092AE9A9FC00B0AB70 /* ArgumentCodersCocoa.mm in Sources */,
 				5187BDEA2AFF5419008A6EE5 /* CoreIPCArray.mm in Sources */,
 				F4B24AA72D5ED4D300725993 /* CoreIPCAVOutputContext.mm in Sources */,

@@ -32,6 +32,14 @@
 #include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/TextStream.h>
 
+#if USE(SWIFT_KERNELS)
+#include "RegionShapeSwiftBoundary.h"
+#include <bit>
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+#include "SwiftKernelsValidation.h"
+#endif
+#endif
+
 // A region class based on the paper "Scanline Coherent Shape Algebra"
 // by Jonathan E. Steinhart from the book "Graphics Gems II".
 //
@@ -43,6 +51,20 @@ namespace WebCore {
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(Region);
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Region::Shape);
+
+#if USE(SWIFT_KERNELS)
+// The Swift port of Region::Shape's algebra (Source/WebCore/swift/RegionShape) reads and writes Region::Span arrays as
+// uint64_t words: y in the low 32 bits of the first word of each span, segmentIndex in the second.
+static_assert(sizeof(Region::Span) == 2 * sizeof(uint64_t));
+static_assert(!offsetof(Region::Span, y) && offsetof(Region::Span, segmentIndex) == sizeof(uint64_t));
+static_assert(sizeof(int) == sizeof(int32_t));
+static_assert(std::endian::native == std::endian::little);
+
+static std::span<const uint64_t> regionSpanWords(std::span<const Region::Span> spans)
+{
+    return spanReinterpretCast<const uint64_t>(spans);
+}
+#endif
 
 Region::Region() = default;
 
@@ -158,8 +180,9 @@ uint64_t Region::totalArea() const
     return totalArea;
 }
 
+#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
 template<typename CompareOperation>
-bool Region::Shape::compareShapes(const Shape& aShape, const Shape& bShape)
+NODELETE static bool compareShapesCxx(const Region::Shape& aShape, const Region::Shape& bShape)
 {
     bool result = CompareOperation::defaultResult;
 
@@ -236,6 +259,26 @@ bool Region::Shape::compareShapes(const Shape& aShape, const Shape& bShape)
         return result;
 
     return result;
+}
+#endif
+
+template<typename CompareOperation>
+bool Region::Shape::compareShapes(const Shape& aShape, const Shape& bShape)
+{
+#if USE(SWIFT_KERNELS)
+    static_assert(std::is_same_v<CompareOperation, CompareContainsOperation> || std::is_same_v<CompareOperation, CompareIntersectsOperation>);
+    constexpr auto compare = std::is_same_v<CompareOperation, CompareContainsOperation> ? WebCoreSwift_RegionShape_contains : WebCoreSwift_RegionShape_intersects;
+    auto aWords = regionSpanWords(aShape.spans());
+    auto bWords = regionSpanWords(bShape.spans());
+    bool result = compare(aShape.m_segments.span().data(), aShape.m_segments.size(), aWords.data(), aWords.size(), bShape.m_segments.span().data(), bShape.m_segments.size(), bWords.data(), bWords.size());
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        RELEASE_ASSERT(result == compareShapesCxx<CompareOperation>(aShape, bShape));
+#endif
+    return result;
+#else
+    return compareShapesCxx<CompareOperation>(aShape, bShape);
+#endif
 }
 
 struct Region::Shape::CompareContainsOperation {
@@ -332,12 +375,13 @@ WTF::TextStream& operator<<(WTF::TextStream& ts, const Region::Shape& value)
     return ts;
 }
 
-IntRect Region::Shape::bounds() const
+#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
+NODELETE static IntRect boundsCxx(const Region::Shape& shape)
 {
-    if (isEmpty())
+    if (shape.isEmpty())
         return IntRect();
 
-    auto spans = this->spans();
+    auto spans = shape.spans();
     int minY = spans.front().y;
     int maxY = spans.back().y;
 
@@ -345,7 +389,7 @@ IntRect Region::Shape::bounds() const
     int maxX = std::numeric_limits<int>::min();
 
     while (spans.size() > 1) {
-        auto segments = this->segments(spans);
+        auto segments = shape.segments(spans);
         if (!segments.empty()) {
             auto& firstSegment = segments.front();
             auto& lastSegment = segments.back();
@@ -367,6 +411,27 @@ IntRect Region::Shape::bounds() const
     CheckedInt32 width = checkedDifference<int32_t>(maxX, minX);
     CheckedInt32 height = checkedDifference<int32_t>(maxY, minY);
     return IntRect(minX, minY, width.hasOverflowed() ? std::numeric_limits<int32_t>::max() : width.value(), height.hasOverflowed() ? std::numeric_limits<int32_t>::max() : height.value());
+}
+#endif
+
+IntRect Region::Shape::bounds() const
+{
+#if USE(SWIFT_KERNELS)
+    if (isEmpty())
+        return IntRect();
+
+    auto words = regionSpanWords(spans());
+    std::array<int32_t, 4> rect;
+    WebCoreSwift_RegionShape_bounds(m_segments.span().data(), m_segments.size(), words.data(), words.size(), rect.data());
+    IntRect result(rect[0], rect[1], rect[2], rect[3]);
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        RELEASE_ASSERT(result == boundsCxx(*this));
+#endif
+    return result;
+#else
+    return boundsCxx(*this);
+#endif
 }
 
 void Region::Shape::translate(const IntSize& offset)
@@ -469,6 +534,38 @@ Region::Shape Region::Shape::shapeOperation(const Shape& shape1, const Shape& sh
     return result;
 }
 
+#if USE(SWIFT_KERNELS)
+// shapeOperation<Operation> after Operation::trySimpleOperation, in Swift. resultSegments and resultSpans are empty.
+using ShapeOperationSwift = size_t(const int32_t*, size_t, const uint64_t*, size_t, const int32_t*, size_t, const uint64_t*, size_t, int32_t*, size_t, uint64_t*, size_t, size_t*);
+
+ALWAYS_INLINE static void shapeOperationSwift(ShapeOperationSwift& operation, std::span<const int> segments1, std::span<const Region::Span> spans1, std::span<const int> segments2, std::span<const Region::Span> spans2, Vector<int, 32>& resultSegments, Vector<Region::Span, 16>& resultSpans)
+{
+    // Each iteration of shapeOperation consumes at least one span of either shape and appends at most one span, so the
+    // result has at most spans1.size() + spans2.size() spans. There is no such bound on segments (a span's segments are
+    // merged again with every span of the other shape that it overlaps): start with the capacity that shapeOperation
+    // reserves and grow it whenever Swift asks for more. Reserving first keeps the capacities those of shapeOperation.
+    resultSpans.reserveInitialCapacity(spans1.size() + spans2.size());
+    resultSpans.grow(spans1.size() + spans2.size());
+    resultSegments.reserveInitialCapacity(segments1.size() + segments2.size());
+    resultSegments.grow(resultSegments.capacity());
+
+    auto words1 = regionSpanWords(spans1);
+    auto words2 = regionSpanWords(spans2);
+    auto resultWords = spanReinterpretCast<uint64_t>(resultSpans.mutableSpan());
+    std::array<size_t, WebCoreSwiftRegionShapeStateSize> state { };
+    while (size_t segmentsNeeded = operation(segments1.data(), segments1.size(), words1.data(), words1.size(), segments2.data(), segments2.size(), words2.data(), words2.size(), resultSegments.mutableSpan().data(), resultSegments.size(), resultWords.data(), resultWords.size(), state.data())) {
+        resultSegments.grow(segmentsNeeded);
+        resultSegments.grow(resultSegments.capacity());
+    }
+
+    size_t segmentCount = state[WebCoreSwiftRegionShapeStateSegmentCount];
+    size_t spanCount = state[WebCoreSwiftRegionShapeStateSpanCount];
+    RELEASE_ASSERT(segmentCount <= resultSegments.size() && spanCount <= resultSpans.size());
+    resultSegments.shrink(segmentCount);
+    resultSpans.shrink(spanCount);
+}
+#endif
+
 struct Region::Shape::UnionOperation {
     static bool trySimpleOperation(const Shape& shape1, const Shape& shape2, Shape& result)
     {
@@ -490,7 +587,20 @@ struct Region::Shape::UnionOperation {
 
 Region::Shape Region::Shape::unionShapes(const Shape& shape1, const Shape& shape2)
 {
+#if USE(SWIFT_KERNELS)
+    Shape result;
+    if (UnionOperation::trySimpleOperation(shape1, shape2, result))
+        return result;
+
+    shapeOperationSwift(WebCoreSwift_RegionShape_unite, shape1.m_segments.span(), shape1.spans(), shape2.m_segments.span(), shape2.spans(), result.m_segments, result.m_spans);
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        RELEASE_ASSERT(result == shapeOperation<UnionOperation>(shape1, shape2));
+#endif
+    return result;
+#else
     return shapeOperation<UnionOperation>(shape1, shape2);
+#endif
 }
 
 struct Region::Shape::IntersectOperation {
@@ -509,7 +619,20 @@ struct Region::Shape::IntersectOperation {
 
 Region::Shape Region::Shape::intersectShapes(const Shape& shape1, const Shape& shape2)
 {
+#if USE(SWIFT_KERNELS)
+    Shape result;
+    if (IntersectOperation::trySimpleOperation(shape1, shape2, result))
+        return result;
+
+    shapeOperationSwift(WebCoreSwift_RegionShape_intersect, shape1.m_segments.span(), shape1.spans(), shape2.m_segments.span(), shape2.spans(), result.m_segments, result.m_spans);
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        RELEASE_ASSERT(result == shapeOperation<IntersectOperation>(shape1, shape2));
+#endif
+    return result;
+#else
     return shapeOperation<IntersectOperation>(shape1, shape2);
+#endif
 }
 
 struct Region::Shape::SubtractOperation {
@@ -528,7 +651,20 @@ struct Region::Shape::SubtractOperation {
 
 Region::Shape Region::Shape::subtractShapes(const Shape& shape1, const Shape& shape2)
 {
+#if USE(SWIFT_KERNELS)
+    Shape result;
+    if (SubtractOperation::trySimpleOperation(shape1, shape2, result))
+        return result;
+
+    shapeOperationSwift(WebCoreSwift_RegionShape_subtract, shape1.m_segments.span(), shape1.spans(), shape2.m_segments.span(), shape2.spans(), result.m_segments, result.m_spans);
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        RELEASE_ASSERT(result == shapeOperation<SubtractOperation>(shape1, shape2));
+#endif
+    return result;
+#else
     return shapeOperation<SubtractOperation>(shape1, shape2);
+#endif
 }
 
 void Region::intersect(const Region& region)
@@ -602,6 +738,7 @@ void Region::setShape(Shape&& shape)
         *m_shape = WTF::move(shape);
 }
 
+#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
 NODELETE static std::span<const int> segmentsForSpanSegmentIndices(std::span<const int> segments, size_t start, size_t end)
 {
     if (segments.size() <= end)
@@ -609,7 +746,7 @@ NODELETE static std::span<const int> segmentsForSpanSegmentIndices(std::span<con
     return segments.subspan(start, end - start);
 }
 
-bool Region::Shape::isValidShape(std::span<const int> segments, std::span<const Span> spans)
+NODELETE static bool isValidShapeCxx(std::span<const int> segments, std::span<const Region::Span> spans)
 {
     const size_t spansSize = spans.size();
     const size_t segmentsSize = segments.size();
@@ -647,6 +784,22 @@ bool Region::Shape::isValidShape(std::span<const int> segments, std::span<const 
             return false;
     }
     return true;
+}
+#endif
+
+bool Region::Shape::isValidShape(std::span<const int> segments, std::span<const Span> spans)
+{
+#if USE(SWIFT_KERNELS)
+    auto words = regionSpanWords(spans);
+    bool result = WebCoreSwift_RegionShape_isValidShape(segments.data(), segments.size(), words.data(), words.size());
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        RELEASE_ASSERT(result == isValidShapeCxx(segments, spans));
+#endif
+    return result;
+#else
+    return isValidShapeCxx(segments, spans);
+#endif
 }
 
 TextStream& operator<<(TextStream& ts, const Region& region)

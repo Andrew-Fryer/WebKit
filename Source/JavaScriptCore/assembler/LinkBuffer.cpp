@@ -40,6 +40,13 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 
+#if ENABLE(BRANCH_COMPACTION) && USE(SWIFT_KERNELS)
+#include "LinkRecordSortSwiftBoundary.h"
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+#include "SwiftKernelsValidation.h"
+#endif
+#endif
+
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
@@ -286,6 +293,40 @@ static ALWAYS_INLINE void recordLinkOffsets(AssemblerData& assemblerData, int32_
 #endif
 }
 
+#if USE(SWIFT_KERNELS)
+static void sortJumpsToLinkInSwift(Vector<MacroAssembler::LinkRecord, 0, UnsafeVectorOverflow>& jumpsToLink)
+{
+    using LinkRecord = MacroAssembler::LinkRecord;
+    // The Swift kernel sees each LinkRecord as 3 uint64_t words, with from() as signed word 0 (asserted in ARM64Assembler.h).
+    static_assert(sizeof(LinkRecord) == 3 * sizeof(uint64_t));
+    static_assert(alignof(LinkRecord) == alignof(uint64_t));
+    static_assert(std::is_same_v<decltype(std::declval<const LinkRecord&>().from()), intptr_t>);
+    JSCSwift_LinkRecordSort_sortByFrom(spanReinterpretCast<uint64_t>(jumpsToLink.mutableSpan()).data(), jumpsToLink.size());
+}
+#endif
+
+// The assembler's jumps sorted by from(): MacroAssembler::jumpsToLinkCxx(), or the same sort in Swift.
+static ALWAYS_INLINE Vector<MacroAssembler::LinkRecord, 0, UnsafeVectorOverflow>& sortedJumpsToLink(MacroAssembler& macroAssembler)
+{
+#if USE(SWIFT_KERNELS)
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]] {
+        // Sort a copy in Swift, then sort the real vector with the original C++, and compare every byte.
+        Vector<MacroAssembler::LinkRecord, 0, UnsafeVectorOverflow> swiftSorted = macroAssembler.jumpsToLinkUnsorted();
+        sortJumpsToLinkInSwift(swiftSorted);
+        auto& jumpsToLink = macroAssembler.jumpsToLinkCxx();
+        RELEASE_ASSERT(equalSpans(spanReinterpretCast<const uint64_t>(swiftSorted.span()), spanReinterpretCast<const uint64_t>(jumpsToLink.span())));
+        return jumpsToLink;
+    }
+#endif
+    auto& jumpsToLink = macroAssembler.jumpsToLinkUnsorted();
+    sortJumpsToLinkInSwift(jumpsToLink);
+    return jumpsToLink;
+#else
+    return macroAssembler.jumpsToLinkCxx();
+#endif
+}
+
 template <typename InstructionType>
 void LinkBuffer::copyCompactAndLinkCode(MacroAssembler& macroAssembler, JITCompilationEffort effort)
 {
@@ -294,7 +335,7 @@ void LinkBuffer::copyCompactAndLinkCode(MacroAssembler& macroAssembler, JITCompi
     if (didFailToAllocate())
         return;
 
-    auto& jumpsToLink = macroAssembler.jumpsToLink();
+    auto& jumpsToLink = sortedJumpsToLink(macroAssembler);
     m_assemblerStorage = macroAssembler.m_assembler.buffer().releaseAssemblerData();
     uint8_t* inData = std::bit_cast<uint8_t*>(m_assemblerStorage.buffer());
 #if ENABLE(JIT_SIGN_ASSEMBLER_BUFFER)

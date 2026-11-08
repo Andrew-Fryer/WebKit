@@ -164,6 +164,16 @@ public:
 private:
     Decoder(std::span<const uint8_t> buffer, BufferDeallocator&&, Vector<Attachment>&&);
 
+    // The original C++ body of Decoder(std::span<const uint8_t> stream, uint64_t destinationID), which decodes the
+    // stream message header in Swift (decodeStreamHeader()) when USE(SWIFT_KERNELS). With
+    // ENABLE(SWIFT_KERNELS_VALIDATION), decodeStreamHeaderAndValidate() compares it to the tagged constructor, which
+    // always uses the C++. Each is only defined in the builds that use it.
+    void decodeStreamHeaderCxx(uint64_t destinationID);
+    void decodeStreamHeader(std::span<const uint8_t> header, uint64_t destinationID);
+    void decodeStreamHeaderAndValidate(uint64_t destinationID);
+    enum class StreamHeaderCxxTag : bool { };
+    Decoder(std::span<const uint8_t> stream, uint64_t destinationID, StreamHeaderCxxTag);
+
     std::span<const uint8_t> m_buffer;
     std::span<const uint8_t>::iterator m_bufferPosition;
     size_t m_argumentsOffset { 0 };

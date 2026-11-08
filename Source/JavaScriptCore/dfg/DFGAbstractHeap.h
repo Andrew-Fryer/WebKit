@@ -228,7 +228,20 @@ public:
         return Operand::fromBits(payload().value());
     }
 
+    // With USE(SWIFT_KERNELS), supertype(), isStrictSubtypeOf() and overlaps() are computed by
+    // swift/AbstractHeapLattice/AbstractHeapLattice.swift, called from DFGAbstractHeap.cpp. The *Cxx
+    // functions are the original C++, kept for the !USE(SWIFT_KERNELS) build and for validation.
     AbstractHeap supertype() const
+    {
+#if USE(SWIFT_KERNELS)
+        ASSERT(kind() != InvalidAbstractHeap);
+        return fromBits(supertypeSwift(m_value));
+#else
+        return supertypeCxx();
+#endif
+    }
+
+    AbstractHeap supertypeCxx() const
     {
         ASSERT(kind() != InvalidAbstractHeap);
         switch (kind()) {
@@ -243,6 +256,15 @@ public:
     
     bool isStrictSubtypeOf(const AbstractHeap& other) const
     {
+#if USE(SWIFT_KERNELS)
+        return isStrictSubtypeOfSwift(m_value, other.m_value);
+#else
+        return isStrictSubtypeOfCxx(other);
+#endif
+    }
+
+    bool isStrictSubtypeOfCxx(const AbstractHeap& other) const
+    {
         AbstractHeap current = *this;
         if (current.kind() == DOMState && other.kind() == DOMState) {
             Payload currentPayload = current.payload();
@@ -254,7 +276,7 @@ public:
             return DOMJIT::HeapRange::fromRaw(currentPayload.value32()).isStrictSubtypeOf(DOMJIT::HeapRange::fromRaw(otherPayload.value32()));
         }
         while (current.kind() != World) {
-            current = current.supertype();
+            current = current.supertypeCxx();
             if (current == other)
                 return true;
         }
@@ -268,7 +290,16 @@ public:
     
     bool overlaps(const AbstractHeap& other) const
     {
-        return *this == other || isStrictSubtypeOf(other) || other.isStrictSubtypeOf(*this);
+#if USE(SWIFT_KERNELS)
+        return *this == other || overlapsSwift(m_value, other.m_value);
+#else
+        return overlapsCxx(other);
+#endif
+    }
+
+    bool overlapsCxx(const AbstractHeap& other) const
+    {
+        return *this == other || isStrictSubtypeOfCxx(other) || other.isStrictSubtypeOfCxx(*this);
     }
     
     bool isDisjoint(const AbstractHeap& other) const
@@ -297,7 +328,7 @@ public:
 
     static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
 
-    static AbstractHeapKind superKind(AbstractHeapKind kind)
+    static constexpr AbstractHeapKind superKind(AbstractHeapKind kind)
     {
         switch (kind) {
         case InvalidAbstractHeap:
@@ -371,6 +402,29 @@ private:
     static constexpr uint64_t kindAndTopMask = ((1ull << (kindBits + 1)) - 1) << kindShift;
     static constexpr unsigned topShift = kindShift + kindBits;
     static_assert(48 >= Operand::maxBits, "Operand should fit in the bottom 48 bit region");
+#if USE(SWIFT_KERNELS)
+    static_assert(kindShift == 48 && kindBits == 7 && topShift == 55, "AbstractHeapLattice.swift hard-codes this encoding");
+
+    // Defined in DFGAbstractHeap.cpp. They call AbstractHeapLattice.swift and, in validation mode, check its
+    // answer against the *Cxx functions. Without validation they only forward to Swift, which computes a pure
+    // function of its arguments, so they are const: callers may CSE and hoist them. The predicates return 0 or 1.
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+#define DFG_ABSTRACT_HEAP_SWIFT_QUERY static
+#else
+#define DFG_ABSTRACT_HEAP_SWIFT_QUERY __attribute__((const)) static
+#endif
+    DFG_ABSTRACT_HEAP_SWIFT_QUERY intptr_t isStrictSubtypeOfSwift(int64_t heap, int64_t other);
+    DFG_ABSTRACT_HEAP_SWIFT_QUERY intptr_t overlapsSwift(int64_t heap, int64_t other);
+    DFG_ABSTRACT_HEAP_SWIFT_QUERY int64_t supertypeSwift(int64_t heap);
+#undef DFG_ABSTRACT_HEAP_SWIFT_QUERY
+
+    static AbstractHeap fromBits(int64_t bits)
+    {
+        AbstractHeap result;
+        result.m_value = bits;
+        return result;
+    }
+#endif
     
     Payload payloadImpl() const
     {

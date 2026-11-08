@@ -102,7 +102,18 @@ ALWAYS_INLINE bool isValidSignedImm7(int32_t value, int alignmentShiftAmount)
 
 class ARM64LogicalImmediate {
 public:
-    static ARM64LogicalImmediate create32(uint32_t value)
+#if USE(SWIFT_KERNELS)
+    // Implemented in Swift (swift/ARM64LogicalImmediate) and defined out of line in AssemblerCommon.cpp:
+    // this header is also compiled into WebCore (CSS JIT) and the test tools, which can't see JavaScriptCore's
+    // hidden Swift symbols, so it must not call Swift itself.
+    JS_EXPORT_PRIVATE PURE_FUNCTION static ARM64LogicalImmediate create32(uint32_t value);
+    JS_EXPORT_PRIVATE PURE_FUNCTION static ARM64LogicalImmediate create64(uint64_t value);
+#else
+    ALWAYS_INLINE static ARM64LogicalImmediate create32(uint32_t value) { return create32Cxx(value); }
+    ALWAYS_INLINE static ARM64LogicalImmediate create64(uint64_t value) { return create64Cxx(value); }
+#endif
+
+    static ARM64LogicalImmediate create32Cxx(uint32_t value)
     {
         // Check for 0, -1 - these cannot be encoded.
         if (!value || !~value)
@@ -147,7 +158,7 @@ public:
         return InvalidLogicalImmediate;
     }
 
-    static ARM64LogicalImmediate create64(uint64_t value)
+    static ARM64LogicalImmediate create64Cxx(uint64_t value)
     {
         // Check for 0, -1 - these cannot be encoded.
         if (!value || !~value)
@@ -161,7 +172,7 @@ public:
 
         // If the high & low 32 bits are equal, we can try for a 32-bit (or narrower) pattern.
         if (static_cast<uint32_t>(value) == static_cast<uint32_t>(value >> 32))
-            return create32(static_cast<uint32_t>(value));
+            return create32Cxx(static_cast<uint32_t>(value));
         return InvalidLogicalImmediate;
     }
 
