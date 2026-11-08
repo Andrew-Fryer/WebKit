@@ -7549,6 +7549,14 @@
 		6F7ED9BCE430201AF2CA92E7 /* NameValidationBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6D2B9AC4F1D6A1A8156816 /* NameValidationBoundary.swift */; };
 		66C2B8C8F6FFA0E8408211E7 /* PropertyCascade.swift in Sources */ = {isa = PBXBuildFile; fileRef = 291605F27D2B8B8F0CBB6565 /* PropertyCascade.swift */; };
 		7FFA08234CB2CF135B9B1670 /* PropertyCascadeBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27BDEFC3435082730E987C3E /* PropertyCascadeBoundary.swift */; };
+		06C36D55C3D4BE0472BD81A2 /* CSSKeywordsBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C2A801A913952FF4D86A29 /* CSSKeywordsBoundary.swift */; };
+		4D4E209ED8CC40A3A2CC7264 /* CSSValueKeywordTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C4A532315F9EB8CBF22091 /* CSSValueKeywordTable.swift */; };
+		BA5C12BC258327CAC9154FCE /* FEColorMatrix.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84BA022030FD3E048F892AAA /* FEColorMatrix.swift */; };
+		26CEBA8ADE8BDE50C4658126 /* FEColorMatrixBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593E58C9CE2EE116C76EE67D /* FEColorMatrixBoundary.swift */; };
+		FE32CCEE652B375A6BD5B01E /* SelectorFilterBloom.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6381D9820A3358FBDD0E5F8 /* SelectorFilterBloom.swift */; };
+		A71EED1EDA87D8E71820AE27 /* SelectorFilterBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7B861B25EAAA46E4CB7E11 /* SelectorFilterBoundary.swift */; };
+		FBACABF382DC9593A2B5C759 /* TextRunScanners.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76F428B411C0E431C5D9A6B0 /* TextRunScanners.swift */; };
+		1EC86050BCE3D677DB8BC24F /* TextRunScannersBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74271B57E63A0E7841C3F6C9 /* TextRunScannersBoundary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -24200,6 +24208,18 @@
 		291605F27D2B8B8F0CBB6565 /* PropertyCascade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertyCascade/PropertyCascade.swift; sourceTree = "<group>"; };
 		27BDEFC3435082730E987C3E /* PropertyCascadeBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertyCascade/PropertyCascadeBoundary.swift; sourceTree = "<group>"; };
 		9BAC662645F5F96BBF1CBDC9 /* PropertyCascadeSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PropertyCascade/PropertyCascadeSwiftBoundary.h; sourceTree = "<group>"; };
+		20C2A801A913952FF4D86A29 /* CSSKeywordsBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSKeywords/CSSKeywordsBoundary.swift; sourceTree = "<group>"; };
+		D598172E41B0EF1DC1D304C2 /* CSSKeywordsSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CSSKeywords/CSSKeywordsSwiftBoundary.h; sourceTree = "<group>"; };
+		E2C4A532315F9EB8CBF22091 /* CSSValueKeywordTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSKeywords/CSSValueKeywordTable.swift; sourceTree = "<group>"; };
+		84BA022030FD3E048F892AAA /* FEColorMatrix.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FEColorMatrix/FEColorMatrix.swift; sourceTree = "<group>"; };
+		593E58C9CE2EE116C76EE67D /* FEColorMatrixBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FEColorMatrix/FEColorMatrixBoundary.swift; sourceTree = "<group>"; };
+		CA51AEEB4418245AD04A4C87 /* FEColorMatrixSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FEColorMatrix/FEColorMatrixSwiftBoundary.h; sourceTree = "<group>"; };
+		B6381D9820A3358FBDD0E5F8 /* SelectorFilterBloom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectorFilter/SelectorFilterBloom.swift; sourceTree = "<group>"; };
+		2F7B861B25EAAA46E4CB7E11 /* SelectorFilterBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectorFilter/SelectorFilterBoundary.swift; sourceTree = "<group>"; };
+		A8975209F70D8D05B02A3C2F /* SelectorFilterSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SelectorFilter/SelectorFilterSwiftBoundary.h; sourceTree = "<group>"; };
+		76F428B411C0E431C5D9A6B0 /* TextRunScanners.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextRunScanners/TextRunScanners.swift; sourceTree = "<group>"; };
+		74271B57E63A0E7841C3F6C9 /* TextRunScannersBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextRunScanners/TextRunScannersBoundary.swift; sourceTree = "<group>"; };
+		588359208C45138A21E33F81 /* TextRunScannersSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TextRunScanners/TextRunScannersSwiftBoundary.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44280,6 +44300,18 @@
 		91EC392E6A5F6B385F6BCD04 /* swift */ = {
 			isa = PBXGroup;
 			children = (
+				588359208C45138A21E33F81 /* TextRunScannersSwiftBoundary.h */,
+				74271B57E63A0E7841C3F6C9 /* TextRunScannersBoundary.swift */,
+				76F428B411C0E431C5D9A6B0 /* TextRunScanners.swift */,
+				A8975209F70D8D05B02A3C2F /* SelectorFilterSwiftBoundary.h */,
+				2F7B861B25EAAA46E4CB7E11 /* SelectorFilterBoundary.swift */,
+				B6381D9820A3358FBDD0E5F8 /* SelectorFilterBloom.swift */,
+				CA51AEEB4418245AD04A4C87 /* FEColorMatrixSwiftBoundary.h */,
+				593E58C9CE2EE116C76EE67D /* FEColorMatrixBoundary.swift */,
+				84BA022030FD3E048F892AAA /* FEColorMatrix.swift */,
+				E2C4A532315F9EB8CBF22091 /* CSSValueKeywordTable.swift */,
+				D598172E41B0EF1DC1D304C2 /* CSSKeywordsSwiftBoundary.h */,
+				20C2A801A913952FF4D86A29 /* CSSKeywordsBoundary.swift */,
 				9BAC662645F5F96BBF1CBDC9 /* PropertyCascadeSwiftBoundary.h */,
 				27BDEFC3435082730E987C3E /* PropertyCascadeBoundary.swift */,
 				291605F27D2B8B8F0CBB6565 /* PropertyCascade.swift */,
@@ -51410,6 +51442,14 @@
 				41514FDB2E92DC40002074EA /* StreamPipeToUtilities.cpp in Sources */,
 				A833C7CA0A2CF06B00D57664 /* SVGNames.cpp in Sources */,
 				07E047C3305A9DB000DFCC4B /* SwiftStub.swift in Sources */,
+				1EC86050BCE3D677DB8BC24F /* TextRunScannersBoundary.swift in Sources */,
+				FBACABF382DC9593A2B5C759 /* TextRunScanners.swift in Sources */,
+				A71EED1EDA87D8E71820AE27 /* SelectorFilterBoundary.swift in Sources */,
+				FE32CCEE652B375A6BD5B01E /* SelectorFilterBloom.swift in Sources */,
+				26CEBA8ADE8BDE50C4658126 /* FEColorMatrixBoundary.swift in Sources */,
+				BA5C12BC258327CAC9154FCE /* FEColorMatrix.swift in Sources */,
+				4D4E209ED8CC40A3A2CC7264 /* CSSValueKeywordTable.swift in Sources */,
+				06C36D55C3D4BE0472BD81A2 /* CSSKeywordsBoundary.swift in Sources */,
 				7FFA08234CB2CF135B9B1670 /* PropertyCascadeBoundary.swift in Sources */,
 				66C2B8C8F6FFA0E8408211E7 /* PropertyCascade.swift in Sources */,
 				6F7ED9BCE430201AF2CA92E7 /* NameValidationBoundary.swift in Sources */,

@@ -35,6 +35,13 @@
 #include <Accelerate/Accelerate.h>
 #endif
 
+#if USE(SWIFT_KERNELS)
+#include "FEColorMatrixSwiftBoundary.h"
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+#include "SwiftKernelsValidation.h"
+#endif
+#endif
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(FEColorMatrixSoftwareApplier);
@@ -190,7 +197,32 @@ void FEColorMatrixSoftwareApplier::applyPlatformAccelerated(PixelBuffer& pixelBu
 }
 #endif
 
+// The per-pixel loops run in Swift (FEColorMatrix.swift); applyPlatformUnacceleratedCxx is the original.
 void FEColorMatrixSoftwareApplier::applyPlatformUnaccelerated(PixelBuffer& pixelBuffer) const
+{
+#if USE(SWIFT_KERNELS)
+    auto bytes = pixelBuffer.bytes();
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    std::optional<Vector<uint8_t>> originalBytes;
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        originalBytes.emplace(std::span<const uint8_t> { bytes });
+#endif
+    const auto& values = m_effect->values();
+    WebCoreSwift_FEColorMatrix_applyUnaccelerated(bytes.data(), bytes.size(), std::to_underlying(m_effect->type()), values.span().data(), values.size(), m_components.data(), m_components.size());
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (originalBytes) [[unlikely]] {
+        Vector<uint8_t> swiftBytes(std::span<const uint8_t> { bytes });
+        memcpySpan(bytes, originalBytes->span());
+        applyPlatformUnacceleratedCxx(pixelBuffer);
+        RELEASE_ASSERT(equalSpans(std::span<const uint8_t> { bytes }, swiftBytes.span()));
+    }
+#endif
+#else
+    applyPlatformUnacceleratedCxx(pixelBuffer);
+#endif
+}
+
+void FEColorMatrixSoftwareApplier::applyPlatformUnacceleratedCxx(PixelBuffer& pixelBuffer) const
 {
     auto pixelByteLength = pixelBuffer.bytes().size();
 

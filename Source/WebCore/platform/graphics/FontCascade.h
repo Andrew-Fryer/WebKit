@@ -177,6 +177,10 @@ public:
     inline const FontRanges& fallbackRangesAt(FontCascadeFonts&, unsigned) const; // Defined in FontCascadeInlines.h
     WEBCORE_EXPORT GlyphData glyphDataForCharacter(char32_t, bool mirror, FontVariant = FontVariant::Auto, std::optional<ResolvedEmojiPolicy> = std::nullopt) const;
     bool canUseSimplifiedTextMeasuring(char32_t, FontVariant, bool whitespaceIsCollapsed, const Font&) const;
+    // canUseSimplifiedTextMeasuring(character, FontVariant::Auto, whitespaceIsCollapsed, font) for every character
+    // (defined only with USE(SWIFT_KERNELS)).
+    bool canUseSimplifiedTextMeasuring(std::span<const Latin1Character>, bool whitespaceIsCollapsed, const Font&) const;
+    bool canUseSimplifiedTextMeasuring(std::span<const char16_t>, bool whitespaceIsCollapsed, const Font&) const;
 
     // Sets matchedPrecomposedCharacter when the font was chosen for the precomposed character that the sequence is canonically equivalent to.
     RefPtr<const Font> fontForCombiningCharacterSequence(StringView, std::optional<char32_t>& matchedPrecomposedCharacter) const;
@@ -199,6 +203,7 @@ public:
 
     static CodePath characterRangeCodePath(std::span<const Latin1Character>) { return CodePath::Simple; }
     WEBCORE_EXPORT static CodePath characterRangeCodePath(std::span<const char16_t>);
+    static CodePath characterRangeCodePathCxx(std::span<const char16_t>);
 
     bool primaryFontIsSystemFont() const;
 

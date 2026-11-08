@@ -84,6 +84,15 @@
 #include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringView.h>
 
+#if USE(SWIFT_KERNELS)
+#include "CSSKeywordsSwiftBoundary.h"
+#include <mutex>
+#include <wtf/NeverDestroyed.h>
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+#include "SwiftKernelsValidation.h"
+#endif
+#endif
+
 namespace WebCore {
 
 // MARK: - Custom properties
@@ -154,6 +163,7 @@ CSSPropertyID cssPropertyID(StringView string)
 
 // MARK: - CSSValueID parsing
 
+#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
 // FIXME: Remove this mechanism entirely once we can do it without breaking the web.
 NODELETE static bool isAppleLegacyCSSValueKeyword(std::span<const char> characters)
 {
@@ -188,7 +198,7 @@ template<typename CharacterType> static CSSValueID cssValueKeywordID(std::span<c
     return findCSSValueKeyword(bufferSpan.first(length));
 }
 
-CSSValueID cssValueKeywordID(StringView string)
+static CSSValueID cssValueKeywordIDCxx(StringView string)
 {
     unsigned length = string.length();
     if (!length)
@@ -197,6 +207,82 @@ CSSValueID cssValueKeywordID(StringView string)
         return CSSValueID::Invalid;
     
     return string.is8Bit() ? cssValueKeywordID(string.span8()) : cssValueKeywordID(string.span16());
+}
+#endif
+
+#if USE(SWIFT_KERNELS)
+// CSS value keyword lookup in Swift (CSSKeywordsSwiftBoundary.h): instead of the gperf table, a keyword table that
+// Swift builds once from the lowercase keyword names. C++ owns the storage.
+namespace {
+struct CSSValueKeywordSwiftTable {
+    Vector<uint8_t> pool; // The names of all ids, back to back.
+    std::array<uint32_t, numCSSValueKeywords + 1> offsets; // The name of id i is pool[offsets[i] ..< offsets[i + 1]].
+    std::array<uint16_t, WEBCORE_SWIFT_CSS_KEYWORDS_SLOT_COUNT> slots;
+};
+}
+
+static_assert(numCSSValueKeywords <= WEBCORE_SWIFT_CSS_KEYWORDS_SLOT_COUNT / 2);
+static_assert(maxCSSValueKeywordLength <= WEBCORE_SWIFT_CSS_KEYWORDS_MAXIMUM_LENGTH);
+
+static uint16_t lookUpCSSValueKeywordWithSwift(const CSSValueKeywordSwiftTable& table, StringView string)
+{
+    if (string.is8Bit()) {
+        auto characters = byteCast<uint8_t>(string.span8());
+        return WebCoreSwift_CSSKeywords_lookup8(characters.data(), characters.size(), table.pool.span().data(), table.pool.size(), table.offsets.data(), table.offsets.size(), table.slots.data(), table.slots.size());
+    }
+    auto characters = string.span16();
+    return WebCoreSwift_CSSKeywords_lookup16(characters.data(), characters.size(), table.pool.span().data(), table.pool.size(), table.offsets.data(), table.offsets.size(), table.slots.data(), table.slots.size());
+}
+
+static const CSSValueKeywordSwiftTable& cssValueKeywordSwiftTable()
+{
+    static LazyNeverDestroyed<CSSValueKeywordSwiftTable> table;
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [] {
+        table.construct();
+        auto& keywords = table.get();
+        size_t poolSize = 0;
+        for (uint16_t id = 0; id < numCSSValueKeywords; ++id)
+            poolSize += nameLiteralForSerialization(static_cast<CSSValueID>(id)).length();
+        keywords.pool.reserveInitialCapacity(poolSize);
+        for (uint16_t id = 0; id < numCSSValueKeywords; ++id) {
+            keywords.offsets[id] = keywords.pool.size();
+            keywords.pool.append(byteCast<uint8_t>(nameLiteralForSerialization(static_cast<CSSValueID>(id)).span()));
+        }
+        keywords.offsets[numCSSValueKeywords] = keywords.pool.size();
+        WebCoreSwift_CSSKeywords_buildTable(keywords.pool.span().data(), keywords.pool.size(), keywords.offsets.data(), keywords.offsets.size(), keywords.slots.data(), keywords.slots.size());
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+        if (swiftKernelsValidationEnabled()) {
+            // The names are exactly the gperf keywords, and each one looks up the same in both.
+            for (uint16_t id = 1; id < numCSSValueKeywords; ++id) {
+                auto name = nameLiteralForSerialization(static_cast<CSSValueID>(id));
+                RELEASE_ASSERT(findCSSValueKeyword(name.span()) == static_cast<CSSValueID>(id));
+                RELEASE_ASSERT(static_cast<CSSValueID>(lookUpCSSValueKeywordWithSwift(keywords, StringView(name))) == cssValueKeywordIDCxx(StringView(name)));
+            }
+        }
+#endif
+    });
+    return table.get();
+}
+#endif // USE(SWIFT_KERNELS)
+
+CSSValueID cssValueKeywordID(StringView string)
+{
+#if USE(SWIFT_KERNELS)
+    unsigned length = string.length();
+    if (!length)
+        return CSSValueID::Invalid;
+    if (length > maxCSSValueKeywordLength)
+        return CSSValueID::Invalid;
+    auto result = static_cast<CSSValueID>(lookUpCSSValueKeywordWithSwift(cssValueKeywordSwiftTable(), string));
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        RELEASE_ASSERT(result == cssValueKeywordIDCxx(string));
+#endif
+    return result;
+#else
+    return cssValueKeywordIDCxx(string);
+#endif
 }
 
 // MARK: - Custom property name validation

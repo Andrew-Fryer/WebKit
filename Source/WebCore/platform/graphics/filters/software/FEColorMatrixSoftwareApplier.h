@@ -49,6 +49,7 @@ private:
     void applyPlatformAccelerated(PixelBuffer&) const;
 #endif
     void applyPlatformUnaccelerated(PixelBuffer&) const;
+    void applyPlatformUnacceleratedCxx(PixelBuffer&) const;
 
     void applyPlatform(PixelBuffer&) const;
 

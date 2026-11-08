@@ -70,8 +70,8 @@ messages -> RemoteGraphicsContext Stream {
     ClipOut(WebCore::FloatRect rect) StreamBatched
     ClipOutRoundedRect(WebCore::FloatRoundedRect rect) StreamBatched
     ClipToImageBuffer(WebCore::RenderingResourceIdentifier renderingResourceIdentifier, WebCore::FloatRect destinationRect) StreamBatched
-    ClipOutToPath(WebCore::Path path) StreamBatched
-    ClipPath(WebCore::Path path, enum:bool WebCore::WindRule windRule) StreamBatched
+    ClipOutToPath(WebCore::Path path) StreamBatched SwiftArgumentDecoder
+    ClipPath(WebCore::Path path, enum:bool WebCore::WindRule windRule) StreamBatched SwiftArgumentDecoder
     ClipCachedPath(WebKit::RemotePathImplIdentifier identifier, enum:bool WebCore::WindRule windRule) StreamBatched
     ClipTransformedPath(WebCore::AffineTransform pathTransform, WebCore::Path path, enum:bool WebCore::WindRule windRule) StreamBatched
     ClipTransformedCachedPath(WebCore::AffineTransform pathTransform, WebKit::RemotePathImplIdentifier identifier, enum:bool WebCore::WindRule windRule) StreamBatched
@@ -96,7 +96,7 @@ messages -> RemoteGraphicsContext Stream {
     DrawDotsForDocumentMarker(WebCore::FloatRect rect, struct WebCore::DocumentMarkerLineStyle style) StreamBatched
     DrawMeshGradient(WebKit::RemoteMeshGradientIdentifier identifier, WebCore::FloatRect destination) StreamBatched
     DrawEllipse(WebCore::FloatRect rect) StreamBatched
-    DrawPath(WebCore::Path path) StreamBatched
+    DrawPath(WebCore::Path path) StreamBatched SwiftArgumentDecoder
     DrawFocusRingPath(WebCore::Path path, float outlineWidth, WebCore::Color color, float zoomFactor) StreamBatched
     DrawFocusRingRects(Vector<WebCore::FloatRect> rects, float outlineWidth, WebCore::Color color, float zoomFactor) StreamBatched
     FillRect(WebCore::FloatRect rect, enum:bool WebCore::RequiresClipToRect requiresClipToRect) StreamBatched SwiftArgumentDecoder
@@ -112,7 +112,7 @@ messages -> RemoteGraphicsContext Stream {
     FillQuadCurve(struct WebCore::PathDataQuadCurve curve) StreamBatched SwiftArgumentDecoder
     FillBezierCurve(struct WebCore::PathDataBezierCurve curve) StreamBatched SwiftArgumentDecoder
     FillPathSegment(WebCore::PathSegment segment) StreamBatched
-    FillPath(WebCore::Path path) StreamBatched
+    FillPath(WebCore::Path path) StreamBatched SwiftArgumentDecoder
     FillCachedPath(WebKit::RemotePathImplIdentifier identifier) StreamBatched
     FillEllipse(WebCore::FloatRect rect) StreamBatched
     StrokeRect(WebCore::FloatRect rect, float lineWidth) StreamBatched
@@ -123,7 +123,7 @@ messages -> RemoteGraphicsContext Stream {
     StrokeQuadCurve(struct WebCore::PathDataQuadCurve curve) StreamBatched SwiftArgumentDecoder
     StrokeBezierCurve(struct WebCore::PathDataBezierCurve curve) StreamBatched SwiftArgumentDecoder
     StrokePathSegment(WebCore::PathSegment segment) StreamBatched
-    StrokePath(WebCore::Path path) StreamBatched
+    StrokePath(WebCore::Path path) StreamBatched SwiftArgumentDecoder
     StrokeEllipse(WebCore::FloatRect rect) StreamBatched
     ClearRect(WebCore::FloatRect rect) StreamBatched
     DrawControlPart(Ref<WebCore::ControlPart> part, WebCore::FloatRoundedRect borderRect, float deviceScaleFactor, WebCore::ControlStyle style) StreamBatched
