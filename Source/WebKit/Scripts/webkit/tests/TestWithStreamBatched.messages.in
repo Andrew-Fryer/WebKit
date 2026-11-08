@@ -25,7 +25,7 @@
     ExceptionForDispatchedTo,
     ExceptionForEnabledBy
 ]
-# Tests StreamBatched message attribute.
+# Tests StreamBatched and SwiftArgumentDecoder message attributes.
 messages -> TestWithStreamBatched Stream {
-    void SendString(String url) StreamBatched
+    void SendString(String url) StreamBatched SwiftArgumentDecoder
 }

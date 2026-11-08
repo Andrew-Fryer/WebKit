@@ -33,6 +33,13 @@
 #include "OperandsInlines.h"
 #include <wtf/ListDump.h>
 
+#if USE(SWIFT_KERNELS)
+#include "AvailabilityLocalsSwiftBoundary.h"
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+#include "SwiftKernelsValidation.h"
+#endif
+#endif
+
 namespace JSC { namespace DFG {
 
 AvailabilityMap AvailabilityMap::filterByLiveness(Graph& graph, CodeOrigin where)
@@ -77,7 +84,64 @@ void AvailabilityMap::pruneByLiveness(Graph& graph, CodeOrigin where)
     *this = filterByLiveness(graph, where);
 }
 
+#if USE(SWIFT_KERNELS)
+
+// An Operands<Availability> as AvailabilityLocals.swift sees it: its elements as pairs of 64-bit words (the layout
+// is static_asserted in DFGAvailability.h and DFGFlushedAt.h), null when empty.
+static const uint64_t* availabilityWords(const Operands<Availability>& locals)
+{
+    return locals.size() ? std::bit_cast<const uint64_t*>(&locals[0]) : nullptr;
+}
+
+static uint64_t* availabilityWords(Operands<Availability>& locals)
+{
+    return locals.size() ? std::bit_cast<uint64_t*>(&locals[0]) : nullptr;
+}
+
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+// The original (defaulted) operator==.
+static bool availabilityMapEqualCxx(const AvailabilityMap& a, const AvailabilityMap& b)
+{
+    return a.m_locals == b.m_locals && a.m_heap == b.m_heap;
+}
+#endif
+
+bool operator==(const AvailabilityMap& a, const AvailabilityMap& b)
+{
+    // Operands::operator==: only the sizes and then the elements are compared.
+    ASSERT(a.m_locals.numberOfArguments() == b.m_locals.numberOfArguments());
+    ASSERT(a.m_locals.numberOfLocals() == b.m_locals.numberOfLocals());
+    ASSERT(a.m_locals.numberOfTmps() == b.m_locals.numberOfTmps());
+    bool result = a.m_locals.size() == b.m_locals.size()
+        && JSCSwift_AvailabilityLocals_equal(availabilityWords(a.m_locals), availabilityWords(b.m_locals), a.m_locals.size())
+        && a.m_heap == b.m_heap;
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        RELEASE_ASSERT(result == availabilityMapEqualCxx(a, b));
+#endif
+    return result;
+}
+
+#endif // USE(SWIFT_KERNELS)
+
 void AvailabilityMap::clear()
+{
+#if USE(SWIFT_KERNELS)
+    JSCSwift_AvailabilityLocals_fillWithDead(availabilityWords(m_locals), m_locals.size());
+    m_heap.clear();
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]] {
+        AvailabilityMap expected = *this;
+        expected.clearCxx();
+        RELEASE_ASSERT(availabilityMapEqualCxx(*this, expected));
+    }
+#endif
+#else
+    clearCxx();
+#endif
+}
+
+void AvailabilityMap::clearCxx()
 {
     m_locals.fill(Availability());
     m_heap.clear();
@@ -89,6 +153,36 @@ void AvailabilityMap::dump(PrintStream& out) const
 }
 
 void AvailabilityMap::merge(const AvailabilityMap& other)
+{
+#if USE(SWIFT_KERNELS)
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    std::optional<AvailabilityMap> expected;
+    if (swiftKernelsValidationEnabled()) [[unlikely]] {
+        expected = *this;
+        expected->mergeCxx(other);
+    }
+#endif
+
+    // Merging an Availability with itself leaves it unchanged, so a self-merge skips the locals (which keeps
+    // Swift's target and source from overlapping).
+    if (&other != this)
+        JSCSwift_AvailabilityLocals_merge(availabilityWords(m_locals), m_locals.size(), availabilityWords(other.m_locals), other.m_locals.size());
+
+    for (auto pair : other.m_heap) {
+        auto result = m_heap.add(pair.key, Availability());
+        result.iterator->value = pair.value.merge(result.iterator->value);
+    }
+
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (expected)
+        RELEASE_ASSERT(availabilityMapEqualCxx(*this, *expected));
+#endif
+#else
+    mergeCxx(other);
+#endif
+}
+
+void AvailabilityMap::mergeCxx(const AvailabilityMap& other)
 {
     for (unsigned i = other.m_locals.size(); i--;)
         m_locals[i] = other.m_locals[i].merge(m_locals[i]);

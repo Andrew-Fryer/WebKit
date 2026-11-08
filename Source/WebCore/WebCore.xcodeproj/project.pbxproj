@@ -7542,6 +7542,13 @@
 		342E0E7B0222F281D49E5B7A /* RegionShapeBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC123743416A1C2B37806136 /* RegionShapeBoundary.swift */; };
 		A21BAF14CFAB18AD57EAE686 /* SVGTransformBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D6712B0CA247C83DF82895 /* SVGTransformBoundary.swift */; };
 		A17E19F7159537E67AAF2BD2 /* SVGTransformLexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46164A44E99EF8D5612A8A86 /* SVGTransformLexer.swift */; };
+		87812063D7A1DDC9F1BE9C2B /* HTMLScanBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99DDFEEC1127373D4E9D3FF8 /* HTMLScanBoundary.swift */; };
+		08C32CC33672EA24C5E06102 /* HTMLScanFind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6292A5A155CE6295587C8B29 /* HTMLScanFind.swift */; };
+		B4C1FA0C041144D911FBA5E2 /* HTMLScanTokenizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1862A0923AE787BD9FB29B /* HTMLScanTokenizer.swift */; };
+		6069CE46078DDDA830779832 /* NameValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5521CBF0147136892FFD1F6 /* NameValidation.swift */; };
+		6F7ED9BCE430201AF2CA92E7 /* NameValidationBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6D2B9AC4F1D6A1A8156816 /* NameValidationBoundary.swift */; };
+		66C2B8C8F6FFA0E8408211E7 /* PropertyCascade.swift in Sources */ = {isa = PBXBuildFile; fileRef = 291605F27D2B8B8F0CBB6565 /* PropertyCascade.swift */; };
+		7FFA08234CB2CF135B9B1670 /* PropertyCascadeBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27BDEFC3435082730E987C3E /* PropertyCascadeBoundary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -24183,6 +24190,16 @@
 		46164A44E99EF8D5612A8A86 /* SVGTransformLexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGTransform/SVGTransformLexer.swift; sourceTree = "<group>"; };
 		DFBFE255E385DD217435B700 /* SVGTransformSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SVGTransform/SVGTransformSwiftBoundary.h; sourceTree = "<group>"; };
 		A2BE542B555FF7806837B532 /* SwiftKernelsValidation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SwiftKernelsValidation.h; sourceTree = "<group>"; };
+		99DDFEEC1127373D4E9D3FF8 /* HTMLScanBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLScan/HTMLScanBoundary.swift; sourceTree = "<group>"; };
+		6292A5A155CE6295587C8B29 /* HTMLScanFind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLScan/HTMLScanFind.swift; sourceTree = "<group>"; };
+		3AF66E24D334155A9AEFCB69 /* HTMLScanSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HTMLScan/HTMLScanSwiftBoundary.h; sourceTree = "<group>"; };
+		AF1862A0923AE787BD9FB29B /* HTMLScanTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLScan/HTMLScanTokenizer.swift; sourceTree = "<group>"; };
+		A5521CBF0147136892FFD1F6 /* NameValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameValidation/NameValidation.swift; sourceTree = "<group>"; };
+		EC6D2B9AC4F1D6A1A8156816 /* NameValidationBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameValidation/NameValidationBoundary.swift; sourceTree = "<group>"; };
+		7B6903FC3DAEB8ABEDA880EC /* NameValidationSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NameValidation/NameValidationSwiftBoundary.h; sourceTree = "<group>"; };
+		291605F27D2B8B8F0CBB6565 /* PropertyCascade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertyCascade/PropertyCascade.swift; sourceTree = "<group>"; };
+		27BDEFC3435082730E987C3E /* PropertyCascadeBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertyCascade/PropertyCascadeBoundary.swift; sourceTree = "<group>"; };
+		9BAC662645F5F96BBF1CBDC9 /* PropertyCascadeSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PropertyCascade/PropertyCascadeSwiftBoundary.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44263,6 +44280,16 @@
 		91EC392E6A5F6B385F6BCD04 /* swift */ = {
 			isa = PBXGroup;
 			children = (
+				9BAC662645F5F96BBF1CBDC9 /* PropertyCascadeSwiftBoundary.h */,
+				27BDEFC3435082730E987C3E /* PropertyCascadeBoundary.swift */,
+				291605F27D2B8B8F0CBB6565 /* PropertyCascade.swift */,
+				7B6903FC3DAEB8ABEDA880EC /* NameValidationSwiftBoundary.h */,
+				EC6D2B9AC4F1D6A1A8156816 /* NameValidationBoundary.swift */,
+				A5521CBF0147136892FFD1F6 /* NameValidation.swift */,
+				AF1862A0923AE787BD9FB29B /* HTMLScanTokenizer.swift */,
+				3AF66E24D334155A9AEFCB69 /* HTMLScanSwiftBoundary.h */,
+				6292A5A155CE6295587C8B29 /* HTMLScanFind.swift */,
+				99DDFEEC1127373D4E9D3FF8 /* HTMLScanBoundary.swift */,
 				A2BE542B555FF7806837B532 /* SwiftKernelsValidation.h */,
 				DFBFE255E385DD217435B700 /* SVGTransformSwiftBoundary.h */,
 				46164A44E99EF8D5612A8A86 /* SVGTransformLexer.swift */,
@@ -51383,6 +51410,13 @@
 				41514FDB2E92DC40002074EA /* StreamPipeToUtilities.cpp in Sources */,
 				A833C7CA0A2CF06B00D57664 /* SVGNames.cpp in Sources */,
 				07E047C3305A9DB000DFCC4B /* SwiftStub.swift in Sources */,
+				7FFA08234CB2CF135B9B1670 /* PropertyCascadeBoundary.swift in Sources */,
+				66C2B8C8F6FFA0E8408211E7 /* PropertyCascade.swift in Sources */,
+				6F7ED9BCE430201AF2CA92E7 /* NameValidationBoundary.swift in Sources */,
+				6069CE46078DDDA830779832 /* NameValidation.swift in Sources */,
+				B4C1FA0C041144D911FBA5E2 /* HTMLScanTokenizer.swift in Sources */,
+				08C32CC33672EA24C5E06102 /* HTMLScanFind.swift in Sources */,
+				87812063D7A1DDC9F1BE9C2B /* HTMLScanBoundary.swift in Sources */,
 				A17E19F7159537E67AAF2BD2 /* SVGTransformLexer.swift in Sources */,
 				A21BAF14CFAB18AD57EAE686 /* SVGTransformBoundary.swift in Sources */,
 				342E0E7B0222F281D49E5B7A /* RegionShapeBoundary.swift in Sources */,

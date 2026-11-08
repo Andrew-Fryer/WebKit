@@ -35,6 +35,13 @@
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
+#if USE(SWIFT_KERNELS)
+#include "HTMLScanSwiftBoundary.h"
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+#include "SwiftKernelsValidation.h"
+#endif
+#endif
+
 namespace WebCore {
 
 using namespace HTMLNames;
@@ -44,17 +51,39 @@ using namespace HTMLNames;
 // reference, and '\0' is a parse error. '\r' and '\n' require special handling
 // for line counting and newline normalization in the input stream preprocessor.
 // Everything else is plain text that can be emitted as-is.
+#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
 NODELETE static bool isDataStateSpecialCharacter(Latin1Character c)
 {
     return c == '<' || c == '&' || c == '\r' || c == '\n' || c == '\0';
 }
+#endif
 
+// The batching scans run in Swift when USE(SWIFT_KERNELS) (Source/WebCore/swift/HTMLScan); the C++ originals are
+// kept as findPlainTextInDataStateCxx / findPlainTextInQuotedAttributeValueCxx for the validation mode and the builds
+// without Swift.
+#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
 // Returns the leading prefix of `span` that contains only plain-text characters
 // (i.e. characters that don't require special handling in the Data state).
-static std::span<const Latin1Character> findPlainTextInDataState(std::span<const Latin1Character> span)
+static std::span<const Latin1Character> findPlainTextInDataStateCxx(std::span<const Latin1Character> span)
 {
     auto it = std::ranges::find_if(span, isDataStateSpecialCharacter);
     return span.first(it - span.begin());
+}
+#endif
+
+static std::span<const Latin1Character> findPlainTextInDataState(std::span<const Latin1Character> span)
+{
+#if USE(SWIFT_KERNELS)
+    auto bytes = byteCast<uint8_t>(span);
+    auto result = span.first(WebCoreSwift_HTMLScan_plainTextLength8(bytes.data(), bytes.size(), '<'));
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        RELEASE_ASSERT(result.size() == findPlainTextInDataStateCxx(span).size());
+#endif
+    return result;
+#else
+    return findPlainTextInDataStateCxx(span);
+#endif
 }
 
 // https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(double-quoted)-state
@@ -69,11 +98,29 @@ NODELETE static bool isQuotedAttributeValueSpecialCharacter(Latin1Character c)
     return c == quoteCharacter || c == '&' || c == '\r' || c == '\n' || c == '\0';
 }
 
+#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
 template<Latin1Character quoteCharacter>
-static std::span<const Latin1Character> findPlainTextInQuotedAttributeValue(std::span<const Latin1Character> span)
+static std::span<const Latin1Character> findPlainTextInQuotedAttributeValueCxx(std::span<const Latin1Character> span)
 {
     auto it = std::ranges::find_if(span, isQuotedAttributeValueSpecialCharacter<quoteCharacter>);
     return span.first(it - span.begin());
+}
+#endif
+
+template<Latin1Character quoteCharacter>
+static std::span<const Latin1Character> findPlainTextInQuotedAttributeValue(std::span<const Latin1Character> span)
+{
+#if USE(SWIFT_KERNELS)
+    auto bytes = byteCast<uint8_t>(span);
+    auto result = span.first(WebCoreSwift_HTMLScan_plainTextLength8(bytes.data(), bytes.size(), quoteCharacter));
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        RELEASE_ASSERT(result.size() == findPlainTextInQuotedAttributeValueCxx<quoteCharacter>(span).size());
+#endif
+    return result;
+#else
+    return findPlainTextInQuotedAttributeValueCxx<quoteCharacter>(span);
+#endif
 }
 
 NODELETE static inline Latin1Character convertASCIIAlphaToLower(char16_t character)

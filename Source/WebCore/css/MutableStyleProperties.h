@@ -58,6 +58,7 @@ public:
     Iterator<MutableStyleProperties> begin() const LIFETIME_BOUND { return { *this }; }
     static constexpr std::nullptr_t end() { return nullptr; }
     unsigned size() const { return propertyCount(); }
+    std::span<const CSSProperty> propertySpan() const LIFETIME_BOUND { return m_propertyVector.span(); }
 
     NODELETE CSSStyleProperties* cssStyleProperties();
 

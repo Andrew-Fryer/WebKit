@@ -52,6 +52,8 @@ public:
     static constexpr bool deferSendingIfSuspended = false;
     static constexpr bool isStreamEncodable = true;
     static constexpr bool isStreamBatched = true;
+    // Decodes the arguments in Swift, exactly as IPC::Decoder::decode<Arguments>() does. Defined by hand.
+    static std::optional<Arguments> decodeArgumentsInSwift(IPC::Decoder&);
 
     explicit SendString(const String& url)
         : m_url(url)
