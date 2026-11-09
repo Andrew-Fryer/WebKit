@@ -40,12 +40,8 @@ struct AvailabilityMap {
     
     void dump(PrintStream& out) const;
     
-#if USE(SWIFT_KERNELS)
     // The m_locals loops of ==, merge() and clear() run in AvailabilityLocals.swift (see DFGAvailabilityMap.cpp).
     friend bool operator==(const AvailabilityMap&, const AvailabilityMap&);
-#else
-    friend bool operator==(const AvailabilityMap&, const AvailabilityMap&) = default;
-#endif
     
     void merge(const AvailabilityMap& other);
     
@@ -87,10 +83,6 @@ struct AvailabilityMap {
     AvailabilityMap filterByLiveness(Graph&, CodeOrigin);
 
     void validateAvailability(Graph& graph, Node* where) const;
-
-    // The original C++ of clear() and merge().
-    void clearCxx();
-    void mergeCxx(const AvailabilityMap& other);
 
     Operands<Availability> m_locals;
     UncheckedKeyHashMap<PromotedHeapLocation, Availability> m_heap;

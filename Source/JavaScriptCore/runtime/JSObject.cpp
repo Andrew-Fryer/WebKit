@@ -51,12 +51,7 @@
 #include <wtf/Assertions.h>
 #include <wtf/text/MakeString.h>
 
-#if USE(SWIFT_KERNELS)
 #include "ButterflyFillSwiftBoundary.h"
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "SwiftKernelsValidation.h"
-#endif
-#endif
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -1284,115 +1279,31 @@ void JSObject::notifyPresenceOfIndexedAccessors(VM& vm)
     globalObject->haveABadTime(vm);
 }
 
-// The element loops of indexed-storage allocation and shape conversion. With USE(SWIFT_KERNELS) they run in
-// ButterflyFill.swift. The *Cxx functions are the original loops, rebased from `butterfly->...at(this, i)` onto the
-// payload pointer: they are the other builds' implementation and, with validation, the reference that is re-run on
-// a copy of the input. The order in which elements are written is not observable: until the caller's
+// The element loops of indexed-storage allocation and shape conversion run in ButterflyFill.swift, on the payload
+// viewed as 64-bit words. The order in which elements are written is not observable: until the caller's
 // storeStoreFence and structure or vector-length change, no other thread interprets these slots.
-
-static ALWAYS_INLINE void fillWithPNaNCxx(double* data, unsigned length)
-{
-    for (unsigned i = length; i--;)
-        data[i] = PNaN;
-}
-
-static ALWAYS_INLINE void fillWithEmptyValueCxx(WriteBarrier<Unknown>* data, unsigned length)
-{
-    for (unsigned i = length; i--;)
-        data[i].setWithoutWriteBarrier(JSValue());
-}
-
-static ALWAYS_INLINE void convertInt32ValuesToDoublesCxx(WriteBarrier<Unknown>* data, unsigned length)
-{
-    for (unsigned i = length; i--;) {
-        WriteBarrier<Unknown>* current = &data[i];
-        double* currentAsDouble = std::bit_cast<double*>(current);
-        JSValue v = current->get();
-        // NOTE: Since this may be used during initialization, v could be garbage. If it's garbage,
-        // that means it will be overwritten later.
-        if (!v.isInt32()) {
-            *currentAsDouble = PNaN;
-            continue;
-        }
-        *currentAsDouble = v.asInt32();
-    }
-}
-
-static ALWAYS_INLINE void convertDoublesToValuesCxx(double* data, unsigned length)
-{
-    for (unsigned i = length; i--;) {
-        double* current = &data[i];
-        WriteBarrier<Unknown>* currentAsValue = std::bit_cast<WriteBarrier<Unknown>*>(current);
-        double value = *current;
-        if (value != value) {
-            currentAsValue->clear();
-            continue;
-        }
-        JSValue v = JSValue(JSValue::EncodeAsDouble, value);
-        currentAsValue->setWithoutWriteBarrier(v);
-    }
-}
-
-#if USE(SWIFT_KERNELS)
 static_assert(sizeof(double) == sizeof(uint64_t) && sizeof(WriteBarrier<Unknown>) == sizeof(uint64_t));
 static_assert(PNaNAsBits == 0x7ff8000000000000ULL && !JSValue::ValueEmpty); // JSValue() encodes as ValueEmpty.
 static_assert(JSValue::NumberTag == static_cast<int64_t>(0xfffe000000000000ULL) && JSValue::DoubleEncodeOffset == (1LL << 49));
 
-// Runs a ButterflyFill.swift kernel on data[0 ..< length]. With validation, also runs the original loop on a copy
-// of the elements as they were before, and crashes unless the results are bitwise identical.
-template<typename T, typename CxxLoop>
-static ALWAYS_INLINE void runButterflyFillKernel(void (*swiftKernel)(uint64_t*, size_t), T* data, unsigned length, [[maybe_unused]] NOESCAPE const CxxLoop& cxxLoop)
-{
-    static_assert(sizeof(T) == sizeof(uint64_t));
-    auto* words = std::bit_cast<uint64_t*>(data);
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    // The check copies the elements, so skip huge buffers (memoryHog tests would double their footprint).
-    if (swiftKernelsValidationEnabled() && length <= (1u << 20)) [[unlikely]] {
-        Vector<uint64_t> expected(std::span<const uint64_t> { words, length });
-        swiftKernel(words, length);
-        cxxLoop(std::bit_cast<T*>(expected.mutableSpan().data()), length);
-        RELEASE_ASSERT(equalSpans(std::span<const uint64_t> { words, length }, expected.span()));
-        return;
-    }
-#endif
-    swiftKernel(words, length);
-}
-#endif // USE(SWIFT_KERNELS)
-
 static ALWAYS_INLINE void fillWithPNaN(double* data, unsigned length)
 {
-#if USE(SWIFT_KERNELS)
-    runButterflyFillKernel(JSCSwift_ButterflyFill_fillWithPureNaN, data, length, fillWithPNaNCxx);
-#else
-    fillWithPNaNCxx(data, length);
-#endif
+    JSCSwift_ButterflyFill_fillWithPureNaN(std::bit_cast<uint64_t*>(data), length);
 }
 
 static ALWAYS_INLINE void fillWithEmptyValue(WriteBarrier<Unknown>* data, unsigned length)
 {
-#if USE(SWIFT_KERNELS)
-    runButterflyFillKernel(JSCSwift_ButterflyFill_fillWithEmptyValue, data, length, fillWithEmptyValueCxx);
-#else
-    fillWithEmptyValueCxx(data, length);
-#endif
+    JSCSwift_ButterflyFill_fillWithEmptyValue(std::bit_cast<uint64_t*>(data), length);
 }
 
 static ALWAYS_INLINE void convertInt32ValuesToDoubles(WriteBarrier<Unknown>* data, unsigned length)
 {
-#if USE(SWIFT_KERNELS)
-    runButterflyFillKernel(JSCSwift_ButterflyFill_int32ToDouble, data, length, convertInt32ValuesToDoublesCxx);
-#else
-    convertInt32ValuesToDoublesCxx(data, length);
-#endif
+    JSCSwift_ButterflyFill_int32ToDouble(std::bit_cast<uint64_t*>(data), length);
 }
 
 static ALWAYS_INLINE void convertDoublesToValues(double* data, unsigned length)
 {
-#if USE(SWIFT_KERNELS)
-    runButterflyFillKernel(JSCSwift_ButterflyFill_doubleToJSValue, data, length, convertDoublesToValuesCxx);
-#else
-    convertDoublesToValuesCxx(data, length);
-#endif
+    JSCSwift_ButterflyFill_doubleToJSValue(std::bit_cast<uint64_t*>(data), length);
 }
 
 Butterfly* JSObject::createInitialIndexedStorage(VM& vm, unsigned length)

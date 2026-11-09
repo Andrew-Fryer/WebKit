@@ -84,14 +84,9 @@
 #include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringView.h>
 
-#if USE(SWIFT_KERNELS)
 #include "CSSKeywordsSwiftBoundary.h"
 #include <mutex>
 #include <wtf/NeverDestroyed.h>
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "SwiftKernelsValidation.h"
-#endif
-#endif
 
 namespace WebCore {
 
@@ -163,54 +158,6 @@ CSSPropertyID cssPropertyID(StringView string)
 
 // MARK: - CSSValueID parsing
 
-#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
-// FIXME: Remove this mechanism entirely once we can do it without breaking the web.
-NODELETE static bool isAppleLegacyCSSValueKeyword(std::span<const char> characters)
-{
-    return spanHasPrefix(characters.subspan(1), "apple-"_span)
-        && !spanHasPrefix(characters.subspan(7), "system"_span)
-        && !spanHasPrefix(characters.subspan(7), "pay"_span)
-        && !spanHasPrefix(characters.subspan(7), "wireless"_span);
-}
-
-template<typename CharacterType> static CSSValueID cssValueKeywordID(std::span<const CharacterType> characters)
-{
-    ASSERT(!characters.empty()); // Otherwise buffer[0] would access uninitialized memory below.
-
-    std::array<char, maxCSSValueKeywordLength + 1> buffer; // 1 to turn "apple" into "webkit"
-    
-    for (unsigned i = 0; i != characters.size(); ++i) {
-        auto character = characters[i];
-        if (!character || !isASCII(character))
-            return CSSValueID::Invalid;
-        buffer[i] = toASCIILower(character);
-    }
-
-    // In most cases, if the prefix is -apple-, change it to -webkit-. This makes the string one character longer.
-    auto length = characters.size();
-    std::span bufferSpan { buffer };
-    if (buffer[0] == '-' && isAppleLegacyCSSValueKeyword(bufferSpan.first(length))) {
-        memmoveSpan(bufferSpan.subspan(7), bufferSpan.subspan(6, length - 6));
-        memcpySpan(bufferSpan.subspan(1), "webkit"_span);
-        ++length;
-    }
-
-    return findCSSValueKeyword(bufferSpan.first(length));
-}
-
-static CSSValueID cssValueKeywordIDCxx(StringView string)
-{
-    unsigned length = string.length();
-    if (!length)
-        return CSSValueID::Invalid;
-    if (length > maxCSSValueKeywordLength)
-        return CSSValueID::Invalid;
-    
-    return string.is8Bit() ? cssValueKeywordID(string.span8()) : cssValueKeywordID(string.span16());
-}
-#endif
-
-#if USE(SWIFT_KERNELS)
 // CSS value keyword lookup in Swift (CSSKeywordsSwiftBoundary.h): instead of the gperf table, a keyword table that
 // Swift builds once from the lowercase keyword names. C++ owns the storage.
 namespace {
@@ -251,38 +198,18 @@ static const CSSValueKeywordSwiftTable& cssValueKeywordSwiftTable()
         }
         keywords.offsets[numCSSValueKeywords] = keywords.pool.size();
         WebCoreSwift_CSSKeywords_buildTable(keywords.pool.span().data(), keywords.pool.size(), keywords.offsets.data(), keywords.offsets.size(), keywords.slots.data(), keywords.slots.size());
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-        if (swiftKernelsValidationEnabled()) {
-            // The names are exactly the gperf keywords, and each one looks up the same in both.
-            for (uint16_t id = 1; id < numCSSValueKeywords; ++id) {
-                auto name = nameLiteralForSerialization(static_cast<CSSValueID>(id));
-                RELEASE_ASSERT(findCSSValueKeyword(name.span()) == static_cast<CSSValueID>(id));
-                RELEASE_ASSERT(static_cast<CSSValueID>(lookUpCSSValueKeywordWithSwift(keywords, StringView(name))) == cssValueKeywordIDCxx(StringView(name)));
-            }
-        }
-#endif
     });
     return table.get();
 }
-#endif // USE(SWIFT_KERNELS)
 
 CSSValueID cssValueKeywordID(StringView string)
 {
-#if USE(SWIFT_KERNELS)
     unsigned length = string.length();
     if (!length)
         return CSSValueID::Invalid;
     if (length > maxCSSValueKeywordLength)
         return CSSValueID::Invalid;
-    auto result = static_cast<CSSValueID>(lookUpCSSValueKeywordWithSwift(cssValueKeywordSwiftTable(), string));
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (swiftKernelsValidationEnabled()) [[unlikely]]
-        RELEASE_ASSERT(result == cssValueKeywordIDCxx(string));
-#endif
-    return result;
-#else
-    return cssValueKeywordIDCxx(string);
-#endif
+    return static_cast<CSSValueID>(lookUpCSSValueKeywordWithSwift(cssValueKeywordSwiftTable(), string));
 }
 
 // MARK: - Custom property name validation

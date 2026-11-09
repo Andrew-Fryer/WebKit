@@ -48,12 +48,7 @@
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/TextStream.h>
 
-#if USE(SWIFT_KERNELS)
 #include "TextRunScannersSwiftBoundary.h"
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "SwiftKernelsValidation.h"
-#endif
-#endif
 
 namespace WebCore {
 
@@ -529,7 +524,6 @@ bool FontCascade::canUseSimplifiedTextMeasuring(char32_t character, FontVariant 
     return result;
 }
 
-#if USE(SWIFT_KERNELS)
 // canUseSimplifiedTextMeasuring(character, FontVariant::Auto, whitespaceIsCollapsed, primaryFont) for every character of
 // a run (the loop of Layout::TextUtil::canUseSimplifiedTextMeasuring). Swift answers the characters the per-font cache
 // knows (TextRunScanners.swift); each character it cannot answer goes through the function above, which looks up the
@@ -582,7 +576,6 @@ bool FontCascade::canUseSimplifiedTextMeasuring(std::span<const char16_t> charac
     }
     return true;
 }
-#endif // USE(SWIFT_KERNELS)
 
 // For font families where any of the fonts don't have a valid entry in the OS/2 table
 // for avgCharWidth, fallback to the legacy webkit behavior of getting the avgCharWidth
@@ -805,21 +798,13 @@ FontCascade::CodePath FontCascade::codePath(const TextRun& run, std::optional<un
     return characterRangeCodePath(run.span16());
 }
 
-// The scan runs in Swift (TextRunScanners.swift); characterRangeCodePathCxx is the original.
+// The scan runs in Swift (TextRunScanners.swift). characterRangeCodePathCxx, the original, handles odd-aligned UTF-16,
+// which the Swift kernel cannot take as a span of char16_t.
 FontCascade::CodePath FontCascade::characterRangeCodePath(std::span<const char16_t> span)
 {
-#if USE(SWIFT_KERNELS)
     if (reinterpret_cast<uintptr_t>(span.data()) & 1) [[unlikely]]
         return characterRangeCodePathCxx(span);
-    auto result = static_cast<CodePath>(WebCoreSwift_TextRunScanners_characterRangeCodePath(span.data(), span.size()));
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (swiftKernelsValidationEnabled()) [[unlikely]]
-        RELEASE_ASSERT(result == characterRangeCodePathCxx(span));
-#endif
-    return result;
-#else
-    return characterRangeCodePathCxx(span);
-#endif
+    return static_cast<CodePath>(WebCoreSwift_TextRunScanners_characterRangeCodePath(span.data(), span.size()));
 }
 
 FontCascade::CodePath FontCascade::characterRangeCodePathCxx(std::span<const char16_t> span)

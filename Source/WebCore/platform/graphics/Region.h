@@ -100,6 +100,7 @@ public:
 
         NODELETE WEBCORE_EXPORT void translate(const IntSize&);
 
+        // Tags that select the Swift comparison (swift/RegionShape) in compareShapes.
         struct CompareContainsOperation;
         struct CompareIntersectsOperation;
 
@@ -112,18 +113,6 @@ public:
         std::pair<Vector<int, 32>, Vector<Span, 16>> dataForTesting() const { return { m_segments, m_spans }; }
     private:
         WEBCORE_EXPORT Shape(Vector<int, 32>&&, Vector<Span, 16>&&);
-        struct UnionOperation;
-        struct IntersectOperation;
-        struct SubtractOperation;
-
-        template<typename Operation>
-        static Shape shapeOperation(const Shape& shape1, const Shape& shape2);
-
-        void appendSpan(int y);
-        void appendSpan(int y, std::span<const int> segments);
-        void appendSpans(const Shape&, std::span<const Span> spans);
-
-        NODELETE bool canCoalesce(std::span<const int> segments);
 
         Vector<int, 32> m_segments;
         Vector<Span, 16> m_spans;

@@ -37,12 +37,7 @@
 #include <wtf/IndexSparseSet.h>
 #include <wtf/SparseBitVector.h>
 
-#if USE(SWIFT_KERNELS)
 #include "DFGLivenessSwiftBoundary.h"
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "SwiftKernelsValidation.h"
-#endif
-#endif
 
 namespace JSC { namespace DFG {
 
@@ -90,12 +85,9 @@ public:
     }
     Row operator[](BasicBlock* block) { return (*this)[block->index()]; }
 
-#if USE(SWIFT_KERNELS)
     // For LivenessAnalysisPhase::runSwift(): the whole matrix, numBlocks rows of wordsPerSet() words.
     std::span<uint64_t> words() LIFETIME_BOUND { return m_store.mutableSpan(); }
     size_t wordsPerSet() const { return m_wordsPerSet; }
-    void clear() { std::ranges::fill(m_store, 0); }
-#endif
 
 private:
     size_t m_wordsPerSet { 0 };
@@ -130,14 +122,10 @@ public:
 
     bool run()
     {
-#if USE(SWIFT_KERNELS)
         if constexpr (std::is_same_v<TailStorage, DenseTailStorage>)
             return runSwift();
         else
             return runCxx();
-#else
-        return runCxx();
-#endif
     }
 
     bool runCxx()
@@ -184,7 +172,6 @@ public:
     }
 
 private:
-#if USE(SWIFT_KERNELS)
     // Graphs with fewer flow indices (about nodes + Phis) than this run the original C++. On FTL graphs captured
     // from JetStream 3 the Swift path is slower below about 1500 nodes (flattening the graph costs about as much as
     // one pass of the original, and small graphs are walked only about 1.5 times) and 10-13% faster above 2048.
@@ -203,12 +190,7 @@ private:
         static constexpr uint32_t phiTag = 1u << 30;
 
         unsigned numIndices = m_indexing.numIndices();
-        bool takeSwiftPath = numIndices >= swiftMinimumIndexCount;
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-        // With validation on, every graph takes the Swift path (and is checked against runCxx()), for coverage.
-        takeSwiftPath |= swiftKernelsValidationEnabled();
-#endif
-        if (!takeSwiftPath)
+        if (numIndices < swiftMinimumIndexCount)
             return runCxx();
 
         BlockIndex numBlock = m_graph.numBlocks();
@@ -385,47 +367,9 @@ private:
             }
         }
 
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-        if (swiftKernelsValidationEnabled()) [[unlikely]]
-            validateAgainstCxx(edges.first(useCount));
-#endif
         return true;
     }
 
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    // Snapshots what runSwift() produced (every block's live-at-head and live-at-tail lists and the kill status of
-    // every use Edge), reruns the original runCxx() from the state it starts in, and crashes on any difference.
-    // runCxx() owns m_dirtyBlocks, m_worklist and m_workset, which runSwift() does not touch.
-    void validateAgainstCxx(std::span<Edge* const> edges)
-    {
-        BlockIndex numBlock = m_graph.numBlocks();
-        Vector<Vector<NodeFlowProjection>> liveAtHead(numBlock);
-        Vector<Vector<NodeFlowProjection>> liveAtTail(numBlock);
-        for (BlockIndex blockIndex = 0; blockIndex < numBlock; ++blockIndex) {
-            if (BasicBlock* block = m_graph.block(blockIndex)) {
-                liveAtHead[blockIndex] = block->ssa->liveAtHead;
-                liveAtTail[blockIndex] = block->ssa->liveAtTail;
-            }
-            m_liveAtHead[blockIndex].shrink(0);
-        }
-        Vector<KillStatus> killStatuses = WTF::map(edges, [](Edge* edge) {
-            return edge->killStatusUnchecked();
-        });
-        m_liveAtTail.clear();
-
-        runCxx();
-
-        for (BlockIndex blockIndex = 0; blockIndex < numBlock; ++blockIndex) {
-            if (BasicBlock* block = m_graph.block(blockIndex)) {
-                RELEASE_ASSERT(liveAtHead[blockIndex] == block->ssa->liveAtHead);
-                RELEASE_ASSERT(liveAtTail[blockIndex] == block->ssa->liveAtTail);
-            }
-        }
-        for (size_t i = 0; i < edges.size(); ++i)
-            RELEASE_ASSERT(killStatuses[i] == edges[i]->killStatusUnchecked());
-    }
-#endif
-#endif // USE(SWIFT_KERNELS)
 
     void processBlock(BlockIndex blockIndex)
     {

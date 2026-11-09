@@ -456,11 +456,9 @@ template<typename... T> struct AwaitableReturnTuple<Awaitable<T...>> {
 template<typename MessageType>
 std::optional<typename MessageType::Arguments> decodeMessageArguments(Decoder& decoder)
 {
-#if USE(SWIFT_KERNELS)
     if constexpr (requires { MessageType::decodeArgumentsInSwift(decoder); })
         return MessageType::decodeArgumentsInSwift(decoder);
     else
-#endif
         return decoder.decode<typename MessageType::Arguments>();
 }
 

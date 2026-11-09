@@ -4159,13 +4159,7 @@ public:
         return linkType;
     }
 
-    Vector<LinkRecord, 0, UnsafeVectorOverflow>& jumpsToLinkCxx()
-    {
-        std::ranges::sort(m_jumpsToLink, { }, &LinkRecord::from);
-        return m_jumpsToLink;
-    }
-
-    // Not sorted yet. LinkBuffer.cpp sorts it by from() (in Swift when USE(SWIFT_KERNELS), else with jumpsToLinkCxx()).
+    // Not sorted yet. LinkBuffer.cpp sorts it by from() in Swift (swift/LinkRecordSort).
     Vector<LinkRecord, 0, UnsafeVectorOverflow>& jumpsToLinkUnsorted() { return m_jumpsToLink; }
 
     template<RepatchingInfo repatch>

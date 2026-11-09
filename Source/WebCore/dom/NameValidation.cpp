@@ -34,36 +34,11 @@
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringView.h>
 
-#if USE(SWIFT_KERNELS)
 #include "NameValidationSwiftBoundary.h"
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "SwiftKernelsValidation.h"
-#endif
-#endif
 
 namespace WebCore::NameValidation {
 
 // https://dom.spec.whatwg.org/#validate-and-extract
-
-// isValidElementName(StringView) and isValidAttributeName(StringView) run in Swift when USE(SWIFT_KERNELS)
-// (Source/WebCore/swift/NameValidation); the C++ originals are kept as isValidElementNameCxx / isValidAttributeNameCxx
-// for the validation mode and the builds without Swift.
-#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
-NODELETE static constexpr bool isInvalidAttributeNameCharacter(char16_t c)
-{
-    return !c || isASCIIWhitespace(c) || c == '/' || c == '>' || c == '=';
-}
-
-NODELETE static constexpr bool isInvalidElementNameCharacterAfterAlphaStart(char16_t c)
-{
-    return !c || isASCIIWhitespace(c) || c == '/' || c == '>';
-}
-
-NODELETE static constexpr bool isValidElementNameContinuationCharacter(char16_t c)
-{
-    return isASCIIAlphanumeric(c) || c == '-' || c == '.' || c == ':' || c == '_' || !isASCII(c);
-}
-#endif
 
 NODELETE static constexpr bool isInvalidNamespacePrefixCharacter(char16_t c)
 {
@@ -80,38 +55,10 @@ NODELETE static constexpr bool isValidASCIIXMLNamePart(char16_t c)
     return isASCIIAlphanumeric(c) || c == ':' || c == '_' || c == '-' || c == '.';
 }
 
-#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
-// https://dom.spec.whatwg.org/#valid-element-name
-NODELETE static bool isValidElementNameCxx(StringView name)
-{
-    if (name.isEmpty())
-        return false;
-
-    auto firstCharacter = name[0];
-
-    if (isASCIIAlpha(firstCharacter))
-        return !name.contains(isInvalidElementNameCharacterAfterAlphaStart);
-
-    if (firstCharacter == ':' || firstCharacter == '_' || firstCharacter >= 0x80)
-        return name.containsOnly<isValidElementNameContinuationCharacter>();
-
-    return false;
-}
-#endif
-
 // https://dom.spec.whatwg.org/#valid-element-name
 bool isValidElementName(StringView name)
 {
-#if USE(SWIFT_KERNELS)
-    bool result = WebCoreSwift_NameValidation_isValidElementName(name.rawCharacters(), name.length(), name.is8Bit());
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (swiftKernelsValidationEnabled()) [[unlikely]]
-        RELEASE_ASSERT(result == isValidElementNameCxx(name));
-#endif
-    return result;
-#else
-    return isValidElementNameCxx(name);
-#endif
+    return WebCoreSwift_NameValidation_isValidElementName(name.rawCharacters(), name.length(), name.is8Bit());
 }
 
 bool isValidElementName(const QualifiedName& name)
@@ -119,27 +66,10 @@ bool isValidElementName(const QualifiedName& name)
     return isValidElementName(name.localName());
 }
 
-#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
-// https://dom.spec.whatwg.org/#valid-attribute-name
-NODELETE static bool isValidAttributeNameCxx(StringView name)
-{
-    return !name.isEmpty() && !name.contains(isInvalidAttributeNameCharacter);
-}
-#endif
-
 // https://dom.spec.whatwg.org/#valid-attribute-name
 bool isValidAttributeName(StringView name)
 {
-#if USE(SWIFT_KERNELS)
-    bool result = WebCoreSwift_NameValidation_isValidAttributeName(name.rawCharacters(), name.length(), name.is8Bit());
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (swiftKernelsValidationEnabled()) [[unlikely]]
-        RELEASE_ASSERT(result == isValidAttributeNameCxx(name));
-#endif
-    return result;
-#else
-    return isValidAttributeNameCxx(name);
-#endif
+    return WebCoreSwift_NameValidation_isValidAttributeName(name.rawCharacters(), name.length(), name.is8Bit());
 }
 
 // https://dom.spec.whatwg.org/#valid-namespace-prefix

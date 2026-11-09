@@ -124,7 +124,6 @@ private:
     void buildCascade();
     void buildCascadeCxx();
     bool buildCascadeWithSwift();
-    void validateSwiftCascade();
     static IncludedProperties rollbackProperties(const PropertyCascade& parent);
     bool addNormalMatches(Origin);
     void addImportantMatches(Origin);
