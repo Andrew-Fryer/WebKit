@@ -41,15 +41,10 @@ public:
 private:
     bool apply(const Filter&, std::span<const Ref<FilterImage>> inputs, FilterImage& result) const final;
 
-    NODELETE inline void matrix(float& red, float& green, float& blue, float& alpha) const;
-    NODELETE inline void saturateAndHueRotate(float& red, float& green, float& blue) const;
-    NODELETE inline void luminance(float& red, float& green, float& blue, float& alpha) const;
-
 #if USE(ACCELERATE)
     void applyPlatformAccelerated(PixelBuffer&) const;
 #endif
     void applyPlatformUnaccelerated(PixelBuffer&) const;
-    void applyPlatformUnacceleratedCxx(PixelBuffer&) const;
 
     void applyPlatform(PixelBuffer&) const;
 

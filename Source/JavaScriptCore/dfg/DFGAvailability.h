@@ -147,7 +147,6 @@ private:
         return std::bit_cast<Node*>(static_cast<intptr_t>(1));
     }
     
-#if USE(SWIFT_KERNELS)
     // AvailabilityLocals.swift (called by DFGAvailabilityMap.cpp) reads and writes arrays of Availability as pairs
     // of 64-bit words: m_node as an opaque integer (unavailableMarker() is 1), then m_flushedAt.
     static void staticAssertLayoutForSwift()
@@ -156,7 +155,6 @@ private:
         static_assert(offsetof(Availability, m_node) == 0 && offsetof(Availability, m_flushedAt) == 8);
         static_assert(std::is_trivially_copyable_v<Availability>);
     }
-#endif
 
     Node* m_node;
     FlushedAt m_flushedAt;

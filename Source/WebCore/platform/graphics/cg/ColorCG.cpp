@@ -40,38 +40,13 @@
 #include <wtf/ThreadSpecific.h>
 #include <wtf/TinyLRUCache.h>
 
-#if USE(SWIFT_KERNELS)
 #include "CGColorCacheSwiftBoundary.h"
-#endif
-
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "SwiftKernelsValidation.h"
-#endif
 
 namespace WebCore {
-static RetainPtr<CGColorRef> createCGColor(const Color&);
 static RetainPtr<CGColorRef> createCGColorInDestinationStandardRange(const Color&, const ColorSpace&);
 }
 
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-namespace WebCore {
-// Misses of cachedCGColorCxx()'s cache, which only runs under cachedCGColor()'s lock in validation mode.
-static size_t cachedCGColorCxxMissCount;
-}
-#endif
-
 namespace WTF {
-
-#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
-template<>
-RetainPtr<CGColorRef> TinyLRUCachePolicy<WebCore::Color, RetainPtr<CGColorRef>>::createValueForKey(const WebCore::Color& color)
-{
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    ++WebCore::cachedCGColorCxxMissCount;
-#endif
-    return WebCore::createCGColor(color);
-}
-#endif
 
 template<>
 RetainPtr<CGColorRef> TinyLRUCachePolicy<std::pair<WebCore::Color, std::optional<WebCore::ColorSpace>>, RetainPtr<CGColorRef>>::createValueForKey(const std::pair<WebCore::Color, std::optional<WebCore::ColorSpace>>& colorAndColorSpace)
@@ -197,37 +172,7 @@ static RetainPtr<CGColorRef> createCGColor(const Color& color)
     return adoptCF(CGColorCreate(cgColorSpace.get(), cgFloatComponents.data()));
 }
 
-#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
-static RetainPtr<CGColorRef> cachedCGColorCxx(const Color& color)
-{
-    if (auto srgb = color.tryGetAsSRGBABytes()) {
-        switch (PackedColor::RGBA { *srgb }.value) {
-        case PackedColor::RGBA { Color::transparentBlack }.value: {
-            static NeverDestroyed<RetainPtr<CGColorRef>> transparentCGColor = createCGColor(Color::transparentBlack);
-            return transparentCGColor.get();
-        }
-        case PackedColor::RGBA { Color::black }.value: {
-            static NeverDestroyed<RetainPtr<CGColorRef>> blackCGColor = createCGColor(Color::black);
-            return blackCGColor.get();
-        }
-        case PackedColor::RGBA { Color::white }.value: {
-            static NeverDestroyed<RetainPtr<CGColorRef>> whiteCGColor = createCGColor(Color::white);
-            return whiteCGColor.get();
-        }
-        }
-    }
-
-    static Lock cachedColorLock;
-    Locker locker { cachedColorLock };
-
-    static NeverDestroyed<TinyLRUCache<Color, RetainPtr<CGColorRef>, 32>> cache;
-    return cache.get().get(color);
-}
-#endif
-
-#if USE(SWIFT_KERNELS)
-
-// cachedCGColor()'s cache. It has the policy of cachedCGColorCxx()'s TinyLRUCache<Color, RetainPtr<CGColorRef>, 32>, but
+// cachedCGColor()'s cache. It has the policy of the TinyLRUCache<Color, RetainPtr<CGColorRef>, 32> it replaces, but
 // its entries never move: Swift (Source/WebCore/swift/CGColorCache) keeps their least- to most-recently-used order in
 // keys and order, so that a hit moves no Color or RetainPtr. Guarded by cachedCGColor()'s lock.
 struct CachedCGColors {
@@ -257,46 +202,6 @@ static bool cachedCGColorsEntryEqualsKey(const void* context, uint8_t slot)
     auto& key = *static_cast<const CachedCGColorsKey*>(context);
     return key.cache.entries[slot].first == key.color;
 }
-
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-static bool cgColorsAreIdentical(CGColorRef a, CGColorRef b)
-{
-    if (a == b)
-        return true;
-    if (!a || !b || !CFEqual(CGColorGetColorSpace(a), CGColorGetColorSpace(b)))
-        return false;
-    return equalSpans(asByteSpan(componentsSpan(a)), asByteSpan(componentsSpan(b)));
-}
-
-static void validateCachedCGColor(const CachedCGColors& cache, const Color& color, uint32_t result, CGColorRef cgColor)
-{
-    size_t slot = result & WebCoreSwiftCGColorCacheSlotMask;
-    bool miss = result & WebCoreSwiftCGColorCacheMiss;
-
-    // Swift's order must be a permutation of the live slots with each entry's bits and out-of-line flag, end with the
-    // looked-up entry, and leave no other entry equal to the color.
-    RELEASE_ASSERT(cache.size >= 1 && cache.size <= CachedCGColors::capacity);
-    RELEASE_ASSERT((cache.order[cache.size - 1] & WebCoreSwiftCGColorCacheSlotMask) == slot);
-    RELEASE_ASSERT(!miss || cache.keys[cache.size - 1] == colorBitsForCachedCGColors(color));
-    std::array<bool, CachedCGColors::capacity> seen { };
-    for (size_t i = 0; i < cache.size; ++i) {
-        size_t entrySlot = cache.order[i] & WebCoreSwiftCGColorCacheSlotMask;
-        RELEASE_ASSERT(entrySlot < cache.size && !seen[entrySlot]);
-        seen[entrySlot] = true;
-        auto& entryColor = cache.entries[entrySlot].first;
-        RELEASE_ASSERT(cache.keys[i] == colorBitsForCachedCGColors(entryColor));
-        RELEASE_ASSERT(!!(cache.order[i] & WebCoreSwiftCGColorCacheOutOfLine) == !entryColor.tryGetAsPackedInline());
-        RELEASE_ASSERT(entrySlot == slot ? miss || entryColor == color : !(entryColor == color));
-    }
-
-    // The original cache gets the same lookups in the same order (we hold the lock), so it must miss on exactly the
-    // same lookups (which makes its entries the same as ours) and return an identical CGColor.
-    size_t cxxMissCount = cachedCGColorCxxMissCount;
-    auto cxxCGColor = cachedCGColorCxx(color);
-    RELEASE_ASSERT(miss == (cachedCGColorCxxMissCount != cxxMissCount));
-    RELEASE_ASSERT(cgColorsAreIdentical(cgColor, cxxCGColor.get()));
-}
-#endif // ENABLE(SWIFT_KERNELS_VALIDATION)
 
 RetainPtr<CGColorRef> cachedCGColor(const Color& color)
 {
@@ -331,21 +236,8 @@ RetainPtr<CGColorRef> cachedCGColor(const Color& color)
     auto& entry = colors.entries[result & WebCoreSwiftCGColorCacheSlotMask];
     if (result & WebCoreSwiftCGColorCacheMiss)
         entry = std::pair { color, createCGColor(color) };
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (swiftKernelsValidationEnabled()) [[unlikely]]
-        validateCachedCGColor(colors, color, result, entry.second.get());
-#endif
     return entry.second;
 }
-
-#else
-
-RetainPtr<CGColorRef> cachedCGColor(const Color& color)
-{
-    return cachedCGColorCxx(color);
-}
-
-#endif // USE(SWIFT_KERNELS)
 
 RetainPtr<CGColorRef> createCGColorInDestinationStandardRange(const Color& color, const ColorSpace& colorSpace)
 {

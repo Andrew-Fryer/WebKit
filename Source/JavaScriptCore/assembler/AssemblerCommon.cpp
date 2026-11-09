@@ -26,13 +26,7 @@
 #include "config.h"
 #include "AssemblerCommon.h"
 
-#if USE(SWIFT_KERNELS)
-
 #include "ARM64LogicalImmediateSwiftBoundary.h"
-
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "SwiftKernelsValidation.h"
-#endif
 
 namespace JSC {
 
@@ -41,28 +35,12 @@ namespace JSC {
 
 ARM64LogicalImmediate ARM64LogicalImmediate::create32(uint32_t value)
 {
-    ARM64LogicalImmediate result(JSCSwift_ARM64LogicalImmediate_create32(value));
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (swiftKernelsValidationEnabled()) [[unlikely]] {
-        int expected = create32Cxx(value).m_value;
-        RELEASE_ASSERT(result.m_value == expected, value, result.m_value, expected);
-    }
-#endif
-    return result;
+    return ARM64LogicalImmediate(JSCSwift_ARM64LogicalImmediate_create32(value));
 }
 
 ARM64LogicalImmediate ARM64LogicalImmediate::create64(uint64_t value)
 {
-    ARM64LogicalImmediate result(JSCSwift_ARM64LogicalImmediate_create64(value));
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (swiftKernelsValidationEnabled()) [[unlikely]] {
-        int expected = create64Cxx(value).m_value;
-        RELEASE_ASSERT(result.m_value == expected, value, result.m_value, expected);
-    }
-#endif
-    return result;
+    return ARM64LogicalImmediate(JSCSwift_ARM64LogicalImmediate_create64(value));
 }
 
 } // namespace JSC
-
-#endif // USE(SWIFT_KERNELS)

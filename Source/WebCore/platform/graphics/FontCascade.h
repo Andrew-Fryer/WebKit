@@ -177,8 +177,7 @@ public:
     inline const FontRanges& fallbackRangesAt(FontCascadeFonts&, unsigned) const; // Defined in FontCascadeInlines.h
     WEBCORE_EXPORT GlyphData glyphDataForCharacter(char32_t, bool mirror, FontVariant = FontVariant::Auto, std::optional<ResolvedEmojiPolicy> = std::nullopt) const;
     bool canUseSimplifiedTextMeasuring(char32_t, FontVariant, bool whitespaceIsCollapsed, const Font&) const;
-    // canUseSimplifiedTextMeasuring(character, FontVariant::Auto, whitespaceIsCollapsed, font) for every character
-    // (defined only with USE(SWIFT_KERNELS)).
+    // canUseSimplifiedTextMeasuring(character, FontVariant::Auto, whitespaceIsCollapsed, font) for every character.
     bool canUseSimplifiedTextMeasuring(std::span<const Latin1Character>, bool whitespaceIsCollapsed, const Font&) const;
     bool canUseSimplifiedTextMeasuring(std::span<const char16_t>, bool whitespaceIsCollapsed, const Font&) const;
 

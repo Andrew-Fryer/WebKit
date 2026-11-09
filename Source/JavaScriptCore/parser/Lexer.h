@@ -225,8 +225,7 @@ private:
     unsigned m_sourceOffset;
     const T* m_codeStartPlusOffset;
 
-    // Scratch buffers of the Swift string and template literal scans (Lexer.cpp, USE(SWIFT_KERNELS)), kept at
-    // size == capacity.
+    // Scratch buffers of the Swift string and template literal scans (Lexer.cpp), kept at size == capacity.
     Vector<char16_t> m_literalCooked16;
     Vector<char16_t> m_literalRaw16;
 

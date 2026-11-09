@@ -35,12 +35,7 @@
 #include <Accelerate/Accelerate.h>
 #endif
 
-#if USE(SWIFT_KERNELS)
 #include "FEColorMatrixSwiftBoundary.h"
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "SwiftKernelsValidation.h"
-#endif
-#endif
 
 namespace WebCore {
 
@@ -53,41 +48,6 @@ FEColorMatrixSoftwareApplier::FEColorMatrixSoftwareApplier(const FEColorMatrix& 
         FEColorMatrix::calculateSaturateComponents(m_components, m_effect->values()[0]);
     else if (m_effect->type() == ColorMatrixType::FECOLORMATRIX_TYPE_HUEROTATE)
         FEColorMatrix::calculateHueRotateComponents(m_components, m_effect->values()[0]);
-}
-
-inline void FEColorMatrixSoftwareApplier::matrix(float& red, float& green, float& blue, float& alpha) const
-{
-    float r = red;
-    float g = green;
-    float b = blue;
-    float a = alpha;
-
-    const auto& values = m_effect->values();
-
-    red   = values[ 0] * r + values[ 1] * g + values[ 2] * b + values[ 3] * a + values[ 4] * 255;
-    green = values[ 5] * r + values[ 6] * g + values[ 7] * b + values[ 8] * a + values[ 9] * 255;
-    blue  = values[10] * r + values[11] * g + values[12] * b + values[13] * a + values[14] * 255;
-    alpha = values[15] * r + values[16] * g + values[17] * b + values[18] * a + values[19] * 255;
-}
-
-inline void FEColorMatrixSoftwareApplier::saturateAndHueRotate(float& red, float& green, float& blue) const
-{
-    float r = red;
-    float g = green;
-    float b = blue;
-
-    red     = r * m_components[0] + g * m_components[1] + b * m_components[2];
-    green   = r * m_components[3] + g * m_components[4] + b * m_components[5];
-    blue    = r * m_components[6] + g * m_components[7] + b * m_components[8];
-}
-
-// FIXME: this should use the luminance(...) function in ColorLuminance.h.
-inline void FEColorMatrixSoftwareApplier::luminance(float& red, float& green, float& blue, float& alpha) const
-{
-    alpha = 0.2125 * red + 0.7154 * green + 0.0721 * blue;
-    red = 0;
-    green = 0;
-    blue = 0;
 }
 
 #if USE(ACCELERATE)
@@ -197,82 +157,12 @@ void FEColorMatrixSoftwareApplier::applyPlatformAccelerated(PixelBuffer& pixelBu
 }
 #endif
 
-// The per-pixel loops run in Swift (FEColorMatrix.swift); applyPlatformUnacceleratedCxx is the original.
+// The per-pixel loops run in Swift (FEColorMatrix.swift).
 void FEColorMatrixSoftwareApplier::applyPlatformUnaccelerated(PixelBuffer& pixelBuffer) const
 {
-#if USE(SWIFT_KERNELS)
     auto bytes = pixelBuffer.bytes();
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    std::optional<Vector<uint8_t>> originalBytes;
-    if (swiftKernelsValidationEnabled()) [[unlikely]]
-        originalBytes.emplace(std::span<const uint8_t> { bytes });
-#endif
     const auto& values = m_effect->values();
     WebCoreSwift_FEColorMatrix_applyUnaccelerated(bytes.data(), bytes.size(), std::to_underlying(m_effect->type()), values.span().data(), values.size(), m_components.data(), m_components.size());
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (originalBytes) [[unlikely]] {
-        Vector<uint8_t> swiftBytes(std::span<const uint8_t> { bytes });
-        memcpySpan(bytes, originalBytes->span());
-        applyPlatformUnacceleratedCxx(pixelBuffer);
-        RELEASE_ASSERT(equalSpans(std::span<const uint8_t> { bytes }, swiftBytes.span()));
-    }
-#endif
-#else
-    applyPlatformUnacceleratedCxx(pixelBuffer);
-#endif
-}
-
-void FEColorMatrixSoftwareApplier::applyPlatformUnacceleratedCxx(PixelBuffer& pixelBuffer) const
-{
-    auto pixelByteLength = pixelBuffer.bytes().size();
-
-    switch (m_effect->type()) {
-    case ColorMatrixType::FECOLORMATRIX_TYPE_UNKNOWN:
-        break;
-
-    case ColorMatrixType::FECOLORMATRIX_TYPE_MATRIX:
-        for (unsigned pixelByteOffset = 0; pixelByteOffset < pixelByteLength; pixelByteOffset += 4) {
-            float red = pixelBuffer.item(pixelByteOffset);
-            float green = pixelBuffer.item(pixelByteOffset + 1);
-            float blue = pixelBuffer.item(pixelByteOffset + 2);
-            float alpha = pixelBuffer.item(pixelByteOffset + 3);
-            matrix(red, green, blue, alpha);
-            pixelBuffer.set(pixelByteOffset, red);
-            pixelBuffer.set(pixelByteOffset + 1, green);
-            pixelBuffer.set(pixelByteOffset + 2, blue);
-            pixelBuffer.set(pixelByteOffset + 3, alpha);
-        }
-        break;
-
-    case ColorMatrixType::FECOLORMATRIX_TYPE_SATURATE:
-    case ColorMatrixType::FECOLORMATRIX_TYPE_HUEROTATE:
-        for (unsigned pixelByteOffset = 0; pixelByteOffset < pixelByteLength; pixelByteOffset += 4) {
-            float red = pixelBuffer.item(pixelByteOffset);
-            float green = pixelBuffer.item(pixelByteOffset + 1);
-            float blue = pixelBuffer.item(pixelByteOffset + 2);
-            float alpha = pixelBuffer.item(pixelByteOffset + 3);
-            saturateAndHueRotate(red, green, blue);
-            pixelBuffer.set(pixelByteOffset, red);
-            pixelBuffer.set(pixelByteOffset + 1, green);
-            pixelBuffer.set(pixelByteOffset + 2, blue);
-            pixelBuffer.set(pixelByteOffset + 3, alpha);
-        }
-        break;
-
-    case ColorMatrixType::FECOLORMATRIX_TYPE_LUMINANCETOALPHA:
-        for (unsigned pixelByteOffset = 0; pixelByteOffset < pixelByteLength; pixelByteOffset += 4) {
-            float red = pixelBuffer.item(pixelByteOffset);
-            float green = pixelBuffer.item(pixelByteOffset + 1);
-            float blue = pixelBuffer.item(pixelByteOffset + 2);
-            float alpha = pixelBuffer.item(pixelByteOffset + 3);
-            luminance(red, green, blue, alpha);
-            pixelBuffer.set(pixelByteOffset, red);
-            pixelBuffer.set(pixelByteOffset + 1, green);
-            pixelBuffer.set(pixelByteOffset + 2, blue);
-            pixelBuffer.set(pixelByteOffset + 3, alpha);
-        }
-        break;
-    }
 }
 
 void FEColorMatrixSoftwareApplier::applyPlatform(PixelBuffer& pixelBuffer) const

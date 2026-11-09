@@ -52,10 +52,6 @@
 #include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/TextBreakIterator.h>
 
-#if USE(SWIFT_KERNELS) && ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "SwiftKernelsValidation.h"
-#endif
-
 namespace WebCore {
 namespace Layout {
 
@@ -837,16 +833,6 @@ float TextUtil::hangableStopOrCommaEndWidth(const InlineTextItem& inlineTextItem
     return width(inlineTextItem, protect(style.fontCascade()), trailingPosition, trailingPosition + 1, { });
 }
 
-template<typename CharacterType>
-static bool canUseSimplifiedTextMeasuringForCharacters(std::span<const CharacterType> characters, const FontCascade& fontCascade, const Font& primaryFont, bool whitespaceIsCollapsed)
-{
-    for (auto character : characters) {
-        if (!fontCascade.canUseSimplifiedTextMeasuring(character, FontVariant::Auto, whitespaceIsCollapsed, primaryFont))
-            return false;
-    }
-    return true;
-}
-
 bool TextUtil::canUseSimplifiedTextMeasuring(StringView textContent, const FontCascade& fontCascade, bool whitespaceIsCollapsed, const Style::ComputedStyle* firstLineStyle)
 {
     ASSERT(textContent.is8Bit() || FontCascade::characterRangeCodePath(textContent.span16()) == FontCascade::CodePath::Simple);
@@ -871,25 +857,10 @@ bool TextUtil::canUseSimplifiedTextMeasuring(StringView textContent, const FontC
 
     Ref primaryFont = fontCascade.primaryFont();
 
-#if USE(SWIFT_KERNELS)
-    // The loop runs in FontCascade's batch form (Swift for the cached answers); canUseSimplifiedTextMeasuringForCharacters
-    // is the original.
-    bool result = textContent.is8Bit()
-        ? fontCascade.canUseSimplifiedTextMeasuring(textContent.span8(), whitespaceIsCollapsed, primaryFont)
-        : fontCascade.canUseSimplifiedTextMeasuring(textContent.span16(), whitespaceIsCollapsed, primaryFont);
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (swiftKernelsValidationEnabled()) [[unlikely]] {
-        RELEASE_ASSERT(result == (textContent.is8Bit()
-            ? canUseSimplifiedTextMeasuringForCharacters(textContent.span8(), fontCascade, primaryFont, whitespaceIsCollapsed)
-            : canUseSimplifiedTextMeasuringForCharacters(textContent.span16(), fontCascade, primaryFont, whitespaceIsCollapsed)));
-    }
-#endif
-    return result;
-#else
+    // The loop runs in FontCascade's batch form (Swift for the cached answers).
     if (textContent.is8Bit())
-        return canUseSimplifiedTextMeasuringForCharacters(textContent.span8(), fontCascade, primaryFont, whitespaceIsCollapsed);
-    return canUseSimplifiedTextMeasuringForCharacters(textContent.span16(), fontCascade, primaryFont, whitespaceIsCollapsed);
-#endif
+        return fontCascade.canUseSimplifiedTextMeasuring(textContent.span8(), whitespaceIsCollapsed, primaryFont);
+    return fontCascade.canUseSimplifiedTextMeasuring(textContent.span16(), whitespaceIsCollapsed, primaryFont);
 }
 
 bool TextUtil::hasPositionDependentContentWidth(StringView textContent)

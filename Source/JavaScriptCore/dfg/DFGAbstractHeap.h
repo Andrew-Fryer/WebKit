@@ -228,59 +228,17 @@ public:
         return Operand::fromBits(payload().value());
     }
 
-    // With USE(SWIFT_KERNELS), supertype(), isStrictSubtypeOf() and overlaps() are computed by
-    // swift/AbstractHeapLattice/AbstractHeapLattice.swift, called from DFGAbstractHeap.cpp. The *Cxx
-    // functions are the original C++, kept for the !USE(SWIFT_KERNELS) build and for validation.
+    // supertype(), isStrictSubtypeOf() and overlaps() are computed by
+    // swift/AbstractHeapLattice/AbstractHeapLattice.swift, called from DFGAbstractHeap.cpp.
     AbstractHeap supertype() const
     {
-#if USE(SWIFT_KERNELS)
         ASSERT(kind() != InvalidAbstractHeap);
         return fromBits(supertypeSwift(m_value));
-#else
-        return supertypeCxx();
-#endif
     }
 
-    AbstractHeap supertypeCxx() const
-    {
-        ASSERT(kind() != InvalidAbstractHeap);
-        switch (kind()) {
-        case World:
-            return AbstractHeap();
-        default:
-            if (payload().isTop())
-                return superKind(kind());
-            return AbstractHeap(kind());
-        }
-    }
-    
     bool isStrictSubtypeOf(const AbstractHeap& other) const
     {
-#if USE(SWIFT_KERNELS)
         return isStrictSubtypeOfSwift(m_value, other.m_value);
-#else
-        return isStrictSubtypeOfCxx(other);
-#endif
-    }
-
-    bool isStrictSubtypeOfCxx(const AbstractHeap& other) const
-    {
-        AbstractHeap current = *this;
-        if (current.kind() == DOMState && other.kind() == DOMState) {
-            Payload currentPayload = current.payload();
-            Payload otherPayload = other.payload();
-            if (currentPayload.isTop())
-                return false;
-            if (otherPayload.isTop())
-                return true;
-            return DOMJIT::HeapRange::fromRaw(currentPayload.value32()).isStrictSubtypeOf(DOMJIT::HeapRange::fromRaw(otherPayload.value32()));
-        }
-        while (current.kind() != World) {
-            current = current.supertypeCxx();
-            if (current == other)
-                return true;
-        }
-        return false;
     }
     
     bool isSubtypeOf(const AbstractHeap& other) const
@@ -290,16 +248,7 @@ public:
     
     bool overlaps(const AbstractHeap& other) const
     {
-#if USE(SWIFT_KERNELS)
         return *this == other || overlapsSwift(m_value, other.m_value);
-#else
-        return overlapsCxx(other);
-#endif
-    }
-
-    bool overlapsCxx(const AbstractHeap& other) const
-    {
-        return *this == other || isStrictSubtypeOfCxx(other) || other.isStrictSubtypeOfCxx(*this);
     }
     
     bool isDisjoint(const AbstractHeap& other) const
@@ -328,69 +277,6 @@ public:
 
     static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
 
-    static constexpr AbstractHeapKind superKind(AbstractHeapKind kind)
-    {
-        switch (kind) {
-        case InvalidAbstractHeap:
-        case World:
-            return InvalidAbstractHeap;
-
-        case Heap:
-        case Stack:
-        case SideState:
-            return World;
-
-        case IndexedInt32Properties:
-        case IndexedDoubleProperties:
-        case IndexedContiguousProperties:
-        case IndexedArrayStorageProperties:
-        case DirectArgumentsProperties:
-        case ScopeProperties:
-        case TypedArrayProperties:
-            return IndexedProperties;
-
-        case IndexedProperties:
-            return Heap;
-
-        case NamedProperties:
-            return Heap;
-
-        case Butterfly_publicLength:
-        case Butterfly_vectorLength:
-        case GetterSetter_getter:
-        case GetterSetter_setter:
-        case JSCell_cellState:
-        case JSCell_indexingType:
-        case JSCell_structureID:
-        case JSCell_typeInfoFlags:
-        case JSObject_butterfly:
-        case JSPropertyNameEnumerator_cachedPropertyNames:
-        case RegExpObject_lastIndex:
-        case HeapObjectCount:
-        case RegExpState:
-        case MathDotRandomState:
-        case WallClock:
-        case JSDateFields:
-        case JSGlobalProxy_target:
-        case JSMapFields:
-        case JSSetFields:
-        case JSMapIteratorFields:
-        case JSSetIteratorFields:
-        case JSWeakMapFields:
-        case JSWeakSetFields:
-        case JSInternalFields:
-        case InternalState:
-        case CatchLocals:
-        case Absolute:
-        case DOMState:
-        case Watchpoint_fire:
-        case MiscFields:
-            return Heap;
-        }
-
-        return InvalidAbstractHeap;
-    }
-
     void dump(PrintStream& out) const;
     
 private:
@@ -402,21 +288,13 @@ private:
     static constexpr uint64_t kindAndTopMask = ((1ull << (kindBits + 1)) - 1) << kindShift;
     static constexpr unsigned topShift = kindShift + kindBits;
     static_assert(48 >= Operand::maxBits, "Operand should fit in the bottom 48 bit region");
-#if USE(SWIFT_KERNELS)
     static_assert(kindShift == 48 && kindBits == 7 && topShift == 55, "AbstractHeapLattice.swift hard-codes this encoding");
 
-    // Defined in DFGAbstractHeap.cpp. They call AbstractHeapLattice.swift and, in validation mode, check its
-    // answer against the *Cxx functions. Without validation they only forward to Swift, which computes a pure
+    // Defined in DFGAbstractHeap.cpp. They only forward to AbstractHeapLattice.swift, which computes a pure
     // function of its arguments, so they are const: callers may CSE and hoist them. The predicates return 0 or 1.
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#define DFG_ABSTRACT_HEAP_SWIFT_QUERY static
-#else
-#define DFG_ABSTRACT_HEAP_SWIFT_QUERY __attribute__((const)) static
-#endif
-    DFG_ABSTRACT_HEAP_SWIFT_QUERY intptr_t isStrictSubtypeOfSwift(int64_t heap, int64_t other);
-    DFG_ABSTRACT_HEAP_SWIFT_QUERY intptr_t overlapsSwift(int64_t heap, int64_t other);
-    DFG_ABSTRACT_HEAP_SWIFT_QUERY int64_t supertypeSwift(int64_t heap);
-#undef DFG_ABSTRACT_HEAP_SWIFT_QUERY
+    __attribute__((const)) static intptr_t isStrictSubtypeOfSwift(int64_t heap, int64_t other);
+    __attribute__((const)) static intptr_t overlapsSwift(int64_t heap, int64_t other);
+    __attribute__((const)) static int64_t supertypeSwift(int64_t heap);
 
     static AbstractHeap fromBits(int64_t bits)
     {
@@ -424,7 +302,6 @@ private:
         result.m_value = bits;
         return result;
     }
-#endif
     
     Payload payloadImpl() const
     {
