@@ -22,8 +22,8 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 
 // C entry points of HTMLScan (declared to C++ in HTMLScanSwiftBoundary.h). This is the only file of the unit with
-// `unsafe`: it wraps the parser input (Latin-1 bytes, or UTF-16 code units as raw bytes because they may be
-// odd-aligned) and the glue's output buffers in spans, writes scalar out-params, and calls the safe core in
+// `unsafe`: it wraps the parser input (Latin-1 bytes, or UTF-16 code units: typed at an even address, raw bytes at an
+// odd one) and the glue's output buffer in spans, writes scalar out-params, and calls the safe core in
 // HTMLScanTokenizer.swift / HTMLScanFastPath.swift. Input pointers may be null only when the length is 0.
 
 // MARK: HTMLTokenizer
@@ -33,4 +33,43 @@
 func WebCoreSwift_HTMLScan_plainTextLength8(_ characters: UnsafePointer<UInt8>?, _ length: Int, _ stopCharacter: UInt8) -> Int {
     let buffer = unsafe UnsafeBufferPointer(start: characters, count: length)
     return unsafe HTMLScan.plainTextLength(buffer.span, stopCharacter: stopCharacter)
+}
+
+// MARK: HTMLFastPathParser
+
+// `characters` is Latin-1 bytes when is8Bit, else UTF-16 code units: typed when at an even address (always, for WTF
+// strings), read as raw bytes otherwise.
+
+@_cdecl("WebCoreSwift_HTMLScan_fastPathScanText")
+func WebCoreSwift_HTMLScan_fastPathScanText(_ characters: UnsafeRawPointer?, _ length: Int, _ is8Bit: Bool, _ textLengthLimit: Int) -> UInt64 {
+    if is8Bit {
+        let buffer = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt8.self), count: length)
+        return unsafe HTMLScan.scanText(HTMLScanLatin1Input(buffer.span), textLengthLimit: textLengthLimit)
+    }
+    if Int(bitPattern: characters) & 1 == 0 {
+        let buffer = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt16.self), count: length)
+        return unsafe HTMLScan.scanText(HTMLScanUTF16Input(buffer.span), textLengthLimit: textLengthLimit)
+    }
+    let buffer = unsafe UnsafeRawBufferPointer(start: characters, count: length &* 2)
+    return unsafe HTMLScan.scanText(HTMLScanUnalignedUTF16Input(buffer.bytes), textLengthLimit: textLengthLimit)
+}
+
+@_cdecl("WebCoreSwift_HTMLScan_fastPathScanStartTag")
+func WebCoreSwift_HTMLScan_fastPathScanStartTag(_ characters: UnsafeRawPointer?, _ length: Int, _ is8Bit: Bool, _ scanTagName: Bool, _ attributes: UnsafeMutablePointer<UInt32>, _ attributeCapacity: Int, _ consumed: UnsafeMutablePointer<Int>) -> UInt64 {
+    let recordBuffer = unsafe UnsafeMutableBufferPointer(start: attributes, count: attributeCapacity &* HTMLScan.attributeRecordWords)
+    var records = unsafe recordBuffer.mutableSpan
+    var end = 0
+    let result: UInt64
+    if is8Bit {
+        let buffer = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt8.self), count: length)
+        result = unsafe HTMLScan.scanStartTag(HTMLScanLatin1Input(buffer.span), scanTagName: scanTagName, records: &records, consumed: &end)
+    } else if Int(bitPattern: characters) & 1 == 0 {
+        let buffer = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt16.self), count: length)
+        result = unsafe HTMLScan.scanStartTag(HTMLScanUTF16Input(buffer.span), scanTagName: scanTagName, records: &records, consumed: &end)
+    } else {
+        let buffer = unsafe UnsafeRawBufferPointer(start: characters, count: length &* 2)
+        result = unsafe HTMLScan.scanStartTag(HTMLScanUnalignedUTF16Input(buffer.bytes), scanTagName: scanTagName, records: &records, consumed: &end)
+    }
+    unsafe consumed.pointee = end
+    return result
 }

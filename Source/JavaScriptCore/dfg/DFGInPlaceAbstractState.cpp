@@ -32,6 +32,13 @@
 #include "JSCJSValueInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
+#if USE(SWIFT_KERNELS)
+#include "DFGCFAMergeSwiftBoundary.h"
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+#include "SwiftKernelsValidation.h"
+#endif
+#endif
+
 namespace JSC { namespace DFG {
 
 WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED_IMPL(InPlaceAbstractState);
@@ -341,6 +348,98 @@ void InPlaceAbstractState::activateVariable(size_t variableIndex)
     m_activeVariables[variableIndex] = true;
 }
 
+#if USE(SWIFT_KERNELS)
+
+// An Operands<AbstractValue> as DFGCFAMerge.swift sees it: four 64-bit words per element (the layout is
+// static_asserted in DFGAbstractValue.h), null when empty. An Operands<Node*> is one word per element.
+static uint64_t* abstractValueWords(Operands<AbstractValue>& values)
+{
+    return values.size() ? std::bit_cast<uint64_t*>(&values[0]) : nullptr;
+}
+
+static const uint64_t* nodeWords(const Operands<Node*>& nodes)
+{
+    return nodes.size() ? std::bit_cast<const uint64_t*>(&nodes[0]) : nullptr;
+}
+
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+// AbstractValue::operator==, and also m_effectEpoch, which merging into a clear value copies.
+static bool sameAbstractValues(const Operands<AbstractValue>& a, const Operands<AbstractValue>& b)
+{
+    if (a.size() != b.size())
+        return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (a[i] != b[i] || a[i].m_effectEpoch != b[i].m_effectEpoch)
+            return false;
+    }
+    return true;
+}
+#endif
+
+#endif // USE(SWIFT_KERNELS)
+
+bool InPlaceAbstractState::mergeValues(BasicBlock* from, BasicBlock* to)
+{
+#if USE(SWIFT_KERNELS)
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    std::optional<Operands<AbstractValue>> original;
+    if (swiftKernelsValidationEnabled()) [[unlikely]]
+        original = to->valuesAtHead;
+#endif
+
+    bool isCPS = m_graph.m_form == ThreadedCPS;
+    size_t count = isCPS ? from->variablesAtTail.size() : from->valuesAtTail.size();
+    if (m_slowMergeIndices.size() < count)
+        m_slowMergeIndices.grow(count);
+    size_t slowCount = 0;
+    bool changed = JSCSwift_DFGCFAMerge_mergeValues(abstractValueWords(to->valuesAtHead), to->valuesAtHead.size(), abstractValueWords(from->valuesAtTail), from->valuesAtTail.size(),
+        isCPS ? nodeWords(to->variablesAtHead) : nullptr, isCPS ? to->variablesAtHead.size() : 0, isCPS, count, m_slowMergeIndices.mutableSpan().data(), m_slowMergeIndices.size(), &slowCount);
+    // The values Swift left untouched because merging them allocates or frees a structure list.
+    RELEASE_ASSERT(slowCount <= m_slowMergeIndices.size());
+    for (uint32_t index : m_slowMergeIndices.span().first(slowCount)) {
+        RELEASE_ASSERT(index < count);
+        changed |= to->valuesAtHead[index].merge(from->valuesAtTail[index]);
+    }
+
+#if ENABLE(SWIFT_KERNELS_VALIDATION)
+    if (original) {
+        // Rerun the original loops on the original values (from->valuesAtTail is distinct from to->valuesAtHead).
+        std::swap(*original, to->valuesAtHead);
+        RELEASE_ASSERT(mergeValuesCxx(from, to) == changed);
+        RELEASE_ASSERT(sameAbstractValues(to->valuesAtHead, *original));
+    }
+#endif
+    return changed;
+#else
+    return mergeValuesCxx(from, to);
+#endif
+}
+
+bool InPlaceAbstractState::mergeValuesCxx(BasicBlock* from, BasicBlock* to)
+{
+    bool changed = false;
+    switch (m_graph.m_form) {
+    case ThreadedCPS: {
+        for (size_t index = 0; index < from->variablesAtTail.size(); ++index) {
+            AbstractValue& destination = to->valuesAtHead.at(index);
+            changed |= mergeVariableBetweenBlocks(destination, from->valuesAtTail.at(index), to->variablesAtHead.at(index), from->variablesAtTail.at(index));
+        }
+        break;
+    }
+
+    case SSA: {
+        for (size_t i = from->valuesAtTail.size(); i--;)
+            changed |= to->valuesAtHead[i].merge(from->valuesAtTail[i]);
+        break;
+    }
+
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
+        break;
+    }
+    return changed;
+}
+
 bool InPlaceAbstractState::merge(BasicBlock* from, BasicBlock* to)
 {
     dataLogLnIf(DFGInPlaceAbstractStateInternal::verbose, "   Merging from ", pointerDump(from), " to ", pointerDump(to));
@@ -356,16 +455,12 @@ bool InPlaceAbstractState::merge(BasicBlock* from, BasicBlock* to)
     
     switch (m_graph.m_form) {
     case ThreadedCPS: {
-        for (size_t index = 0; index < from->variablesAtTail.size(); ++index) {
-            AbstractValue& destination = to->valuesAtHead.at(index);
-            changed |= mergeVariableBetweenBlocks(destination, from->valuesAtTail.at(index), to->variablesAtHead.at(index), from->variablesAtTail.at(index));
-        }
+        changed |= mergeValues(from, to);
         break;
     }
         
     case SSA: {
-        for (size_t i = from->valuesAtTail.size(); i--;)
-            changed |= to->valuesAtHead[i].merge(from->valuesAtTail[i]);
+        changed |= mergeValues(from, to);
 
         for (NodeAbstractValuePair& entry : to->ssa->valuesAtHead) {
             NodeFlowProjection node = entry.node;

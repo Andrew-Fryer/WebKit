@@ -2875,11 +2875,11 @@
 		AD68F1ED46BFEA0437BA3D85 /* PhoneNumberPossessionManaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22FE3E4E5FDB2A3685605EB9 /* PhoneNumberPossessionManaging.swift */; };
 		3625771CD7ED2C7CCF7238E1 /* MockPhoneNumberPossessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FC558120E9C9FB6C819C9C /* MockPhoneNumberPossessionManager.swift */; };
 		0289463033A05583A18CAB84 /* IPCStreamHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91A785EC75E6738E7B10592 /* IPCStreamHeader.swift */; };
-		5711488664B450441FD43BB5 /* IPCStreamHeaderBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE33A68CAEE090B7D16C5E0B /* IPCStreamHeaderBoundary.swift */; };
 		2A14C6A99C90E1B9D5731592 /* IPCArgDecoders.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4881FC5375C44F36A4B387F /* IPCArgDecoders.swift */; };
-		5D9541686A65F8969BC667AC /* IPCArgDecodersBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BF25A3BEEAEB168120ED614 /* IPCArgDecodersBoundary.swift */; };
 		34ACBC4A5463E3300138558F /* IPCPathDecode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D49295B0CC75A5358CA0F35E /* IPCPathDecode.swift */; };
 		A43587EC463D165499773025 /* IPCPathDecodeBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65F52C3CA2A698064B5A4BE6 /* IPCPathDecodeBoundary.swift */; };
+		AAF8877DD62865622B7F2A6D /* IPCStreamMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D470E476A76565FBB9E5120 /* IPCStreamMessage.swift */; };
+		E8E39A2FE97F387B05E891FB /* IPCStreamMessageBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BE99504FB618BDE52F501F6 /* IPCStreamMessageBoundary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -9478,15 +9478,14 @@
 		22FE3E4E5FDB2A3685605EB9 /* PhoneNumberPossessionManaging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNumberPossessionManaging.swift; sourceTree = "<group>"; };
 		34FC558120E9C9FB6C819C9C /* MockPhoneNumberPossessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockPhoneNumberPossessionManager.swift; sourceTree = "<group>"; };
 		B91A785EC75E6738E7B10592 /* IPCStreamHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCStreamHeader/IPCStreamHeader.swift; sourceTree = "<group>"; };
-		EE33A68CAEE090B7D16C5E0B /* IPCStreamHeaderBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCStreamHeader/IPCStreamHeaderBoundary.swift; sourceTree = "<group>"; };
-		4E963CE5BE3A06EA8FE7CE21 /* IPCStreamHeaderSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = IPCStreamHeader/IPCStreamHeaderSwiftBoundary.h; sourceTree = "<group>"; };
 		4E34BC58816DEF0E82D80B4F /* SwiftKernelsValidation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SwiftKernelsValidation.h; sourceTree = "<group>"; };
 		D4881FC5375C44F36A4B387F /* IPCArgDecoders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCArgDecoders/IPCArgDecoders.swift; sourceTree = "<group>"; };
-		6BF25A3BEEAEB168120ED614 /* IPCArgDecodersBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCArgDecoders/IPCArgDecodersBoundary.swift; sourceTree = "<group>"; };
-		148EE33FB9D7C5268264DB08 /* IPCArgDecodersSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = IPCArgDecoders/IPCArgDecodersSwiftBoundary.h; sourceTree = "<group>"; };
 		D49295B0CC75A5358CA0F35E /* IPCPathDecode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCPathDecode/IPCPathDecode.swift; sourceTree = "<group>"; };
 		65F52C3CA2A698064B5A4BE6 /* IPCPathDecodeBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCPathDecode/IPCPathDecodeBoundary.swift; sourceTree = "<group>"; };
 		1508E57C77F15484D93268AB /* IPCPathDecodeSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = IPCPathDecode/IPCPathDecodeSwiftBoundary.h; sourceTree = "<group>"; };
+		9D470E476A76565FBB9E5120 /* IPCStreamMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCStreamMessage/IPCStreamMessage.swift; sourceTree = "<group>"; };
+		9BE99504FB618BDE52F501F6 /* IPCStreamMessageBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCStreamMessage/IPCStreamMessageBoundary.swift; sourceTree = "<group>"; };
+		094959D880DE0AA0B432B8F8 /* IPCStreamMessageSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = IPCStreamMessage/IPCStreamMessageSwiftBoundary.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -18158,15 +18157,14 @@
 		F975F0A9A3659FE82E0A1E33 /* swift */ = {
 			isa = PBXGroup;
 			children = (
+				094959D880DE0AA0B432B8F8 /* IPCStreamMessageSwiftBoundary.h */,
+				9BE99504FB618BDE52F501F6 /* IPCStreamMessageBoundary.swift */,
+				9D470E476A76565FBB9E5120 /* IPCStreamMessage.swift */,
 				1508E57C77F15484D93268AB /* IPCPathDecodeSwiftBoundary.h */,
 				65F52C3CA2A698064B5A4BE6 /* IPCPathDecodeBoundary.swift */,
 				D49295B0CC75A5358CA0F35E /* IPCPathDecode.swift */,
-				148EE33FB9D7C5268264DB08 /* IPCArgDecodersSwiftBoundary.h */,
-				6BF25A3BEEAEB168120ED614 /* IPCArgDecodersBoundary.swift */,
 				D4881FC5375C44F36A4B387F /* IPCArgDecoders.swift */,
 				4E34BC58816DEF0E82D80B4F /* SwiftKernelsValidation.h */,
-				4E963CE5BE3A06EA8FE7CE21 /* IPCStreamHeaderSwiftBoundary.h */,
-				EE33A68CAEE090B7D16C5E0B /* IPCStreamHeaderBoundary.swift */,
 				B91A785EC75E6738E7B10592 /* IPCStreamHeader.swift */,
 			);
 			path = swift;
@@ -22320,11 +22318,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E8E39A2FE97F387B05E891FB /* IPCStreamMessageBoundary.swift in Sources */,
+				AAF8877DD62865622B7F2A6D /* IPCStreamMessage.swift in Sources */,
 				A43587EC463D165499773025 /* IPCPathDecodeBoundary.swift in Sources */,
 				34ACBC4A5463E3300138558F /* IPCPathDecode.swift in Sources */,
-				5D9541686A65F8969BC667AC /* IPCArgDecodersBoundary.swift in Sources */,
 				2A14C6A99C90E1B9D5731592 /* IPCArgDecoders.swift in Sources */,
-				5711488664B450441FD43BB5 /* IPCStreamHeaderBoundary.swift in Sources */,
 				0289463033A05583A18CAB84 /* IPCStreamHeader.swift in Sources */,
 				51FFD3092AE9A9FC00B0AB70 /* ArgumentCodersCocoa.mm in Sources */,
 				5187BDEA2AFF5419008A6EE5 /* CoreIPCArray.mm in Sources */,

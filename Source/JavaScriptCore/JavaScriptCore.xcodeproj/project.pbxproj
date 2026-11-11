@@ -2441,6 +2441,11 @@
 		7DF25872F7E3A66FB054F702 /* LexerEscapedLiteralsBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADA00F874491A0602064774E /* LexerEscapedLiteralsBoundary.swift */; };
 		E8E9964CDF8726F5229BCBB9 /* LexerRegExp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7859F94AE2C587D9E4940119 /* LexerRegExp.swift */; };
 		32CBB39C0B1C49FAB5191BB4 /* LexerRegExpBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 497CE475380AEEAB6FE5244D /* LexerRegExpBoundary.swift */; };
+		4F50FDEABD158E899A77147F /* DFGCFAMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 394638F8173A2F8FEFD6C813 /* DFGCFAMerge.swift */; };
+		D28CA5C34083C522E55407A8 /* DFGCFAMergeBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39066EF09EBE556738A9A22D /* DFGCFAMergeBoundary.swift */; };
+		298A9A3F60E46D3DD26372C3 /* MarkedBlockStopAllocating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7322C3B0EA3ECC3198DB4184 /* MarkedBlockStopAllocating.swift */; };
+		8C623C8281F8F736247908F6 /* MarkedBlockSweep.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEEF56A209411AA8F590CAE7 /* MarkedBlockSweep.swift */; };
+		62A4AB539B1755AD4D4FB5A7 /* MarkedBlockSweepBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE8C9A0AED30C372D3AF463C /* MarkedBlockSweepBoundary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -6823,6 +6828,13 @@
 		7859F94AE2C587D9E4940119 /* LexerRegExp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LexerRegExp/LexerRegExp.swift; sourceTree = "<group>"; };
 		497CE475380AEEAB6FE5244D /* LexerRegExpBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LexerRegExp/LexerRegExpBoundary.swift; sourceTree = "<group>"; };
 		64DD8A2C4FE86D410D189992 /* LexerRegExpSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LexerRegExp/LexerRegExpSwiftBoundary.h; sourceTree = "<group>"; };
+		394638F8173A2F8FEFD6C813 /* DFGCFAMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DFGCFAMerge/DFGCFAMerge.swift; sourceTree = "<group>"; };
+		39066EF09EBE556738A9A22D /* DFGCFAMergeBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DFGCFAMerge/DFGCFAMergeBoundary.swift; sourceTree = "<group>"; };
+		5F737479DD022A2A4B1ED7B7 /* DFGCFAMergeSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DFGCFAMerge/DFGCFAMergeSwiftBoundary.h; sourceTree = "<group>"; };
+		7322C3B0EA3ECC3198DB4184 /* MarkedBlockStopAllocating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkedBlockSweep/MarkedBlockStopAllocating.swift; sourceTree = "<group>"; };
+		EEEF56A209411AA8F590CAE7 /* MarkedBlockSweep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkedBlockSweep/MarkedBlockSweep.swift; sourceTree = "<group>"; };
+		DE8C9A0AED30C372D3AF463C /* MarkedBlockSweepBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkedBlockSweep/MarkedBlockSweepBoundary.swift; sourceTree = "<group>"; };
+		23FC428976CA94CB90734D0F /* MarkedBlockSweepSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MarkedBlockSweep/MarkedBlockSweepSwiftBoundary.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -11292,6 +11304,13 @@
 		D9E037DFCA8FE415AD30CF27 /* swift */ = {
 			isa = PBXGroup;
 			children = (
+				23FC428976CA94CB90734D0F /* MarkedBlockSweepSwiftBoundary.h */,
+				DE8C9A0AED30C372D3AF463C /* MarkedBlockSweepBoundary.swift */,
+				EEEF56A209411AA8F590CAE7 /* MarkedBlockSweep.swift */,
+				7322C3B0EA3ECC3198DB4184 /* MarkedBlockStopAllocating.swift */,
+				5F737479DD022A2A4B1ED7B7 /* DFGCFAMergeSwiftBoundary.h */,
+				39066EF09EBE556738A9A22D /* DFGCFAMergeBoundary.swift */,
+				394638F8173A2F8FEFD6C813 /* DFGCFAMerge.swift */,
 				64DD8A2C4FE86D410D189992 /* LexerRegExpSwiftBoundary.h */,
 				497CE475380AEEAB6FE5244D /* LexerRegExpBoundary.swift */,
 				7859F94AE2C587D9E4940119 /* LexerRegExp.swift */,
@@ -14768,6 +14787,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				077B97302FD2BBE10042BC77 /* JavaScriptCore.swift in Sources */,
+				62A4AB539B1755AD4D4FB5A7 /* MarkedBlockSweepBoundary.swift in Sources */,
+				8C623C8281F8F736247908F6 /* MarkedBlockSweep.swift in Sources */,
+				298A9A3F60E46D3DD26372C3 /* MarkedBlockStopAllocating.swift in Sources */,
+				D28CA5C34083C522E55407A8 /* DFGCFAMergeBoundary.swift in Sources */,
+				4F50FDEABD158E899A77147F /* DFGCFAMerge.swift in Sources */,
 				32CBB39C0B1C49FAB5191BB4 /* LexerRegExpBoundary.swift in Sources */,
 				E8E9964CDF8726F5229BCBB9 /* LexerRegExp.swift in Sources */,
 				7DF25872F7E3A66FB054F702 /* LexerEscapedLiteralsBoundary.swift in Sources */,

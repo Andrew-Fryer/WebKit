@@ -22,12 +22,13 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 
 // Shared pieces of the HTML parser scanning kernels (HTMLTokenizer.cpp batching scans, HTMLDocumentParserFastPath.cpp
-// scanners): the "index of the first code unit in a small set" search, and read access to the parser's input as either
-// Latin-1 bytes (Span<UInt8>) or UTF-16 code units (RawSpan, 2 bytes per unit, any alignment).
+// scanners): the "index of the first code unit in a small set" search over Latin-1 bytes (Span<UInt8>) or UTF-16 code
+// units (RawSpan, 2 bytes per unit, any alignment).
 //
-// The search tests 16 bytes (or 8 UTF-16 units) per step with SIMD compares; the last step overlaps the previous one
-// rather than reading past the end, which is correct because the overlapped units were already found not to match.
-// Below one vector it tests 8 bytes twice (Latin-1), or loops. The result equals the first matching index exactly.
+// The search tests 16 bytes or 16 UTF-16 units (split into low bytes and a high-byte-is-zero mask) per step with SIMD
+// compares, 32 per step after the first; the last step overlaps the previous one rather than reading past the end,
+// which is correct because the overlapped units were already found not to match. Below one vector it tests 8 units
+// twice, or loops. The result equals the first matching index exactly.
 
 enum HTMLScan {
 }
@@ -199,24 +200,54 @@ extension HTMLScan {
     }
 
     // Index of the first UTF-16 code unit at or after `start` (0 <= start <= count) that is in `set`, or count.
-    // `bytes` holds `count` code units.
+    // `bytes` holds `count` code units, tested 16 at a time (splitUTF16).
     @inline(__always)
     static func firstIndex<Set: HTMLScanCharacterSet>(utf16 bytes: RawSpan, count: Int, from start: Int, _ set: Set) -> Int {
         var index = start
-        if count &- index >= 8 {
-            while index &+ 8 <= count {
-                let words = maskWords(set.matches(bytes.load(fromByteOffset: index &* 2, as: SIMD8<UInt16>.self)))
-                if !isZero(words) {
-                    return index &+ (firstNonZeroByte(words) &>> 1)
+        if count &- index >= 16 {
+            // As for Latin-1: the first 16 units, then 32 per step.
+            let first = maskWords(matchesUTF16(bytes, at: index, set))
+            if !isZero(first) {
+                return index &+ firstNonZeroByte(first)
+            }
+            index &+= 16
+            while count &- index >= 32 {
+                let low = matchesUTF16(bytes, at: index, set)
+                let high = matchesUTF16(bytes, at: index &+ 16, set)
+                if !isZero(maskWords(low .| high)) {
+                    let lowWords = maskWords(low)
+                    if !isZero(lowWords) {
+                        return index &+ firstNonZeroByte(lowWords)
+                    }
+                    return index &+ 16 &+ firstNonZeroByte(maskWords(high))
                 }
-                index &+= 8
+                index &+= 32
+            }
+            if count &- index >= 16 {
+                let words = maskWords(matchesUTF16(bytes, at: index, set))
+                if !isZero(words) {
+                    return index &+ firstNonZeroByte(words)
+                }
+                index &+= 16
             }
             if index < count {
-                let last = count &- 8
-                let words = maskWords(set.matches(bytes.load(fromByteOffset: last &* 2, as: SIMD8<UInt16>.self)))
+                let last = count &- 16
+                let words = maskWords(matchesUTF16(bytes, at: last, set))
                 if !isZero(words) {
-                    return last &+ (firstNonZeroByte(words) &>> 1)
+                    return last &+ firstNonZeroByte(words)
                 }
+            }
+            return count
+        }
+        if count &- index >= 8 {
+            let words = maskWords(set.matches(bytes.load(fromByteOffset: index &* 2, as: SIMD8<UInt16>.self)))
+            if !isZero(words) {
+                return index &+ (firstNonZeroByte(words) &>> 1)
+            }
+            let last = count &- 8
+            let lastWords = maskWords(set.matches(bytes.load(fromByteOffset: last &* 2, as: SIMD8<UInt16>.self)))
+            if !isZero(lastWords) {
+                return last &+ (firstNonZeroByte(lastWords) &>> 1)
             }
             return count
         }
@@ -227,5 +258,23 @@ extension HTMLScan {
             index &+= 1
         }
         return count
+    }
+
+    // UTF-16 code units index ..< index + 16 of `bytes` split into their low bytes and a mask of the units whose high
+    // byte is zero (uzp1, uzp2, cmeq: little-endian). A unit is an ASCII value v exactly when its low byte is v and its
+    // high byte is zero.
+    // (The 32 bytes are extracted first so that the two loads need no bounds checks of their own.)
+    @inline(__always)
+    static func splitUTF16(_ bytes: RawSpan, at index: Int) -> (low: SIMD16<UInt8>, highIsZero: SIMDMask<SIMD16<Int8>>) {
+        let block = bytes.extracting(index &* 2 ..< index &* 2 &+ 32)
+        let units = SIMD32<UInt8>(lowHalf: block.load(fromByteOffset: 0, as: SIMD16<UInt8>.self), highHalf: block.load(fromByteOffset: 16, as: SIMD16<UInt8>.self))
+        return (units.evenHalf, units.oddHalf .== SIMD16(repeating: 0))
+    }
+
+    // The units of index ..< index + 16 that are in `set`.
+    @inline(__always)
+    static func matchesUTF16<Set: HTMLScanCharacterSet>(_ bytes: RawSpan, at index: Int, _ set: Set) -> SIMDMask<SIMD16<Int8>> {
+        let units = splitUTF16(bytes, at: index)
+        return set.matches(units.low) .& units.highIsZero
     }
 }

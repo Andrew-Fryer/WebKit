@@ -36,7 +36,7 @@
 #include <wtf/TZoneMallocInlines.h>
 
 #if USE(SWIFT_KERNELS)
-#include "IPCStreamHeaderSwiftBoundary.h"
+#include "IPCStreamMessageSwiftBoundary.h"
 #endif
 
 #if ENABLE(SWIFT_KERNELS_VALIDATION)
@@ -82,6 +82,7 @@ std::unique_ptr<Decoder> Decoder::create(std::span<const uint8_t> buffer, Buffer
 Decoder::Decoder(std::span<const uint8_t> buffer, BufferDeallocator&& bufferDeallocator, Vector<Attachment>&& attachments)
     : m_buffer { buffer }
     , m_bufferPosition { m_buffer.begin() }
+    , m_swiftStreamArguments { }
     , m_bufferDeallocator { WTF::move(bufferDeallocator) }
     , m_attachments { WTF::move(attachments) }
 {
@@ -152,26 +153,53 @@ ALWAYS_INLINE void Decoder::decodeStreamHeaderCxx(uint64_t destinationID)
 #endif
 
 #if USE(SWIFT_KERNELS)
-// The header is decoded in Swift (Source/WebKit/swift/IPCStreamHeader); decodeStreamHeaderCxx() is the original.
-// header is m_buffer, or a private snapshot of its start (decodeStreamHeaderAndValidate()).
-ALWAYS_INLINE void Decoder::decodeStreamHeader(std::span<const uint8_t> header, uint64_t destinationID)
+// Swift stores the arguments straight into m_swiftStreamArguments (all the fields, so the stream constructor doesn't
+// initialize them), which C++ reads only as a SwiftStreamArguments: a copy would read them right after Swift's narrower
+// stores, which the CPU can't forward to wider loads.
+static_assert(sizeof(Decoder::SwiftStreamArguments) == sizeof(WebKitSwift_IPCStreamMessage_Arguments));
+static_assert(alignof(Decoder::SwiftStreamArguments) == alignof(WebKitSwift_IPCStreamMessage_Arguments));
+static_assert(std::is_standard_layout_v<Decoder::SwiftStreamArguments> && std::is_trivially_copyable_v<Decoder::SwiftStreamArguments>);
+static_assert(offsetof(Decoder::SwiftStreamArguments, identifier) == offsetof(WebKitSwift_IPCStreamMessage_Arguments, identifier));
+static_assert(offsetof(Decoder::SwiftStreamArguments, valuesOffset) == offsetof(WebKitSwift_IPCStreamMessage_Arguments, valuesOffset));
+static_assert(offsetof(Decoder::SwiftStreamArguments, endOffset) == offsetof(WebKitSwift_IPCStreamMessage_Arguments, endOffset));
+static_assert(offsetof(Decoder::SwiftStreamArguments, status) == offsetof(WebKitSwift_IPCStreamMessage_Arguments, status));
+static_assert(offsetof(Decoder::SwiftStreamArguments, flag) == offsetof(WebKitSwift_IPCStreamMessage_Arguments, flag));
+static_assert(std::to_underlying(Decoder::SwiftStreamArguments::Status::None) == WebKitSwift_IPCStreamMessage_ArgumentsNone);
+static_assert(std::to_underlying(Decoder::SwiftStreamArguments::Status::Valid) == WebKitSwift_IPCStreamMessage_ArgumentsValid);
+static_assert(std::to_underlying(Decoder::SwiftStreamArguments::Status::Invalid) == WebKitSwift_IPCStreamMessage_ArgumentsInvalid);
+static_assert(std::to_underlying(Decoder::SwiftStreamArguments::Status::InvalidIdentifier) == WebKitSwift_IPCStreamMessage_ArgumentsInvalidIdentifier);
+
+// The argument layout of each message name, for the Swift decoder: a name is valid iff it indexes the table.
+static constexpr auto swiftArgumentLayouts = [] {
+    std::array<uint8_t, std::to_underlying(MessageName::Last) + 1> layouts { };
+    for (size_t name = 0; name < layouts.size(); ++name)
+        layouts[name] = swiftArgumentLayout(static_cast<MessageName>(name));
+    return layouts;
+}();
+
+// The header is decoded, and the arguments of a message with a layout are located, in Swift
+// (Source/WebKit/swift/IPCStreamMessage); decodeStreamHeaderCxx() is the original of the header part, and the glue of
+// each message's decodeArgumentsInSwift() keeps its original, decode<Arguments>(), for the validation.
+// message is m_buffer, or a private snapshot of its start (decodeStreamHeaderAndValidate()).
+ALWAYS_INLINE void Decoder::decodeStreamMessage(std::span<const uint8_t> message, uint64_t destinationID)
 {
     // messageIsAsyncWithReply() and messageIsSync() hold for exactly the names >= firstMessageNameWithReplyID, and
     // AsyncReplyID and SyncRequestID have the same wire format and validator.
     static constexpr auto firstMessageNameWithReplyID = std::min(MessageName::FirstAsyncWithReply, MessageName::FirstSynchronous);
-    uint64_t result = WebKitSwift_IPCStreamHeader_decode(header.data(), header.size(), destinationID,
-        std::to_underlying(MessageName::Last), std::to_underlying(firstMessageNameWithReplyID), &m_replyID);
+    uint64_t result = WebKitSwift_IPCStreamMessage_decode(message.data(), message.size(), destinationID,
+        std::to_underlying(firstMessageNameWithReplyID), swiftArgumentLayouts.data(), swiftArgumentLayouts.size(), &m_replyID,
+        reinterpret_cast<WebKitSwift_IPCStreamMessage_Arguments*>(&m_swiftStreamArguments));
     auto status = static_cast<uint8_t>(result >> 16);
-    if (status == WebKitSwift_IPCStreamHeader_Success) [[likely]] {
+    if (status == WebKitSwift_IPCStreamMessage_Success) [[likely]] {
         m_messageName = static_cast<MessageName>(static_cast<uint16_t>(result));
         m_argumentsOffset = static_cast<size_t>(result >> 24);
         m_bufferPosition = m_buffer.begin() + m_argumentsOffset;
     } else {
         // The C++ stores the message name before decoding the reply ID, and reports it for an invalid message.
-        if (status == WebKitSwift_IPCStreamHeader_TruncatedReplyID || status == WebKitSwift_IPCStreamHeader_InvalidReplyID)
+        if (status == WebKitSwift_IPCStreamMessage_TruncatedReplyID || status == WebKitSwift_IPCStreamMessage_InvalidReplyID)
             m_messageName = static_cast<MessageName>(static_cast<uint16_t>(result));
 #if ENABLE(IPC_TESTING_API)
-        if (status == WebKitSwift_IPCStreamHeader_InvalidReplyID)
+        if (status == WebKitSwift_IPCStreamMessage_InvalidReplyID)
             setErrorString("Validation failed: WTF::ObjectIdentifierGenericBase::isValidIdentifier(*toUInt64)"_s);
 #endif
         markInvalid();
@@ -183,14 +211,17 @@ ALWAYS_INLINE void Decoder::decodeStreamHeader(std::span<const uint8_t> header, 
 // The stream is shared memory that the sending process can rewrite at any time, so a second read could see other bytes
 // than the Swift read did. Both decoders read one private snapshot of the header instead. It keeps the stream's address
 // modulo 8 (values are aligned in memory, not in the span) and at most 24 bytes (a header ends by offset 17, so every
-// larger size decodes the same), so decoding it is decoding the stream at the time of the copy.
+// larger size decodes the same), so decoding it is decoding the stream at the time of the copy. The arguments that Swift
+// locates in the snapshot are dropped: the glue of each message validates them against decode<Arguments>() on a
+// snapshot of its own (RemoteGraphicsContextSwiftArgumentDecoders.cpp), with the StreamMessageSwiftTag constructor.
 NEVER_INLINE void Decoder::decodeStreamHeaderAndValidate(uint64_t destinationID)
 {
     auto stream = m_buffer;
     alignas(8) std::array<uint8_t, 8 + 24> snapshotStorage;
     auto snapshot = std::span { snapshotStorage }.subspan(reinterpret_cast<uintptr_t>(stream.data()) % 8, std::min<size_t>(stream.size(), 24));
     memcpySpan(snapshot, stream.first(snapshot.size()));
-    decodeStreamHeader(snapshot, destinationID);
+    decodeStreamMessage(snapshot, destinationID);
+    m_swiftStreamArguments = { };
 
     Decoder cxx { snapshot, destinationID, StreamHeaderCxxTag { } };
     RELEASE_ASSERT(isValid() == cxx.isValid());
@@ -204,9 +235,19 @@ NEVER_INLINE void Decoder::decodeStreamHeaderAndValidate(uint64_t destinationID)
 #endif
 }
 
+Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID, StreamMessageSwiftTag)
+    : m_buffer { stream }
+    , m_bufferPosition { m_buffer.begin() }
+    , m_bufferDeallocator { nullptr }
+    , m_destinationID { destinationID }
+{
+    decodeStreamMessage(m_buffer, destinationID);
+}
+
 Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID, StreamHeaderCxxTag)
     : m_buffer { stream }
     , m_bufferPosition { m_buffer.begin() }
+    , m_swiftStreamArguments { }
     , m_bufferDeallocator { nullptr }
     , m_destinationID { destinationID }
 {
@@ -227,8 +268,9 @@ Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID)
         return;
     }
 #endif
-    decodeStreamHeader(m_buffer, destinationID);
+    decodeStreamMessage(m_buffer, destinationID);
 #else
+    m_swiftStreamArguments = { };
     decodeStreamHeaderCxx(destinationID);
 #endif
 }

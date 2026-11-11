@@ -7557,6 +7557,7 @@
 		A71EED1EDA87D8E71820AE27 /* SelectorFilterBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7B861B25EAAA46E4CB7E11 /* SelectorFilterBoundary.swift */; };
 		FBACABF382DC9593A2B5C759 /* TextRunScanners.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76F428B411C0E431C5D9A6B0 /* TextRunScanners.swift */; };
 		1EC86050BCE3D677DB8BC24F /* TextRunScannersBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74271B57E63A0E7841C3F6C9 /* TextRunScannersBoundary.swift */; };
+		386775070485B294B02790D0 /* HTMLScanFastPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 621E1D5C112502FDE91480CA /* HTMLScanFastPath.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -24220,6 +24221,7 @@
 		76F428B411C0E431C5D9A6B0 /* TextRunScanners.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextRunScanners/TextRunScanners.swift; sourceTree = "<group>"; };
 		74271B57E63A0E7841C3F6C9 /* TextRunScannersBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextRunScanners/TextRunScannersBoundary.swift; sourceTree = "<group>"; };
 		588359208C45138A21E33F81 /* TextRunScannersSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TextRunScanners/TextRunScannersSwiftBoundary.h; sourceTree = "<group>"; };
+		621E1D5C112502FDE91480CA /* HTMLScanFastPath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLScan/HTMLScanFastPath.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44300,6 +44302,7 @@
 		91EC392E6A5F6B385F6BCD04 /* swift */ = {
 			isa = PBXGroup;
 			children = (
+				621E1D5C112502FDE91480CA /* HTMLScanFastPath.swift */,
 				588359208C45138A21E33F81 /* TextRunScannersSwiftBoundary.h */,
 				74271B57E63A0E7841C3F6C9 /* TextRunScannersBoundary.swift */,
 				76F428B411C0E431C5D9A6B0 /* TextRunScanners.swift */,
@@ -51442,6 +51445,7 @@
 				41514FDB2E92DC40002074EA /* StreamPipeToUtilities.cpp in Sources */,
 				A833C7CA0A2CF06B00D57664 /* SVGNames.cpp in Sources */,
 				07E047C3305A9DB000DFCC4B /* SwiftStub.swift in Sources */,
+				386775070485B294B02790D0 /* HTMLScanFastPath.swift in Sources */,
 				1EC86050BCE3D677DB8BC24F /* TextRunScannersBoundary.swift in Sources */,
 				FBACABF382DC9593A2B5C759 /* TextRunScanners.swift in Sources */,
 				A71EED1EDA87D8E71820AE27 /* SelectorFilterBoundary.swift in Sources */,

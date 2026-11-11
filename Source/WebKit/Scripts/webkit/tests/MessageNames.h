@@ -373,6 +373,14 @@ constexpr bool messageIsAsyncWithReply(MessageName name)
     return name >= MessageName::FirstAsyncWithReply && name < MessageName::FirstSynchronous;
 }
 
+// The layout of the arguments that the Swift decoder of a stream message header also locates
+// (Source/WebKit/swift/IPCStreamMessage/IPCStreamMessageSwiftBoundary.h), or 0.
+constexpr uint8_t swiftArgumentLayout(MessageName name)
+{
+    UNUSED_PARAM(name);
+    return 0;
+}
+
 ASCIILiteral processLiteral(ProcessName);
 ASCIILiteral dispatchedFrom(MessageName);
 ASCIILiteral dispatchedTo(MessageName);

@@ -63,6 +63,55 @@ CAN_DISPATCH_OUT_OF_ORDER_ATTRIBUTE = 'CanDispatchOutOfOrder'
 REPLY_CAN_DISPATCH_OUT_OF_ORDER_ATTRIBUTE = 'ReplyCanDispatchOutOfOrder'
 SWIFT_ARGUMENT_DECODER_ATTRIBUTE = 'SwiftArgumentDecoder'
 
+# The arguments of a stream message with the SwiftArgumentDecoder attribute are located by the Swift decoder of the
+# message header (Source/WebKit/swift/IPCStreamMessage), if their layout is one it knows. The layout is derived from
+# their wire values: 'w' is a 4-byte value that accepts every bit pattern (float, uint32_t), 'd' an 8-byte one
+# (double), 'i' an ObjectIdentifier, 'b' an enum class : bool.
+# A message with an argument of another type gets layout 0: its decodeArgumentsInSwift() decodes all its arguments.
+SWIFT_ARGUMENT_LAYOUT_VALUES = {
+    'float': ['w'],
+    'uint32_t': ['w'],
+    'WebCore::PackedColor::RGBA': ['w'],
+    'WebCore::FloatPoint': ['w'] * 2,
+    'WebCore::FloatSize': ['w'] * 2,
+    'WebCore::FloatRect': ['w'] * 4,
+    'WebCore::PathArc': ['w'] * 5 + ['b'],
+    'WebCore::PathClosedArc': ['w'] * 5 + ['b'],
+    'WebCore::PathDataQuadCurve': ['w'] * 6,
+    'WebCore::PathDataBezierCurve': ['w'] * 8,
+    'WebCore::AffineTransform': ['d'] * 6,
+    'WebKit::RemoteDisplayListIdentifier': ['i'],
+    'WebKit::RemoteGradientIdentifier': ['i'],
+    'WebKit::RemotePathImplIdentifier': ['i'],
+}
+
+# The layout codes, as IPCStreamMessageSwiftBoundary.h defines them. Runs of 'w's have codes 1-15, or 17-31 when an
+# enum class : bool follows them.
+SWIFT_ARGUMENT_LAYOUT_CODES = {
+    ('i',) + ('d',) * 6: 32,
+    ('d',) * 6 + ('i', 'b'): 33,
+}
+
+
+def swift_argument_layout(receiver, message):
+    if not message.has_attribute(SWIFT_ARGUMENT_DECODER_ATTRIBUTE):
+        return 0
+    values = []
+    for parameter in message.parameters:
+        if parameter.kind == 'enum:bool':
+            values.append('b')
+        elif parameter.type in SWIFT_ARGUMENT_LAYOUT_VALUES:
+            values += SWIFT_ARGUMENT_LAYOUT_VALUES[parameter.type]
+        else:
+            return 0
+    words = len(values) - 1 if values[-1:] == ['b'] else len(values)
+    if 0 < words <= 15 and values[:words] == ['w'] * words:
+        return words if words == len(values) else 16 + words
+    if tuple(values) in SWIFT_ARGUMENT_LAYOUT_CODES:
+        return SWIFT_ARGUMENT_LAYOUT_CODES[tuple(values)]
+    sys.stderr.write("Error: %s::%s has the %s attribute, but the Swift stream message decoder has no layout for its arguments (%s). Add one to Source/WebKit/swift/IPCStreamMessage, or decode them in its decodeArgumentsInSwift().\n" % (receiver.name, message.name, SWIFT_ARGUMENT_DECODER_ATTRIBUTE, ', '.join(parameter.type for parameter in message.parameters)))
+    sys.exit(1)
+
 PROCESS_NAMES = ["UI", "Networking", "GPU", "WebContent", "Model"]
 
 attributes_to_generate_validators = {
@@ -2702,6 +2751,33 @@ def generate_message_names_header(receivers):
         result.append('    return name >= MessageName::FirstAsyncWithReply && name < MessageName::FirstSynchronous;\n')
     else:
         result.append('    return name >= MessageName::FirstAsyncWithReply && name <= MessageName::Last;\n')
+    result.append('}\n')
+    result.append('\n')
+    result.append('// The layout of the arguments that the Swift decoder of a stream message header also locates\n')
+    result.append('// (Source/WebKit/swift/IPCStreamMessage/IPCStreamMessageSwiftBoundary.h), or 0.\n')
+    result.append('constexpr uint8_t swiftArgumentLayout(MessageName name)\n')
+    result.append('{\n')
+    swift_argument_layouts = []
+    for enumerator in message_enumerators:
+        for message in enumerator.messages:
+            layout = swift_argument_layout(enumerator.receiver, message)
+            if layout:
+                swift_argument_layouts.append((message.condition, enumerator, layout, ', '.join(parameter.type for parameter in message.parameters)))
+    if swift_argument_layouts:
+        result.append('    switch (name) {\n')
+        for condition, enumerator, layout, types in swift_argument_layouts:
+            if condition:
+                result.append('#if %s\n' % condition)
+            result.append('    case MessageName::%s: // %s\n' % (enumerator, types))
+            result.append('        return %d;\n' % layout)
+            if condition:
+                result.append('#endif\n')
+        result.append('    default:\n')
+        result.append('        return 0;\n')
+        result.append('    }\n')
+    else:
+        result.append('    UNUSED_PARAM(name);\n')
+        result.append('    return 0;\n')
     result.append('}\n')
     result.append('\n')
     result.append('ASCIILiteral processLiteral(ProcessName);\n')

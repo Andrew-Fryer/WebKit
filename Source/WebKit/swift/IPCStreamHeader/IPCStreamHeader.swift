@@ -24,7 +24,8 @@
 // The header of an IPC stream message, read from the bytes that the sending process wrote into the stream
 // connection's shared memory. This is the body of
 //     IPC::Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID)
-// in Source/WebKit/Platform/IPC/Decoder.cpp (the original C++ is kept there as Decoder::decodeStreamHeaderCxx()).
+// in Source/WebKit/Platform/IPC/Decoder.cpp (the original C++ is kept there as Decoder::decodeStreamHeaderCxx()), which
+// the stream message decoder (IPCStreamMessage.swift) runs before locating the arguments.
 // The checks and the wire format are those of the C++ decoders that the constructor calls:
 // - Decoder::decodeSpan<T>(1): a T is read at roundUpToMultipleOf<alignof(T)>(its address), and only if
 //   alignedBufferIsLargeEnoughToContain(size, alignedPosition, sizeof(T)).
@@ -32,13 +33,14 @@
 // - ArgumentCoder<AtomicObjectIdentifier<AsyncReplyIDType or SyncRequestIDType>>: a uint64_t that must satisfy
 //   ObjectIdentifierGenericBase::isValidIdentifier(). Both coders are identical (same validator, same error string).
 
-/// Bits 16-23 of the boundary result. The values are part of the C boundary (IPCStreamHeaderSwiftBoundary.h).
+/// Bits 16-23 of the boundary result. The values are part of the C boundary (IPCStreamMessageSwiftBoundary.h).
 enum IPCStreamHeaderStatus: UInt8 {
     /// Header decoded; the arguments start at `argumentsOffset`.
     case success = 0
     /// The destination ID is the HashTable deleted value; nothing was read.
     case invalidDestinationID = 1
-    /// decode<MessageName>() failed (truncated, or > MessageName::Last); the message name stays Invalid.
+    /// decode<MessageName>() failed (truncated, or > MessageName::Last, i.e. >= messageNameCount); the message name stays
+    /// Invalid.
     case invalidMessageName = 2
     /// The message name was decoded, but the reply ID that follows it doesn't fit in the stream.
     case truncatedReplyID = 3
@@ -85,12 +87,13 @@ func ipcBufferIsLargeEnoughToContain(_ bufferSize: Int, _ alignedBufferPosition:
 }
 
 /// Decodes a stream message header. `baseMisalignment` is the stream's start address modulo 8 (the C++ aligns
-/// absolute addresses, not offsets). `firstMessageNameWithReplyID` is
+/// absolute addresses, not offsets). `messageNameCount` is MessageName::Last + 1: isValidEnum<MessageName>() accepts
+/// exactly the names below it. `firstMessageNameWithReplyID` is
 /// min(MessageName::FirstAsyncWithReply, MessageName::FirstSynchronous): messageIsAsyncWithReply() and
 /// messageIsSync() together are exactly the names >= that, and both decode the same uint64_t reply ID.
 @inline(__always)
 func decodeIPCStreamHeader(_ stream: RawSpan, baseMisalignment: Int, destinationID: UInt64,
-                           lastMessageName: UInt16, firstMessageNameWithReplyID: UInt16) -> IPCStreamHeader {
+                           messageNameCount: Int, firstMessageNameWithReplyID: UInt16) -> IPCStreamHeader {
     // 0 is a valid destinationID but we can at least reject -1 which is the HashTable deleted value.
     if destinationID != 0 && !isValidIPCIdentifier(destinationID) {
         return IPCStreamHeader(status: .invalidDestinationID)
@@ -104,7 +107,7 @@ func decodeIPCStreamHeader(_ stream: RawSpan, baseMisalignment: Int, destination
         return IPCStreamHeader(status: .invalidMessageName)
     }
     let messageName = stream.load(fromByteOffset: messageNameOffset, as: UInt16.self)
-    guard messageName <= lastMessageName else {
+    guard Int(messageName) < messageNameCount else {
         return IPCStreamHeader(status: .invalidMessageName)
     }
     var position = messageNameOffset &+ 2

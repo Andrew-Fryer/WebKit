@@ -22,7 +22,7 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 
 // C entry points of the Path decoder, declared to C++ in IPCPathDecodeSwiftBoundary.h. The only unsafe operations:
-// wrapping the decoder's span (pointer + size) as a RawSpan and the records (pointer + count) as a MutableSpan, taking
+// wrapping the decoder's span (pointer + size) as a RawSpan and the records (pointer + length in words) as a MutableSpan, taking
 // the span's start address modulo 8, and storing scalar results through out-parameters.
 
 /// The decoder's span. A std::span is never larger than PTRDIFF_MAX and the position never past its end, so anything
@@ -39,40 +39,37 @@ private func baseMisalignment(_ data: UnsafeRawPointer?) -> Int {
     Int(truncatingIfNeeded: UInt(bitPattern: data) & 7)
 }
 
-/// `recordCount` records of the caller's.
+/// The caller's records: `recordWords` words, of which the decoders use the whole records.
 @inline(__always)
-private func records(_ records: UnsafeMutablePointer<UInt32>?, _ recordCount: Int) -> UnsafeMutableBufferPointer<UInt32> {
-    precondition(recordCount >= 0 && recordCount <= Int.max / IPCPathDecoder.recordWords, "bad IPC path record count")
-    return unsafe UnsafeMutableBufferPointer(start: records, count: recordCount &* IPCPathDecoder.recordWords)
+private func records(_ records: UnsafeMutablePointer<UInt32>?, _ recordWords: Int) -> UnsafeMutableBufferPointer<UInt32> {
+    precondition(recordWords >= 0, "IPC path records larger than PTRDIFF_MAX")
+    return unsafe UnsafeMutableBufferPointer(start: records, count: recordWords)
 }
 
 @_cdecl("WebKitSwift_IPCPathDecode_decodePath")
 func WebKitSwift_IPCPathDecode_decodePath(_ data: UnsafeRawPointer?, _ size: Int, _ position: Int, _ recordsPointer: UnsafeMutablePointer<UInt32>?,
-                                          _ recordCapacity: Int, _ segmentCount: UnsafeMutablePointer<UInt64>) -> Int {
+                                          _ recordWords: Int, _ trailingBoolEnum: Bool, _ segmentCount: UnsafeMutablePointer<UInt64>,
+                                          _ boolEnum: UnsafeMutablePointer<UInt8>) -> Int {
     let bytes = unsafe stream(data, size, position)
     var reader = unsafe IPCArgumentDecoders.Reader(bytes.bytes, baseMisalignment: baseMisalignment(data), position: position)
-    var output = unsafe records(recordsPointer, recordCapacity).mutableSpan
+    var output = unsafe records(recordsPointer, recordWords).mutableSpan
     var count: UInt64 = 0
-    let result = IPCPathDecoder.decodePath(&reader, into: &output, segmentCount: &count)
+    var value: UInt8 = 0
+    let result = IPCPathDecoder.decodePath(&reader, into: &output, segmentCount: &count, trailingBoolEnum: trailingBoolEnum, boolEnum: &value)
     unsafe segmentCount.pointee = count
+    unsafe boolEnum.pointee = value
     return result
 }
 
 @_cdecl("WebKitSwift_IPCPathDecode_decodePathSegments")
 func WebKitSwift_IPCPathDecode_decodePathSegments(_ data: UnsafeRawPointer?, _ size: Int, _ position: Int,
-                                                  _ recordsPointer: UnsafeMutablePointer<UInt32>?, _ recordCount: Int) -> Int {
+                                                  _ recordsPointer: UnsafeMutablePointer<UInt32>?, _ recordWords: Int, _ segmentsLeft: UInt64,
+                                                  _ trailingBoolEnum: Bool, _ boolEnum: UnsafeMutablePointer<UInt8>) -> Int {
     let bytes = unsafe stream(data, size, position)
     var reader = unsafe IPCArgumentDecoders.Reader(bytes.bytes, baseMisalignment: baseMisalignment(data), position: position)
-    var output = unsafe records(recordsPointer, recordCount).mutableSpan
-    return IPCPathDecoder.decodeSegments(&reader, into: &output, count: recordCount)
-}
-
-@_cdecl("WebKitSwift_IPCPathDecode_decodeBoolEnum")
-func WebKitSwift_IPCPathDecode_decodeBoolEnum(_ data: UnsafeRawPointer?, _ size: Int, _ position: Int, _ value: UnsafeMutablePointer<UInt8>) -> Int {
-    let bytes = unsafe stream(data, size, position)
-    var reader = unsafe IPCArgumentDecoders.Reader(bytes.bytes, baseMisalignment: baseMisalignment(data), position: position)
-    var decoded: UInt8 = 0
-    let result = IPCPathDecoder.decodeBoolEnum(&reader, value: &decoded)
-    unsafe value.pointee = decoded
+    var output = unsafe records(recordsPointer, recordWords).mutableSpan
+    var value: UInt8 = 0
+    let result = IPCPathDecoder.decodeSegments(&reader, into: &output, segmentsLeft: segmentsLeft, trailingBoolEnum: trailingBoolEnum, boolEnum: &value)
+    unsafe boolEnum.pointee = value
     return result
 }

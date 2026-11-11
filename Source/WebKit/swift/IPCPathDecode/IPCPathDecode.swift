@@ -39,10 +39,12 @@
 //   alignment as four floats. Each float is decodeObject<float>(), 4 bytes at 4-byte alignment, so after the first
 //   one, an alternative's floats are one aligned run.
 // A failure anywhere fails the Path and leaves the decoder invalid, so the decoder stops at the first one.
+// ClipPath's Path is followed by an enum class : bool (WindRule), which the call that decodes the last segments also
+// decodes, so that a message takes one call into Swift (for up to as many segments as the caller has records for).
 
 enum IPCPathDecoder {
-    /// The UInt32 words of one segment's record (IPCPathDecodeSwiftBoundary.h): word 0 is the alternative index and
-    /// the trailing enum (index | enum << 8), then the alternative's floats.
+    /// The UInt32 words of one segment's record (IPCPathDecodeSwiftBoundary.h): word 0 is the alternative index, the
+    /// trailing enum and the number of floats (index | enum << 8 | floats << 16), then the alternative's floats.
     @inline(__always)
     static var recordWords: Int { 13 }
 
@@ -100,14 +102,18 @@ enum IPCPathDecoder {
             }
             trailingEnum = value
         }
-        records[record] = UInt32(index) | UInt32(trailingEnum) << 8
+        records[record] = UInt32(index) | UInt32(trailingEnum) << 8 | UInt32(truncatingIfNeeded: layout.floats) << 16
         return true
     }
 
-    /// The next `count` segments into the first `count` records.
+    /// The next min(`segmentsLeft`, capacity) segments into the first records, where the capacity is the number of
+    /// whole records in `records`. If those are all the segments left and `trailingBoolEnum`, then the enum class : bool
+    /// that follows the Path, stored in `boolEnum`.
     @inline(__always)
-    static func decodeSegments(_ reader: inout IPCArgumentDecoders.Reader, into records: inout MutableSpan<UInt32>, count: Int) -> Int {
-        precondition(count >= 0 && count <= records.count / recordWords)
+    static func decodeSegments(_ reader: inout IPCArgumentDecoders.Reader, into records: inout MutableSpan<UInt32>, segmentsLeft: UInt64,
+                               trailingBoolEnum: Bool, boolEnum: inout UInt8) -> Int {
+        let capacity = records.count / recordWords
+        let count = segmentsLeft < UInt64(capacity) ? Int(segmentsLeft) : capacity
         var record = 0
         for _ in 0..<count {
             guard decodeSegment(&reader, into: &records, record: record) else {
@@ -115,13 +121,20 @@ enum IPCPathDecoder {
             }
             record &+= recordWords
         }
-        return reader.result
+        if trailingBoolEnum && UInt64(count) == segmentsLeft {
+            guard let value = reader.readBoolEnum() else {
+                return IPCArgumentDecodeFailure.invalid.rawValue
+            }
+            boolEnum = value
+        }
+        return reader.position
     }
 
     /// decode<Path>() up to the first min(size, capacity) segments: the vector's size, stored in `segmentCount`, then
-    /// those segments.
+    /// those segments, and the trailing enum as decodeSegments() decodes it.
     @inline(__always)
-    static func decodePath(_ reader: inout IPCArgumentDecoders.Reader, into records: inout MutableSpan<UInt32>, segmentCount: inout UInt64) -> Int {
+    static func decodePath(_ reader: inout IPCArgumentDecoders.Reader, into records: inout MutableSpan<UInt32>, segmentCount: inout UInt64,
+                           trailingBoolEnum: Bool, boolEnum: inout UInt8) -> Int {
         guard let sizeOffset = reader.reserveValues(1, size: 8) else {
             return IPCArgumentDecodeFailure.invalid.rawValue
         }
@@ -134,16 +147,6 @@ enum IPCPathDecoder {
             return IPCArgumentDecodeFailure.invalid.rawValue
         }
         segmentCount = size
-        return decodeSegments(&reader, into: &records, count: min(Int(size), records.count / recordWords))
-    }
-
-    /// An enum class : bool (ClipPath's WindRule).
-    @inline(__always)
-    static func decodeBoolEnum(_ reader: inout IPCArgumentDecoders.Reader, value: inout UInt8) -> Int {
-        guard let decoded = reader.readBoolEnum() else {
-            return IPCArgumentDecodeFailure.invalid.rawValue
-        }
-        value = decoded
-        return reader.result
+        return decodeSegments(&reader, into: &records, segmentsLeft: size, trailingBoolEnum: trailingBoolEnum, boolEnum: &boolEnum)
     }
 }

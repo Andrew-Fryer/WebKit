@@ -1,0 +1,42 @@
+// Copyright (C) 2026 Apple Inc. All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+// 1. Redistributions of source code must retain the above copyright
+//    notice, this list of conditions and the following disclaimer.
+// 2. Redistributions in binary form must reproduce the above copyright
+//    notice, this list of conditions and the following disclaimer in the
+//    documentation and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+// THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+// PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+// BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+// THE POSSIBILITY OF SUCH DAMAGE.
+
+// C entry point for DFGCFAMerge.swift, declared to C++ in DFGCFAMergeSwiftBoundary.h and called only from
+// dfg/DFGInPlaceAbstractState.cpp. Operands<AbstractValue> arrays come as a pointer to the first element (null only
+// when empty) and an element count, an element being four 64-bit words; Operands<Node*> as a pointer and a count of
+// one-word elements. The only unsafe operations turn those, and the slow-index buffer, into spans and write the
+// slow count. The C++ glue never passes overlapping arrays (to->valuesAtHead and from->valuesAtTail are distinct
+// Operands even when from == to).
+
+@_cdecl("JSCSwift_DFGCFAMerge_mergeValues")
+@inline(__always)
+func JSCSwift_DFGCFAMerge_mergeValues(_ destination: UnsafeMutablePointer<UInt64>?, _ destinationCount: Int, _ source: UnsafePointer<UInt64>?, _ sourceCount: Int, _ destinationNodes: UnsafePointer<UInt64>?, _ destinationNodeCount: Int, _ checkNodes: Bool, _ count: Int, _ slowIndices: UnsafeMutablePointer<UInt32>?, _ slowCapacity: Int, _ slowCount: UnsafeMutablePointer<Int>) -> Bool {
+    var destinationWords = unsafe UnsafeMutableBufferPointer(start: destination, count: 4 &* destinationCount).mutableSpan
+    let sourceWords = unsafe UnsafeBufferPointer(start: source, count: 4 &* sourceCount).span
+    let nodes = unsafe UnsafeBufferPointer(start: destinationNodes, count: destinationNodeCount).span
+    var slow = unsafe UnsafeMutableBufferPointer(start: slowIndices, count: slowCapacity).mutableSpan
+    var slowFound = 0
+    let changed = DFGCFAMerge.mergeValues(&destinationWords, sourceWords, destinationNodes: nodes, checkNodes: checkNodes, count: count, slowIndices: &slow, slowCount: &slowFound)
+    unsafe slowCount.pointee = slowFound
+    return changed
+}

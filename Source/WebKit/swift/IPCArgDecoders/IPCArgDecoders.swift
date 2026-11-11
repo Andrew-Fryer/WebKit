@@ -21,10 +21,12 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// Decoders for the arguments of the hottest IPC stream messages (RemoteGraphicsContext state changes and draws),
-// which the GPU process reads from the shared memory that the web process writes. Each one does what
-// IPC::Decoder::decode<Message::Arguments>() does for its argument types, so that the C++ glue
-// (GPUProcess/graphics/RemoteGraphicsContextSwiftArgumentDecoders.cpp) only has to build the C++ objects.
+// Locates the arguments of the hottest IPC stream messages (RemoteGraphicsContext state changes and draws), which the
+// GPU process reads from the shared memory that the web process writes. For each argument layout
+// (IPCStreamMessageSwiftBoundary.h), locateArguments() does what IPC::Decoder::decode<Message::Arguments>() does for
+// those argument types, except building the C++ objects, which the glue
+// (GPUProcess/graphics/RemoteGraphicsContextSwiftArgumentDecoders.cpp) does. The stream message decoder
+// (IPCStreamMessage.swift) calls it right after the header.
 //
 // The wire format is that of the C++ coders:
 // - Decoder::decodeSpan<T>(count) reads count * sizeof(T) bytes at roundUpToMultipleOf<alignof(T)>(the current
@@ -34,23 +36,43 @@
 // - std::span<const double, 6> (AffineTransform): decodeSpan<const double>(6), 48 bytes at 8-byte alignment.
 // - enum class E : bool: a uint8_t that isValidEnum<E>() accepts, which for bool enums is exactly 0 or 1.
 // - ObjectIdentifier: a uint64_t that must be neither 0 nor the HashTable deleted value.
-// Every value is aligned in memory, not in the span, which is why each decoder takes the address of the span's start
+// Every value is aligned in memory, not in the span, which is why the reader takes the address of the span's start
 // modulo 8 (baseMisalignment) along with the span.
-// The decoders validate and return what the C++ coders validate: the bool enums and the identifiers. Floats, doubles and
-// uint32_t accept every bit pattern, so for those the decoders return where they are (the offset of each aligned run of
-// them), and the glue copies them out, as Decoder::decodeObject<T>() and decodeSpan<T>() return data[0] and a span.
-//
-// A decoder returns the decoder's new position, or a negative IPCArgumentDecodeFailure. The C++ coders decode all
-// arguments before checking, but once a read fails the decoder is invalid and every later read fails, so stopping at
-// the first failure has the same outcome.
+// The decoders validate and return what the C++ coders validate: the bool enums and the identifiers. Floats, doubles
+// and uint32_t accept every bit pattern, so for those the decoders return where they are (the offset of each aligned run
+// of them), and the glue copies them out, as Decoder::decodeObject<T>() and decodeSpan<T>() return data[0] and a span.
+// The C++ coders decode all arguments before checking, but once a read fails the decoder is invalid and every later
+// read fails, so stopping at the first failure has the same outcome.
 
-/// The negative results of a decoder. The values are part of the C boundary (IPCArgDecodersSwiftBoundary.h).
+/// The failures of a decoder. The raw values are part of the C boundary of the Path decoder (IPCPathDecodeSwiftBoundary.h).
 enum IPCArgumentDecodeFailure: Int {
     /// A value didn't fit in the span or failed validation. The C++ glue marks the decoder invalid.
     case invalid = -1
     /// An ObjectIdentifier was 0 or the deleted value. The C++ glue also sets the IPC_TESTING_API error string that
     /// the generated ObjectIdentifier coders set, then marks the decoder invalid.
     case invalidIdentifier = -2
+}
+
+/// WebKitSwift_IPCStreamMessage_Arguments::status. The values are part of the C boundary (IPCStreamMessageSwiftBoundary.h).
+enum IPCStreamArgumentsStatus: UInt8 {
+    case none = 0
+    case valid = 1
+    case invalid = 2
+    case invalidIdentifier = 3
+}
+
+/// WebKitSwift_IPCStreamMessage_Arguments: where the arguments are, and their validated values.
+struct IPCStreamArguments {
+    var identifier: UInt64 = 0
+    var valuesOffset: Int = 0
+    var endOffset: Int = 0
+    var status: IPCStreamArgumentsStatus = .none
+    var flag: UInt8 = 0
+
+    @inline(__always)
+    static func failed(_ failure: IPCArgumentDecodeFailure) -> IPCStreamArguments {
+        IPCStreamArguments(status: failure == .invalid ? .invalid : .invalidIdentifier)
+    }
 }
 
 enum IPCArgumentDecoders {
@@ -113,49 +135,67 @@ enum IPCArgumentDecoders {
             identifier = value
             return nil
         }
-
-        /// The boundary result for a decode that succeeded.
-        var result: Int { position }
     }
 
-    /// Arguments made of `wordCount` 4-byte values only, in order (float, uint32_t, PackedColor::RGBA, and the
-    /// FloatPoint, FloatSize, FloatRect, PathDataQuadCurve and PathDataBezierCurve structs, which are all floats).
+    /// decode<Message::Arguments>() for the arguments of `layout` (IPCStreamMessageSwiftBoundary.h), from the reader's
+    /// position: their offsets and validated values, or the failure. A layout this doesn't know is None.
     @inline(__always)
-    static func decodeWords(_ reader: inout Reader, wordCount: Int, wordsOffset: inout Int) -> Int {
-        guard let offset = reader.reserveValues(wordCount, size: 4) else {
-            return IPCArgumentDecodeFailure.invalid.rawValue
+    static func locateArguments(_ reader: inout Reader, layout: UInt8) -> IPCStreamArguments {
+        var arguments = IPCStreamArguments()
+        switch layout {
+        case 1...15:
+            // float, uint32_t, PackedColor::RGBA, and the FloatPoint, FloatSize, FloatRect, PathDataQuadCurve and
+            // PathDataBezierCurve structs, which are all floats.
+            guard let offset = reader.reserveValues(Int(layout), size: 4) else {
+                return .failed(.invalid)
+            }
+            arguments.valuesOffset = offset
+        case 17...31:
+            // Those, then an enum class : bool (PathArc, PathClosedArc, tuple<FloatRect, RequiresClipToRect>).
+            guard let offset = reader.reserveValues(Int(layout &- 16), size: 4), let flag = reader.readBoolEnum() else {
+                return .failed(.invalid)
+            }
+            arguments.valuesOffset = offset
+            arguments.flag = flag
+        case 32:
+            // tuple<RemoteGradientIdentifier, AffineTransform>: 7 aligned uint64_t-size values. When they all fit, one check
+            // covers them; otherwise decode them one by one, which tells which value fails.
+            var all = reader
+            if let offset = all.reserve(byteCount: 56, alignment: 8) {
+                let identifier = all.stream.load(fromByteOffset: offset, as: UInt64.self)
+                guard isValidIPCIdentifier(identifier) else {
+                    return .failed(.invalidIdentifier)
+                }
+                reader = all
+                arguments.identifier = identifier
+                arguments.valuesOffset = offset &+ 8
+                break
+            }
+            if let failure = reader.readIdentifier(into: &arguments.identifier) {
+                return .failed(failure)
+            }
+            guard let offset = reader.reserveValues(6, size: 8) else {
+                return .failed(.invalid)
+            }
+            arguments.valuesOffset = offset
+        case 33:
+            // tuple<AffineTransform, RemotePathImplIdentifier, WindRule>.
+            guard let offset = reader.reserveValues(6, size: 8) else {
+                return .failed(.invalid)
+            }
+            if let failure = reader.readIdentifier(into: &arguments.identifier) {
+                return .failed(failure)
+            }
+            guard let flag = reader.readBoolEnum() else {
+                return .failed(.invalid)
+            }
+            arguments.valuesOffset = offset
+            arguments.flag = flag
+        default:
+            return arguments
         }
-        wordsOffset = offset
-        return reader.result
-    }
-
-    /// 4-byte values followed by an enum class : bool (PathArc, PathClosedArc, tuple<FloatRect, RequiresClipToRect>).
-    @inline(__always)
-    static func decodeWordsAndBoolEnum(_ reader: inout Reader, wordCount: Int, wordsOffset: inout Int, flag: inout UInt8) -> Int {
-        guard let offset = reader.reserveValues(wordCount, size: 4), let value = reader.readBoolEnum() else {
-            return IPCArgumentDecodeFailure.invalid.rawValue
-        }
-        wordsOffset = offset
-        flag = value
-        return reader.result
-    }
-
-    /// An AffineTransform: std::span<const double, 6>.
-    @inline(__always)
-    static func decodeAffineTransform(_ reader: inout Reader, matrixOffset: inout Int) -> Int {
-        guard let offset = reader.reserveValues(6, size: 8) else {
-            return IPCArgumentDecodeFailure.invalid.rawValue
-        }
-        matrixOffset = offset
-        return reader.result
-    }
-
-    /// An ObjectIdentifier, then an AffineTransform.
-    @inline(__always)
-    static func decodeIdentifierAndAffineTransform(_ reader: inout Reader, identifier: inout UInt64, matrixOffset: inout Int) -> Int {
-        if let failure = reader.readIdentifier(into: &identifier) {
-            return failure.rawValue
-        }
-        return decodeAffineTransform(&reader, matrixOffset: &matrixOffset)
+        arguments.endOffset = reader.position
+        arguments.status = .valid
+        return arguments
     }
 }

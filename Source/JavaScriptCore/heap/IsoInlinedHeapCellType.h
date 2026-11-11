@@ -29,6 +29,11 @@
 
 namespace JSC {
 
+#if USE(SWIFT_KERNELS)
+class JSRopeString;
+class JSString;
+#endif
+
 template<typename CellType>
 class IsoInlinedHeapCellType final : public HeapCellType {
 public:
@@ -36,6 +41,12 @@ public:
 
     struct DestroyFunc {
         ALWAYS_INLINE void operator()(VM&, JSCell*) const;
+#if USE(SWIFT_KERNELS)
+        // MarkedBlock::Handle::specializedSweep sweeps JSString and JSRopeString blocks in Swift, which implements
+        // JSString::destroy and JSRopeString::destroy (swift/MarkedBlockSweep/MarkedBlockSweep.swift).
+        static constexpr SwiftSweepDestroyKind swiftSweepDestroyKind = std::is_same_v<CellType, JSString> ? SwiftSweepDestroyKind::String
+            : std::is_same_v<CellType, JSRopeString> ? SwiftSweepDestroyKind::Rope : SwiftSweepDestroyKind::Unsupported;
+#endif
     };
 
     void finishSweep(MarkedBlock::Handle&, FreeList*) const final;
