@@ -22,18 +22,20 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 
 
-// Memory-safe port of the CSS value keyword lookup of css/parser/CSSPropertyParser.cpp: cssValueKeywordID(StringView)
-// (via its cssValueKeywordID<CharacterType>(std::span) template and isAppleLegacyCSSValueKeyword) and of the gperf
-// lookup it ends in, findCSSValueKeyword() / CSSValueKeywordsHash::in_word_set() in the generated CSSValueKeywords.cpp.
+// Memory-safe port of the CSS value keyword lookup of css/parser/CSSPropertyParser.cpp at 05fbeeaa85b0:
+// cssValueKeywordID(StringView) (via its cssValueKeywordID<CharacterType>(std::span) template and
+// isAppleLegacyCSSValueKeyword) and the gperf lookup it ended in, findCSSValueKeyword(), which the generator no longer
+// emits.
 //
 // Semantics of the original: a NUL or non-ASCII code unit anywhere gives CSSValueID::Invalid (0). Otherwise the
 // characters are ASCII-lowercased; if the result starts with "-apple-" and the rest starts with none of "system",
 // "pay" and "wireless", "-apple-" becomes "-webkit-" (one character longer). The result is looked up exactly in the
-// lowercase keyword names (the generator lowercases them for gperf); no match gives 0.
+// lowercase keyword names; no match gives 0.
 //
-// Instead of gperf, a keyword table built once from the keyword names: open addressing with linear probing over 4096
-// UInt16 slots holding CSSValueIDs (0 = empty). C++ owns the storage: the names as one byte pool with offsets (name of
-// id i = pool[offsets[i] ..< offsets[i + 1]], id 0 is the empty Invalid name) and the slots; buildTable() fills them.
+// The keyword table, built once from the generated lowercase names (cssValueKeywordLowercaseNames): open addressing
+// with linear probing over 4096 UInt16 slots holding CSSValueIDs (0 = empty). C++ owns the storage: the names as one
+// byte pool with offsets (name of id i = pool[offsets[i] ..< offsets[i + 1]], id 0 is the empty Invalid name) and the
+// slots, which buildTable() fills.
 // Membership and ids are exactly those of the names because every candidate is compared in full.
 //
 // Keys are processed 8 code units at a time, as one 64-bit word of bytes: unaligned loads (the last partial word from
@@ -276,6 +278,15 @@ enum CSSValueKeywordTable {
     // MARK: Lookup
 
     // cssValueKeywordID<CharacterType>(std::span) and findCSSValueKeyword(). Returns the CSSValueID, 0 for Invalid.
+    // cssValueKeywordID(StringView): Latin-1 characters when is8Bit, otherwise UTF-16 code units (2 bytes each, any alignment).
+    @inline(__always)
+    static func lookup(_ characters: RawSpan, is8Bit: Bool, pool: RawSpan, offsets: Span<UInt32>, slots: Span<UInt16>) -> UInt16 {
+        if is8Bit {
+            return lookup(CSSValueKeywordLatin1Key(characters), pool: pool, offsets: offsets, slots: slots)
+        }
+        return lookup(CSSValueKeywordUTF16Key(characters), pool: pool, offsets: offsets, slots: slots)
+    }
+
     @inline(__always)
     static func lookup<Key: CSSValueKeywordKey & ~Escapable>(_ key: borrowing Key, pool: RawSpan, offsets: Span<UInt32>, slots: Span<UInt16>) -> UInt16 {
         precondition(slots.count == slotCount)

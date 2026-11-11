@@ -45,7 +45,7 @@ func JSCSwift_MarkedBlockSweep_sweep(_ payload: UnsafeMutableRawPointer?, _ payl
     default: preconditionFailure("unknown MarkedBlockSweep destroy kind")
     }
     let result = sweepMarkedBlock(atoms, live: live, allDead: unsafe liveWords == nil, startAtom: startAtom,
-                                  atomsPerCell: atomsPerCell, secret: secret, toFreeList: flags & 1 != 0,
+                                  atomsPerCell: atomsPerCell, secret: secret, toFreeList: flags & 1 != 0, scribble: flags & 2 != 0,
                                   destroyKind: destroyKind, derefs: derefSpan)
     unsafe outHeadOffset.pointee = Int64(result.headOffset)
     unsafe outFreedBytes.pointee = UInt64(result.freedBytes)

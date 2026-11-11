@@ -46,45 +46,41 @@
 extern "C" {
 #endif
 
-// Resume state of the shape operations: size_t[WebCoreSwiftRegionShapeStateSize], zeroed before the first call. When
-// the operation is done, it holds the result's segment and span counts at these indices.
+// Region::Shape::shapeOperation<UnionOperation / IntersectOperation / SubtractOperation>(shape1, shape2), minus
+// trySimpleOperation, into outSegments / outSpanWords, then the result's Region::Shape::bounds(). outSpanWords must
+// have room for all the spans of both shapes (outSpanWordCapacity >= spanWordCount1 + spanWordCount2). state is
+// size_t[WebCoreSwiftRegionShapeStateSize] (stateCount), zeroed before the first call. Returns 0 when done: the state
+// then holds the result's segment and span counts and bounds at the indices below. Otherwise outSegments is too small:
+// grow it to at least the returned capacity, keeping its contents, and call again with the same arguments and state.
+// WebCoreSwiftRegionShapeBoundsOnly only stores Region::Shape::bounds() of shape1 in the state (and returns 0); the
+// other arguments may be null / 0.
 enum {
-    WebCoreSwiftRegionShapeStateSize = 10,
+    WebCoreSwiftRegionShapeUnion = 0,
+    WebCoreSwiftRegionShapeIntersect = 1,
+    WebCoreSwiftRegionShapeSubtract = 2,
+    WebCoreSwiftRegionShapeBoundsOnly = 3,
+};
+enum {
+    WebCoreSwiftRegionShapeStateSize = 14,
     WebCoreSwiftRegionShapeStateSegmentCount = 6,
     WebCoreSwiftRegionShapeStateSpanCount = 7,
+    WebCoreSwiftRegionShapeStateBoundsX = 10, // Then y, width, height (int32_t values).
 };
+WEBCORE_SWIFT_REGION_SHAPE_NODELETE size_t WebCoreSwift_RegionShape_combine(size_t operation,
+    const int32_t* segments1, size_t segmentCount1, const uint64_t* spanWords1, size_t spanWordCount1,
+    const int32_t* segments2, size_t segmentCount2, const uint64_t* spanWords2, size_t spanWordCount2,
+    int32_t* outSegments, size_t outSegmentCapacity, uint64_t* outSpanWords, size_t outSpanWordCapacity, size_t* state, size_t stateCount);
 
-// Region::Shape::shapeOperation<UnionOperation / IntersectOperation / SubtractOperation>(shape1, shape2), minus
-// trySimpleOperation, into outSegments / outSpanWords. outSpanWords must have room for all the spans of both shapes
-// (outSpanWordCapacity >= spanWordCount1 + spanWordCount2). Returns 0 when done (see the state). Otherwise outSegments
-// is too small: grow it to at least the returned capacity, keeping its contents, and call again with the same
-// arguments and state.
-#define WEBCORE_SWIFT_REGION_SHAPE_OPERATION(name) \
-    size_t name(const int32_t* segments1, size_t segmentCount1, const uint64_t* spanWords1, size_t spanWordCount1, \
-        const int32_t* segments2, size_t segmentCount2, const uint64_t* spanWords2, size_t spanWordCount2, \
-        int32_t* outSegments, size_t outSegmentCapacity, uint64_t* outSpanWords, size_t outSpanWordCapacity, size_t* state)
-WEBCORE_SWIFT_REGION_SHAPE_OPERATION(WebCoreSwift_RegionShape_unite);
-WEBCORE_SWIFT_REGION_SHAPE_OPERATION(WebCoreSwift_RegionShape_intersect);
-WEBCORE_SWIFT_REGION_SHAPE_OPERATION(WebCoreSwift_RegionShape_subtract);
-#undef WEBCORE_SWIFT_REGION_SHAPE_OPERATION
-
-// Region::Shape::compareShapes<CompareContainsOperation>(shape1, shape2).
-WEBCORE_SWIFT_REGION_SHAPE_NODELETE bool WebCoreSwift_RegionShape_contains(
+// Region::Shape::compareShapes<CompareContainsOperation / CompareIntersectsOperation>(shape1, shape2), or
+// isValidShape(shape1) (shape2 unused; may be null / 0).
+enum {
+    WebCoreSwiftRegionShapeContains = 0,
+    WebCoreSwiftRegionShapeIntersects = 1,
+    WebCoreSwiftRegionShapeIsValid = 2,
+};
+WEBCORE_SWIFT_REGION_SHAPE_NODELETE bool WebCoreSwift_RegionShape_query(size_t operation,
     const int32_t* segments1, size_t segmentCount1, const uint64_t* spanWords1, size_t spanWordCount1,
     const int32_t* segments2, size_t segmentCount2, const uint64_t* spanWords2, size_t spanWordCount2);
-
-// Region::Shape::compareShapes<CompareIntersectsOperation>(shape1, shape2).
-WEBCORE_SWIFT_REGION_SHAPE_NODELETE bool WebCoreSwift_RegionShape_intersects(
-    const int32_t* segments1, size_t segmentCount1, const uint64_t* spanWords1, size_t spanWordCount1,
-    const int32_t* segments2, size_t segmentCount2, const uint64_t* spanWords2, size_t spanWordCount2);
-
-// Region::Shape::bounds(), as outRect[4] = { x, y, width, height }.
-WEBCORE_SWIFT_REGION_SHAPE_NODELETE void WebCoreSwift_RegionShape_bounds(const int32_t* segments, size_t segmentCount,
-    const uint64_t* spanWords, size_t spanWordCount, int32_t* outRect);
-
-// Region::Shape::isValidShape(segments, spans).
-WEBCORE_SWIFT_REGION_SHAPE_NODELETE bool WebCoreSwift_RegionShape_isValidShape(const int32_t* segments, size_t segmentCount,
-    const uint64_t* spanWords, size_t spanWordCount);
 
 #ifdef __cplusplus
 } // extern "C"

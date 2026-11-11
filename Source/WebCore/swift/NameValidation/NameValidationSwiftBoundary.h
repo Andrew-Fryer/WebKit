@@ -25,9 +25,9 @@
 
 #pragma once
 
-// C boundary of the NameValidation Swift kernels (Source/WebCore/swift/NameValidation), the Swift port of
-// isValidAttributeName(StringView) and isValidElementName(StringView) of dom/NameValidation.cpp. The symbols are
-// internal to WebCore (hidden); only WebCore .cpp files may call them, never header-inline code.
+// C boundary of the NameValidation Swift kernels (Source/WebCore/swift/NameValidation), the Swift port of the name
+// checks of dom/NameValidation.cpp. The symbol is internal to WebCore (hidden); only WebCore .cpp files may call it,
+// never header-inline code.
 //
 // The characters are a StringView's: rawCharacters() (null only when length is 0), length() and is8Bit(). When is8Bit
 // is false they are `length` UTF-16 code units, read with unaligned loads, so any alignment is fine.
@@ -49,11 +49,15 @@
 extern "C" {
 #endif
 
-// NameValidation::isValidAttributeName(StringView).
-WEBCORE_SWIFT_NAME_VALIDATION_NODELETE bool WebCoreSwift_NameValidation_isValidAttributeName(const void* characters, size_t length, bool is8Bit);
+enum WebCoreSwiftNameValidationKind {
+    WebCoreSwiftNameValidationAttributeName = 0, // NameValidation::isValidAttributeName(StringView)
+    WebCoreSwiftNameValidationElementName = 1, // NameValidation::isValidElementName(StringView)
+    WebCoreSwiftNameValidationNamespacePrefix = 2, // isValidNamespacePrefix(StringView) of NameValidation.cpp
+    WebCoreSwiftNameValidationDoctypeName = 3, // NameValidation::isValidDoctypeName(StringView)
+    WebCoreSwiftNameValidationXMLName = 4, // NameValidation::isValidXMLName(StringView)
+};
 
-// NameValidation::isValidElementName(StringView).
-WEBCORE_SWIFT_NAME_VALIDATION_NODELETE bool WebCoreSwift_NameValidation_isValidElementName(const void* characters, size_t length, bool is8Bit);
+WEBCORE_SWIFT_NAME_VALIDATION_NODELETE bool WebCoreSwift_NameValidation_isValidName(const void* characters, size_t length, bool is8Bit, uint8_t kind);
 
 #ifdef __cplusplus
 }

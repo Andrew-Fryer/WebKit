@@ -59,6 +59,13 @@ static std::span<const uint64_t> regionSpanWords(std::span<const Region::Span> s
     return spanReinterpretCast<const uint64_t>(spans);
 }
 
+// The bounds that WebCoreSwift_RegionShape_combine stored in its state.
+static IntRect boundsFromState(const std::array<size_t, WebCoreSwiftRegionShapeStateSize>& state)
+{
+    auto bounds = std::span { state }.subspan<WebCoreSwiftRegionShapeStateBoundsX, 4>();
+    return IntRect(static_cast<int32_t>(bounds[0]), static_cast<int32_t>(bounds[1]), static_cast<int32_t>(bounds[2]), static_cast<int32_t>(bounds[3]));
+}
+
 Region::Region() = default;
 
 Region::Region(const IntRect& rect)
@@ -118,7 +125,7 @@ bool Region::contains(const Region& region) const
     if (!m_shape)
         return true;
 
-    return Shape::compareShapes<Shape::CompareContainsOperation>(*m_shape, region.m_shape ? *region.m_shape : Shape(region.m_bounds));
+    return Shape::query(WebCoreSwiftRegionShapeContains, *m_shape, region.m_shape ? *region.m_shape : Shape(region.m_bounds));
 }
 
 bool Region::contains(const IntPoint& point) const
@@ -160,7 +167,7 @@ bool Region::intersects(const Region& region) const
     if (!m_shape && !region.m_shape)
         return true;
 
-    return Shape::compareShapes<Shape::CompareIntersectsOperation>(m_shape ? *m_shape : m_bounds, region.m_shape ? *region.m_shape : region.m_bounds);
+    return Shape::query(WebCoreSwiftRegionShapeIntersects, m_shape ? *m_shape : m_bounds, region.m_shape ? *region.m_shape : region.m_bounds);
 }
 
 uint64_t Region::totalArea() const
@@ -173,14 +180,11 @@ uint64_t Region::totalArea() const
     return totalArea;
 }
 
-template<typename CompareOperation>
-bool Region::Shape::compareShapes(const Shape& aShape, const Shape& bShape)
+bool Region::Shape::query(size_t operation, const Shape& shape1, const Shape& shape2)
 {
-    static_assert(std::is_same_v<CompareOperation, CompareContainsOperation> || std::is_same_v<CompareOperation, CompareIntersectsOperation>);
-    constexpr auto compare = std::is_same_v<CompareOperation, CompareContainsOperation> ? WebCoreSwift_RegionShape_contains : WebCoreSwift_RegionShape_intersects;
-    auto aWords = regionSpanWords(aShape.spans());
-    auto bWords = regionSpanWords(bShape.spans());
-    return compare(aShape.m_segments.span().data(), aShape.m_segments.size(), aWords.data(), aWords.size(), bShape.m_segments.span().data(), bShape.m_segments.size(), bWords.data(), bWords.size());
+    auto words1 = regionSpanWords(shape1.spans());
+    auto words2 = regionSpanWords(shape2.spans());
+    return WebCoreSwift_RegionShape_query(operation, shape1.m_segments.span().data(), shape1.m_segments.size(), words1.data(), words1.size(), shape2.m_segments.span().data(), shape2.m_segments.size(), words2.data(), words2.size());
 }
 
 Region::Shape::Shape(const IntRect& rect)
@@ -241,9 +245,9 @@ IntRect Region::Shape::bounds() const
         return IntRect();
 
     auto words = regionSpanWords(spans());
-    std::array<int32_t, 4> rect;
-    WebCoreSwift_RegionShape_bounds(m_segments.span().data(), m_segments.size(), words.data(), words.size(), rect.data());
-    return IntRect(rect[0], rect[1], rect[2], rect[3]);
+    std::array<size_t, WebCoreSwiftRegionShapeStateSize> state { };
+    WebCoreSwift_RegionShape_combine(WebCoreSwiftRegionShapeBoundsOnly, m_segments.span().data(), m_segments.size(), words.data(), words.size(), nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, state.data(), state.size());
+    return boundsFromState(state);
 }
 
 void Region::Shape::translate(const IntSize& offset)
@@ -254,26 +258,30 @@ void Region::Shape::translate(const IntSize& offset)
         m_spans[i].y += offset.height();
 }
 
-// The scanline merge of unionShapes/intersectShapes/subtractShapes (formerly the C++ shapeOperation<Operation>), in Swift.
-// resultSegments and resultSpans are empty.
-using ShapeOperationSwift = size_t(const int32_t*, size_t, const uint64_t*, size_t, const int32_t*, size_t, const uint64_t*, size_t, int32_t*, size_t, uint64_t*, size_t, size_t*);
-
-ALWAYS_INLINE static void shapeOperationSwift(ShapeOperationSwift& operation, std::span<const int> segments1, std::span<const Region::Span> spans1, std::span<const int> segments2, std::span<const Region::Span> spans2, Vector<int, 32>& resultSegments, Vector<Region::Span, 16>& resultSpans)
+// Region::Shape::shapeOperation<UnionOperation / IntersectOperation / SubtractOperation> (the scanline merge) and the
+// result's bounds, in Swift.
+std::pair<Region::Shape, IntRect> Region::Shape::combine(size_t operation, const Shape& shape1, const Shape& shape2)
 {
+    if (operation == WebCoreSwiftRegionShapeUnion && shape1.isEmpty())
+        return { shape2, shape2.bounds() };
+
     // Each iteration of shapeOperation consumes at least one span of either shape and appends at most one span, so the
     // result has at most spans1.size() + spans2.size() spans. There is no such bound on segments (a span's segments are
     // merged again with every span of the other shape that it overlaps): start with the capacity that shapeOperation
     // reserves and grow it whenever Swift asks for more. Reserving first keeps the capacities those of shapeOperation.
-    resultSpans.reserveInitialCapacity(spans1.size() + spans2.size());
-    resultSpans.grow(spans1.size() + spans2.size());
-    resultSegments.reserveInitialCapacity(segments1.size() + segments2.size());
+    std::pair<Shape, IntRect> combined;
+    auto& resultSegments = combined.first.m_segments;
+    auto& resultSpans = combined.first.m_spans;
+    resultSpans.reserveInitialCapacity(shape1.m_spans.size() + shape2.m_spans.size());
+    resultSpans.grow(shape1.m_spans.size() + shape2.m_spans.size());
+    resultSegments.reserveInitialCapacity(shape1.m_segments.size() + shape2.m_segments.size());
     resultSegments.grow(resultSegments.capacity());
 
-    auto words1 = regionSpanWords(spans1);
-    auto words2 = regionSpanWords(spans2);
+    auto words1 = regionSpanWords(shape1.spans());
+    auto words2 = regionSpanWords(shape2.spans());
     auto resultWords = spanReinterpretCast<uint64_t>(resultSpans.mutableSpan());
     std::array<size_t, WebCoreSwiftRegionShapeStateSize> state { };
-    while (size_t segmentsNeeded = operation(segments1.data(), segments1.size(), words1.data(), words1.size(), segments2.data(), segments2.size(), words2.data(), words2.size(), resultSegments.mutableSpan().data(), resultSegments.size(), resultWords.data(), resultWords.size(), state.data())) {
+    while (size_t segmentsNeeded = WebCoreSwift_RegionShape_combine(operation, shape1.m_segments.span().data(), shape1.m_segments.size(), words1.data(), words1.size(), shape2.m_segments.span().data(), shape2.m_segments.size(), words2.data(), words2.size(), resultSegments.mutableSpan().data(), resultSegments.size(), resultWords.data(), resultWords.size(), state.data(), state.size())) {
         resultSegments.grow(segmentsNeeded);
         resultSegments.grow(resultSegments.capacity());
     }
@@ -283,30 +291,8 @@ ALWAYS_INLINE static void shapeOperationSwift(ShapeOperationSwift& operation, st
     RELEASE_ASSERT(segmentCount <= resultSegments.size() && spanCount <= resultSpans.size());
     resultSegments.shrink(segmentCount);
     resultSpans.shrink(spanCount);
-}
-
-Region::Shape Region::Shape::unionShapes(const Shape& shape1, const Shape& shape2)
-{
-    if (shape1.isEmpty())
-        return shape2;
-
-    Shape result;
-    shapeOperationSwift(WebCoreSwift_RegionShape_unite, shape1.m_segments.span(), shape1.spans(), shape2.m_segments.span(), shape2.spans(), result.m_segments, result.m_spans);
-    return result;
-}
-
-Region::Shape Region::Shape::intersectShapes(const Shape& shape1, const Shape& shape2)
-{
-    Shape result;
-    shapeOperationSwift(WebCoreSwift_RegionShape_intersect, shape1.m_segments.span(), shape1.spans(), shape2.m_segments.span(), shape2.spans(), result.m_segments, result.m_spans);
-    return result;
-}
-
-Region::Shape Region::Shape::subtractShapes(const Shape& shape1, const Shape& shape2)
-{
-    Shape result;
-    shapeOperationSwift(WebCoreSwift_RegionShape_subtract, shape1.m_segments.span(), shape1.spans(), shape2.m_segments.span(), shape2.spans(), result.m_segments, result.m_spans);
-    return result;
+    combined.second = boundsFromState(state);
+    return combined;
 }
 
 void Region::intersect(const Region& region)
@@ -323,7 +309,8 @@ void Region::intersect(const Region& region)
         return;
     }
 
-    setShape(Shape::intersectShapes(m_shape ? *m_shape : m_bounds, region.m_shape ? *region.m_shape : region.m_bounds));
+    auto [shape, bounds] = Shape::combine(WebCoreSwiftRegionShapeIntersect, m_shape ? *m_shape : m_bounds, region.m_shape ? *region.m_shape : region.m_bounds);
+    setShape(WTF::move(shape), bounds);
 }
 
 void Region::unite(const Region& region)
@@ -343,7 +330,8 @@ void Region::unite(const Region& region)
     if (contains(region))
         return;
 
-    setShape(Shape::unionShapes(m_shape ? *m_shape : m_bounds, region.m_shape ? *region.m_shape : region.m_bounds));
+    auto [shape, bounds] = Shape::combine(WebCoreSwiftRegionShapeUnion, m_shape ? *m_shape : m_bounds, region.m_shape ? *region.m_shape : region.m_bounds);
+    setShape(WTF::move(shape), bounds);
 }
 
 void Region::subtract(const Region& region)
@@ -355,7 +343,8 @@ void Region::subtract(const Region& region)
     if (!m_bounds.intersects(region.m_bounds))
         return;
 
-    setShape(Shape::subtractShapes(m_shape ? *m_shape : m_bounds, region.m_shape ? *region.m_shape : region.m_bounds));
+    auto [shape, bounds] = Shape::combine(WebCoreSwiftRegionShapeSubtract, m_shape ? *m_shape : m_bounds, region.m_shape ? *region.m_shape : region.m_bounds);
+    setShape(WTF::move(shape), bounds);
 }
 
 void Region::translate(const IntSize& offset)
@@ -367,7 +356,13 @@ void Region::translate(const IntSize& offset)
 
 void Region::setShape(Shape&& shape)
 {
-    m_bounds = shape.bounds();
+    auto bounds = shape.bounds();
+    setShape(WTF::move(shape), bounds);
+}
+
+void Region::setShape(Shape&& shape, const IntRect& bounds)
+{
+    m_bounds = bounds;
 
     if (shape.isRect()) {
         m_shape = nullptr;
@@ -383,7 +378,7 @@ void Region::setShape(Shape&& shape)
 bool Region::Shape::isValidShape(std::span<const int> segments, std::span<const Span> spans)
 {
     auto words = regionSpanWords(spans);
-    return WebCoreSwift_RegionShape_isValidShape(segments.data(), segments.size(), words.data(), words.size());
+    return WebCoreSwift_RegionShape_query(WebCoreSwiftRegionShapeIsValid, segments.data(), segments.size(), words.data(), words.size(), nullptr, 0, nullptr, 0);
 }
 
 TextStream& operator<<(TextStream& ts, const Region& region)

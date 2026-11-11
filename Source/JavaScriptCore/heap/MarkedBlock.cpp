@@ -39,13 +39,7 @@
 #include <wtf/cocoa/CrashReporter.h>
 #endif
 
-#if USE(SWIFT_KERNELS)
 #include "MarkedBlockSweepSwiftBoundary.h"
-#include <wtf/UnalignedAccess.h>
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "SwiftKernelsValidation.h"
-#endif
-#endif
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -174,62 +168,20 @@ void MarkedBlock::Handle::stopAllocating(const FreeList& freeList, StopAllocatin
     // allocated from our free list are not currently marked, so we need another
     // way to tell what's live vs dead. 
     
-    auto stopAllocatingCxx = [&] {
-        blockHeader().m_newlyAllocated.clearAll();
-        blockHeader().m_newlyAllocatedVersion = heap()->objectSpace().newlyAllocatedVersion();
-        blockHeader().m_newlyAllocated.setEachNthBit(m_atomsPerCell, m_startAtom, endAtom);
-
-        ASSERT(freeList.cellSize() == m_atomsPerCell * atomSize);
-        bool needsZapping = m_attributes.destruction != DoesNotNeedDestruction;
-        size_t cellSize = freeList.cellSize();
-        freeList.forEachInterval(
-            [&](char* intervalStart, char* intervalEnd) {
-                if (needsZapping || MarkedBlockInternal::verbose) {
-                    for (char* cell = intervalStart; cell < intervalEnd; cell += cellSize) {
-                        if constexpr (MarkedBlockInternal::verbose)
-                            dataLog("Free cell: ", RawPointer(cell), "\n");
-                        if (needsZapping)
-                            std::bit_cast<HeapCell*>(cell)->zap(HeapCell::StopAllocating);
-                    }
-                }
-                blockHeader().m_newlyAllocated.clearEachNthBit(m_atomsPerCell, block().candidateAtomNumber(intervalStart), block().candidateAtomNumber(intervalEnd));
-            });
-    };
-
-#if USE(SWIFT_KERNELS)
-    // The same in Swift, with the free list as payload offsets (an odd nextInterval is the sentinel). Swift zaps
-    // with a stride of m_atomsPerCell atoms, as the C++ does with freeList.cellSize().
+    // In Swift (MarkedBlockStopAllocating.swift): newlyAllocated = every cell but those still on the free list,
+    // which are zapped with StopAllocating if the block needs destruction. The free list is passed as payload
+    // offsets (an odd nextInterval is the sentinel). Swift zaps with a stride of m_atomsPerCell atoms, as the
+    // original did with freeList.cellSize().
     RELEASE_ASSERT(freeList.cellSize() == m_atomsPerCell * atomSize);
     auto* payload = std::bit_cast<uint8_t*>(block().atoms() + m_startAtom);
-    size_t payloadAtoms = endAtom - m_startAtom;
     auto payloadOffset = [&](const void* pointer) {
         return static_cast<int64_t>(std::bit_cast<uintptr_t>(pointer) - std::bit_cast<uintptr_t>(payload));
     };
-    auto stopAllocatingInSwift = [&](uint8_t* payloadToWrite, std::span<uint64_t> newlyAllocatedWords) {
-        JSCSwift_MarkedBlockSweep_stopAllocating(payloadToWrite, payloadAtoms, newlyAllocatedWords.data(), newlyAllocatedWords.size(), m_startAtom, m_atomsPerCell, endAtom,
-            payloadOffset(freeList.intervalStart()), payloadOffset(freeList.intervalEnd()), payloadOffset(freeList.nextIntervalOrSentinel()), freeList.secret(),
-            m_attributes.destruction != DoesNotNeedDestruction);
-    };
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (swiftKernelsValidationEnabled()) [[unlikely]] {
-        // Swift on copies of the payload and of the bitmap, the C++ in place; both must write the same.
-        Vector<uint8_t> swiftPayload(std::span<const uint8_t> { payload, payloadAtoms * atomSize });
-        std::array<uint64_t, atomsPerBlock / 64> swiftNewlyAllocated;
-        stopAllocatingInSwift(swiftPayload.mutableSpan().data(), swiftNewlyAllocated);
-        stopAllocatingCxx();
-        RELEASE_ASSERT(equalSpans(std::span<const uint8_t> { payload, payloadAtoms * atomSize }, swiftPayload.span()));
-        RELEASE_ASSERT(equalSpans(blockHeader().m_newlyAllocated.storage(), std::span<const uint64_t> { swiftNewlyAllocated }));
-    } else
-#else
-    UNUSED_VARIABLE(stopAllocatingCxx);
-#endif
-    {
-        blockHeader().m_newlyAllocatedVersion = heap()->objectSpace().newlyAllocatedVersion();
-        stopAllocatingInSwift(payload, blockHeader().m_newlyAllocated.storage());
-    }
-#else
-    stopAllocatingCxx();
-#endif
+    blockHeader().m_newlyAllocatedVersion = heap()->objectSpace().newlyAllocatedVersion();
+    auto newlyAllocatedWords = blockHeader().m_newlyAllocated.storage();
+    JSCSwift_MarkedBlockSweep_stopAllocating(payload, endAtom - m_startAtom, newlyAllocatedWords.data(), newlyAllocatedWords.size(), m_startAtom, m_atomsPerCell, endAtom,
+        payloadOffset(freeList.intervalStart()), payloadOffset(freeList.intervalEnd()), payloadOffset(freeList.nextIntervalOrSentinel()), freeList.secret(),
+        m_attributes.destruction != DoesNotNeedDestruction);
     
     m_isFreeListed = false;
     directory()->didFinishUsingBlock(this);
@@ -549,7 +501,6 @@ Subspace* MarkedBlock::Handle::subspace() const
     return directory()->subspace();
 }
 
-#if USE(SWIFT_KERNELS)
 // MarkedBlockSweep.swift sees the payload as 16-byte atoms: a cell's header word at offset 0 (0 once zapped), and
 // its second 8 bytes (JSString::m_fiber, FreeCell::scrambledBits) at offset 8.
 static_assert(MarkedBlock::atomSize == 16 && sizeof(FreeCell) == 16 && FreeCell::offsetOfScrambledBits() == 8);
@@ -557,64 +508,16 @@ static_assert(JSString::offsetOfValue() == 8 && JSString::isRopeInPointer == 1);
 static_assert(HeapCell::Destruction == 1 && HeapCell::StopAllocating == 2);
 static_assert(sizeof(WTF::BitSet<MarkedBlock::atomsPerBlock>) == MarkedBlock::atomsPerBlock / 64 * sizeof(uint64_t));
 static_assert(MarkedBlock::atomsPerBlock == 1024); // The Swift kernel's deref list is 1024 entries, one per atom.
+static_assert(SCRIBBLE_WORD == 0xbadbeef0); // scribble() as MarkedBlockSweep.swift does it.
 
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-// Runs Swift on a copy of the payload (keeping its derefs), then the C++ loops in place, and crashes unless both
-// wrote the same bytes, built the same free list, and destroyed the same strings in the same order.
-static NEVER_INLINE void validateSwiftSweep(uint8_t* payload, size_t payloadAtoms, std::span<const uint64_t> liveWords, unsigned startAtom, unsigned atomsPerCell, uint64_t secret, uint32_t flags, SwiftSweepDestroyKind destroyKind, FreeList* freeList, NOESCAPE const ScopedLambda<void()>& sweepCellsCxx)
-{
-    size_t payloadBytes = payloadAtoms * MarkedBlock::atomSize;
-    Vector<uint8_t> before(std::span<const uint8_t> { payload, payloadBytes });
-    Vector<uint8_t> swiftPayload = before;
-    Vector<uint64_t> derefs(MarkedBlock::atomsPerBlock);
-    int64_t headOffset = -1;
-    uint64_t freedBytes = 0;
-    size_t derefCount = JSCSwift_MarkedBlockSweep_sweep(swiftPayload.mutableSpan().data(), payloadAtoms, liveWords.data(), liveWords.size(), startAtom, atomsPerCell, secret, flags, derefs.mutableSpan().data(), derefs.size(), &headOffset, &freedBytes);
-    sweepCellsCxx();
-
-    RELEASE_ASSERT(equalSpans(std::span<const uint8_t> { payload, payloadBytes }, swiftPayload.span()));
-    if (freeList) {
-        // What FreeList::initialize makes of Swift's head and size, on the payload that is now the same.
-        FreeList expected(freeList->cellSize());
-        expected.initialize(headOffset < 0 ? nullptr : std::bit_cast<FreeCell*>(payload + headOffset), secret, static_cast<unsigned>(freedBytes));
-        RELEASE_ASSERT(expected.intervalStart() == freeList->intervalStart() && expected.intervalEnd() == freeList->intervalEnd());
-        RELEASE_ASSERT(expected.nextIntervalOrSentinel() == freeList->nextIntervalOrSentinel() && expected.secret() == freeList->secret() && expected.originalSize() == freeList->originalSize());
-    } else
-        RELEASE_ASSERT(headOffset == -1 && !freedBytes);
-
-    // The cells the C++ destroyed are the atoms whose header word it zeroed (a sweep writes no other atom's first
-    // word); each ~String derefed the old m_fiber unless it was null, and JSRopeString::destroy skipped ropes.
-    size_t expectedCount = 0;
-    for (size_t offset = 0; offset < payloadBytes; offset += MarkedBlock::atomSize) {
-        if (!WTF::unalignedLoad<uint32_t>(before.span().subspan(offset).data()) || WTF::unalignedLoad<uint32_t>(payload + offset))
-            continue;
-        auto fiber = WTF::unalignedLoad<uint64_t>(before.span().subspan(offset + 8).data());
-        if (!fiber || (destroyKind == SwiftSweepDestroyKind::Rope && (fiber & JSString::isRopeInPointer)))
-            continue;
-        RELEASE_ASSERT(expectedCount < derefCount && derefs[expectedCount] == fiber);
-        ++expectedCount;
-    }
-    RELEASE_ASSERT(expectedCount == derefCount);
-}
-#endif
-
-void MarkedBlock::Handle::sweepWithSwiftKernel(FreeList* freeList, const WTF::BitSet<atomsPerBlock>* live, SweepMode sweepMode, SwiftSweepDestroyKind destroyKind, uint64_t secret, NOESCAPE const ScopedLambda<void()>& sweepCellsCxx)
+void MarkedBlock::Handle::sweepWithSwiftKernel(FreeList* freeList, const WTF::BitSet<atomsPerBlock>* live, SweepMode sweepMode, ScribbleMode scribbleMode, SwiftSweepDestroyKind destroyKind, uint64_t secret)
 {
     auto* payload = std::bit_cast<uint8_t*>(block().atoms() + m_startAtom);
     size_t payloadAtoms = endAtom - m_startAtom;
     std::span<const uint64_t> liveWords;
     if (live)
         liveWords = live->storage();
-    uint32_t flags = (sweepMode == SweepToFreeList ? 1 : 0) | (static_cast<uint32_t>(destroyKind) << 2);
-
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (swiftKernelsValidationEnabled()) [[unlikely]] {
-        validateSwiftSweep(payload, payloadAtoms, liveWords, m_startAtom, m_atomsPerCell, secret, flags, destroyKind, freeList, sweepCellsCxx);
-        return;
-    }
-#else
-    UNUSED_PARAM(sweepCellsCxx);
-#endif
+    uint32_t flags = (sweepMode == SweepToFreeList ? 1 : 0) | (scribbleMode == Scribble ? 2 : 0) | (static_cast<uint32_t>(destroyKind) << 2);
 
     // Swift sweeps, then this does what ~String did after nulling the m_fiber of each destroyed JSString, in the same
     // order. The C++ loops overlapped those refcount updates (atomics, on cache lines the sweep does not touch) with
@@ -625,6 +528,7 @@ void MarkedBlock::Handle::sweepWithSwiftKernel(FreeList* freeList, const WTF::Bi
     int64_t headOffset = -1;
     uint64_t freedBytes = 0;
     size_t derefCount = JSCSwift_MarkedBlockSweep_sweep(payload, payloadAtoms, liveWords.data(), liveWords.size(), m_startAtom, m_atomsPerCell, secret, flags, derefs.data(), derefs.size(), &headOffset, &freedBytes);
+    RELEASE_ASSERT(derefCount <= derefs.size());
     auto impls = std::span { derefs }.first(derefCount);
     auto implAt = [&](size_t i) { return std::bit_cast<StringImpl*>(static_cast<uintptr_t>(impls[i])); };
     constexpr size_t prefetchDistance = 32;
@@ -640,10 +544,10 @@ void MarkedBlock::Handle::sweepWithSwiftKernel(FreeList* freeList, const WTF::Bi
 
     if (sweepMode == SweepToFreeList) {
         RELEASE_ASSERT(headOffset == -1 || (headOffset >= 0 && static_cast<uint64_t>(headOffset) < payloadAtoms * atomSize && !(static_cast<uint64_t>(headOffset) % cellSize())));
+        RELEASE_ASSERT(freedBytes <= payloadAtoms * atomSize);
         freeList->initialize(headOffset < 0 ? nullptr : std::bit_cast<FreeCell*>(payload + headOffset), secret, static_cast<unsigned>(freedBytes));
     }
 }
-#endif // USE(SWIFT_KERNELS)
 
 void MarkedBlock::Handle::sweep(FreeList* freeList)
 {

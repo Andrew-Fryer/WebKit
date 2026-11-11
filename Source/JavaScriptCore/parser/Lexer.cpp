@@ -39,8 +39,7 @@
 #include <wtf/dtoa.h>
 #include <wtf/text/MakeString.h>
 
-#include "LexerEscapedLiteralsSwiftBoundary.h"
-#include "LexerRegExpSwiftBoundary.h"
+#include "LexerSwiftBoundary.h"
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -1369,107 +1368,8 @@ template <bool shouldBuildStrings> ALWAYS_INLINE typename Lexer<T>::StringParseR
     return StringParsedSuccessfully;
 }
 
-template <typename T>
-template <bool shouldBuildStrings> ALWAYS_INLINE auto Lexer<T>::parseComplexEscape(bool strictMode) -> StringParseResult
-{
-    if (m_current == 'x') {
-        shift();
-        if (!isASCIIHexDigit(m_current) || !isASCIIHexDigit(peek(1))) {
-            // For raw template literal syntax, we consume `NotEscapeSequence`.
-            //
-            // NotEscapeSequence ::
-            //     x [lookahread not one of HexDigit]
-            //     x HexDigit [lookahread not one of HexDigit]
-            if (isASCIIHexDigit(m_current))
-                shift();
-            ASSERT(!isASCIIHexDigit(m_current));
-
-            m_lexErrorMessage = "\\x can only be followed by a hex character sequence"_s;
-            return atEnd() ? StringUnterminated : StringCannotBeParsed;
-        }
-
-        T prev = m_current;
-        shift();
-        if constexpr (shouldBuildStrings)
-            record16(convertHex(prev, m_current));
-        shift();
-
-        return StringParsedSuccessfully;
-    }
-
-    if (m_current == 'u') {
-        shift();
-
-        auto character = parseUnicodeEscape();
-        if (character.isValid()) {
-            if constexpr (shouldBuildStrings)
-                recordUnicodeCodePoint(character.value());
-            return StringParsedSuccessfully;
-        }
-
-        m_lexErrorMessage = "\\u can only be followed by a Unicode character sequence"_s;
-        return atEnd() ? StringUnterminated : StringCannotBeParsed;
-    }
-
-    if (strictMode) {
-        if (isASCIIDigit(m_current)) {
-            // The only valid numeric escape in strict mode is '\0', and this must not be followed by a decimal digit.
-            int character1 = m_current;
-            shift();
-            if (character1 != '0' || isASCIIDigit(m_current)) {
-                // For raw template literal syntax, we consume `NotEscapeSequence`.
-                //
-                // NotEscapeSequence ::
-                //     0 DecimalDigit
-                //     DecimalDigit but not 0
-                if (character1 == '0')
-                    shift();
-
-                m_lexErrorMessage = "The only valid numeric escape in strict mode is '\\0'"_s;
-                return atEnd() ? StringUnterminated : StringCannotBeParsed;
-            }
-            if constexpr (shouldBuildStrings)
-                record16(0);
-            return StringParsedSuccessfully;
-        }
-    } else {
-        if (isASCIIOctalDigit(m_current)) {
-            // Octal character sequences
-            T character1 = m_current;
-            shift();
-            if (isASCIIOctalDigit(m_current)) {
-                // Two octal characters
-                T character2 = m_current;
-                shift();
-                if (character1 >= '0' && character1 <= '3' && isASCIIOctalDigit(m_current)) {
-                    if constexpr (shouldBuildStrings)
-                        record16((character1 - '0') * 64 + (character2 - '0') * 8 + m_current - '0');
-                    shift();
-                } else {
-                    if constexpr (shouldBuildStrings)
-                        record16((character1 - '0') * 8 + character2 - '0');
-                }
-            } else {
-                if constexpr (shouldBuildStrings)
-                    record16(character1 - '0');
-            }
-            return StringParsedSuccessfully;
-        }
-    }
-
-    if (!atEnd()) {
-        if constexpr (shouldBuildStrings)
-            record16(m_current);
-        shift();
-        return StringParsedSuccessfully;
-    }
-
-    m_lexErrorMessage = "Unterminated string constant"_s;
-    return StringUnterminated;
-}
-
-// The m_lexErrorMessage values of the Swift literal scans (message ids of LexerEscapedLiteralsSwiftBoundary.h), as
-// parseComplexEscape, parseStringSlowCase and parseTemplateLiteral assign them.
+// The m_lexErrorMessage values of the Swift literal scans (message ids of LexerSwiftBoundary.h), as the original
+// parseComplexEscape, parseStringSlowCase and parseTemplateLiteral assigned them.
 static ASCIILiteral swiftLiteralErrorMessage(size_t message)
 {
     switch (message) {
@@ -1493,27 +1393,33 @@ static void growSwiftLiteralScratch(Vector<char16_t>& scratch, size_t required)
     scratch.grow(std::max<size_t>({ required, 2 * scratch.size(), 256 }));
 }
 
-// The scan runs in Swift (LexerEscapedLiterals.swift), which writes the cooked value to m_literalCooked16.
-// parseStringSlowCaseCxx, the original, handles odd-aligned UTF-16 sources, which Swift can't view as a span.
+// One scan in Swift (JSCSwift_Lexer_scan, see LexerSwiftBoundary.h) of source[0 ..< length], with the literal scratch
+// buffers (kept at size == capacity, so they are never zero-filled again).
+static_assert(JSCSwift_Lexer_ResultCount == 4); // LexerScan.resultCount: Swift writes exactly 4 words.
+template <typename T>
+static ALWAYS_INLINE void scanInSwift(uint32_t mode, const T* source, size_t length, Vector<char16_t>& cooked, Vector<char16_t>& raw, std::array<size_t, JSCSwift_Lexer_ResultCount>& results)
+{
+    if constexpr (std::is_same_v<T, char16_t>)
+        mode |= JSCSwift_Lexer_Wide;
+    JSCSwift_Lexer_scan(mode, source, length, cooked.mutableSpan().data(), cooked.size(), raw.mutableSpan().data(), raw.size(), results.data());
+}
+
+// The scan runs in Swift (swift/Lexer), which writes the cooked value to m_literalCooked16.
 template <typename T>
 template <bool shouldBuildStrings> auto Lexer<T>::parseStringSlowCase(JSTokenData* tokenData, bool strictMode) -> StringParseResult
 {
-    if constexpr (std::is_same_v<T, char16_t>) {
-        if (reinterpret_cast<uintptr_t>(m_code) & 1) [[unlikely]]
-            return parseStringSlowCaseCxx<shouldBuildStrings>(tokenData, strictMode);
-    }
     ASSERT(m_buffer16.isEmpty());
     const T* start = m_code;
-    size_t results[JSCSwift_LexerEscapedLiterals_ResultCount];
+    size_t length = m_codeEnd - start;
+    uint32_t mode = JSCSwift_Lexer_String | (shouldBuildStrings ? JSCSwift_Lexer_Build : 0) | (strictMode ? JSCSwift_Lexer_Strict : 0);
+    std::array<size_t, JSCSwift_Lexer_ResultCount> results;
     while (true) {
-        if constexpr (std::is_same_v<T, Latin1Character>)
-            JSCSwift_LexerEscapedLiterals_string8(byteCast<uint8_t>(start), m_codeEnd - start, shouldBuildStrings, strictMode, m_literalCooked16.mutableSpan().data(), m_literalCooked16.size(), results);
-        else
-            JSCSwift_LexerEscapedLiterals_string16(start, m_codeEnd - start, shouldBuildStrings, strictMode, m_literalCooked16.mutableSpan().data(), m_literalCooked16.size(), results);
-        if ((results[0] & 0xff) != JSCSwift_LexerEscapedLiterals_NeedsCapacity) [[likely]]
+        scanInSwift(mode, start, length, m_literalCooked16, m_literalRaw16, results);
+        if ((results[0] & 0xff) != JSCSwift_Lexer_NeedsCapacity) [[likely]]
             break;
         growSwiftLiteralScratch(m_literalCooked16, results[2]);
     }
+    RELEASE_ASSERT(results[1] <= length && results[2] <= m_literalCooked16.size());
     m_code = start + results[1];
     m_current = m_code < m_codeEnd ? *m_code : T { };
     if (size_t message = (results[0] >> 8) & 0xff)
@@ -1526,192 +1432,11 @@ template <bool shouldBuildStrings> auto Lexer<T>::parseStringSlowCase(JSTokenDat
         else
             tokenData->ident = nullptr;
     } else {
-        // The original returns with the partial value in m_buffer16.
+        // The original returned with the partial value in m_buffer16.
         m_buffer16.append(cooked);
     }
 
     return result;
-}
-
-template <typename T>
-template <bool shouldBuildStrings> auto Lexer<T>::parseStringSlowCaseCxx(JSTokenData* tokenData, bool strictMode) -> StringParseResult
-{
-    T stringQuoteCharacter = m_current;
-    shift();
-
-    const T* stringStart = currentSourcePtr();
-
-    while (m_current != stringQuoteCharacter) {
-        if (m_current == '\\') [[unlikely]] {
-            if constexpr (shouldBuildStrings) {
-                if (stringStart != currentSourcePtr())
-                    append16({ stringStart, currentSourcePtr() });
-            }
-            shift();
-
-            Latin1Character escape = singleEscape(m_current);
-
-            // Most common escape sequences first
-            if (escape) {
-                if constexpr (shouldBuildStrings)
-                    record16(escape);
-                shift();
-            } else if (isLineTerminator(m_current)) [[unlikely]]
-                shiftLineTerminator();
-            else {
-                StringParseResult result = parseComplexEscape<shouldBuildStrings>(strictMode);
-                if (result != StringParsedSuccessfully)
-                    return result;
-            }
-
-            stringStart = currentSourcePtr();
-            continue;
-        }
-        if (characterNeedsLiteralSpecialHandling(m_current)) [[unlikely]] {
-            // New-line or end of input is not allowed
-            if (atEnd() || m_current == '\r' || m_current == '\n') {
-                m_lexErrorMessage = "Unexpected EOF"_s;
-                return atEnd() ? StringUnterminated : StringCannotBeParsed;
-            }
-            // An unescaped LS or PS may appear in a string literal, but it does not stop being a
-            // LineTerminator (ECMA-262 #11.3): it stays part of the string's value *and* ends the
-            // line.
-            if (isLineTerminator(m_current)) {
-                shiftLineTerminator();
-                continue;
-            }
-            // Anything else is just a normal character
-        }
-        shift();
-    }
-
-    if constexpr (shouldBuildStrings) {
-        if (currentSourcePtr() != stringStart)
-            append16({ stringStart, currentSourcePtr() });
-        tokenData->ident = makeIdentifier(m_buffer16.span());
-    } else
-        tokenData->ident = nullptr;
-
-    m_buffer16.shrink(0);
-    return StringParsedSuccessfully;
-}
-
-template <typename T>
-typename Lexer<T>::StringParseResult Lexer<T>::parseTemplateLiteral(JSTokenData* tokenData, RawStringsBuildMode rawStringsBuildMode)
-{
-    bool parseCookedFailed = false;
-    const T* stringStart = currentSourcePtr();
-    const T* rawStringStart = currentSourcePtr();
-
-    while (m_current != '`') {
-        if (m_current == '\\') [[unlikely]] {
-            if (stringStart != currentSourcePtr())
-                append16({ stringStart, currentSourcePtr() });
-            shift();
-
-            Latin1Character escape = singleEscape(m_current);
-
-            // Most common escape sequences first.
-            if (escape) {
-                record16(escape);
-                shift();
-            } else if (isLineTerminator(m_current)) [[unlikely]] {
-                // Normalize <CR>, <CR><LF> to <LF>.
-                if (m_current == '\r') {
-                    ASSERT_WITH_MESSAGE(rawStringStart != currentSourcePtr(), "We should have at least shifted the escape.");
-
-                    if (rawStringsBuildMode == RawStringsBuildMode::BuildRawStrings) {
-                        m_bufferForRawTemplateString16.append(std::span(rawStringStart, currentSourcePtr() - rawStringStart));
-                        m_bufferForRawTemplateString16.append('\n');
-                    }
-
-                    shiftLineTerminator();
-                    rawStringStart = currentSourcePtr();
-                } else
-                    shiftLineTerminator();
-            } else {
-                bool strictMode = true;
-                StringParseResult result = parseComplexEscape<true>(strictMode);
-                if (result != StringParsedSuccessfully) {
-                    if (rawStringsBuildMode == RawStringsBuildMode::BuildRawStrings && result == StringCannotBeParsed)
-                        parseCookedFailed = true;
-                    else
-                        return result;
-                }
-            }
-
-            stringStart = currentSourcePtr();
-            continue;
-        }
-
-        if (m_current == '$' && peek(1) == '{')
-            break;
-
-        if (characterNeedsLiteralSpecialHandling(m_current)) [[unlikely]] {
-            // End of input is not allowed.
-            // Unlike String, line terminator is allowed.
-            if (atEnd()) {
-                m_lexErrorMessage = "Unexpected EOF"_s;
-                return StringUnterminated;
-            }
-
-            if (isLineTerminator(m_current)) {
-                if (m_current == '\r') {
-                    // Normalize <CR>, <CR><LF> to <LF>.
-                    if (stringStart != currentSourcePtr())
-                        append16({ stringStart, currentSourcePtr() });
-                    if (rawStringStart != currentSourcePtr() && rawStringsBuildMode == RawStringsBuildMode::BuildRawStrings)
-                        m_bufferForRawTemplateString16.append(std::span(rawStringStart, currentSourcePtr() - rawStringStart));
-
-                    record16('\n');
-                    if (rawStringsBuildMode == RawStringsBuildMode::BuildRawStrings)
-                        m_bufferForRawTemplateString16.append('\n');
-                    shiftLineTerminator();
-                    stringStart = currentSourcePtr();
-                    rawStringStart = currentSourcePtr();
-                } else
-                    shiftLineTerminator();
-                continue;
-            }
-            // Anything else is just a normal character
-        }
-
-        shift();
-    }
-
-    bool isTail = m_current == '`';
-
-    if (currentSourcePtr() != stringStart)
-        append16({ stringStart, currentSourcePtr() });
-    if (rawStringStart != currentSourcePtr() && rawStringsBuildMode == RawStringsBuildMode::BuildRawStrings)
-        m_bufferForRawTemplateString16.append(std::span { rawStringStart, currentSourcePtr() });
-
-    if (!parseCookedFailed)
-        tokenData->cooked = makeIdentifier(m_buffer16.span());
-    else
-        tokenData->cooked = nullptr;
-
-    // Line terminator normalization (e.g. <CR> => <LF>) should be applied to both the raw and cooked representations.
-    if (rawStringsBuildMode == RawStringsBuildMode::BuildRawStrings)
-        tokenData->raw = makeIdentifier(m_bufferForRawTemplateString16.span());
-    else
-        tokenData->raw = nullptr;
-
-    tokenData->isTail = isTail;
-
-    m_buffer16.shrink(0);
-    m_bufferForRawTemplateString16.shrink(0);
-
-    if (isTail) {
-        // Skip `
-        shift();
-    } else {
-        // Skip $ and {
-        shift();
-        shift();
-    }
-
-    return StringParsedSuccessfully;
 }
 
 template <typename T>
@@ -3140,43 +2865,25 @@ returnError:
     return token;
 }
 
-template <typename T>
-static inline void orCharacter(char16_t&, char16_t);
-
-template <>
-inline void orCharacter<Latin1Character>(char16_t&, char16_t) { }
-
-template <>
-NODELETE inline void orCharacter<char16_t>(char16_t& orAccumulator, char16_t character)
-{
-    orAccumulator |= character;
-}
-
+// The scan of the body and the flags runs in Swift (swift/Lexer), which returns offsets; the identifiers and the error
+// tokens are built here exactly as the original built them.
 template <typename T>
 JSTokenType Lexer<T>::scanRegExp(JSToken* tokenRecord, char16_t patternPrefix)
 {
-    // The scan of the body and the flags runs in Swift (LexerRegExp.swift), which returns offsets; the identifiers
-    // and the error tokens are built here exactly as scanRegExpCxx (the original, still used for odd-aligned
-    // UTF-16 sources) builds them.
-    if constexpr (std::is_same_v<T, char16_t>) {
-        if (reinterpret_cast<uintptr_t>(m_code) & 1) [[unlikely]]
-            return scanRegExpCxx(tokenRecord, patternPrefix);
-    }
     JSTokenData* tokenData = &tokenRecord->m_data;
     ASSERT(m_buffer16.isEmpty());
     ASSERT(m_buffer8.isEmpty());
 
     const T* start = m_code;
-    size_t bodyEnd = 0;
-    size_t end = 0;
-    uint32_t scan;
-    if constexpr (std::is_same_v<T, Latin1Character>)
-        scan = JSCSwift_LexerRegExp_scan8(byteCast<uint8_t>(start), m_codeEnd - start, &bodyEnd, &end);
-    else
-        scan = JSCSwift_LexerRegExp_scan16(start, m_codeEnd - start, &bodyEnd, &end);
+    size_t length = m_codeEnd - start;
+    std::array<size_t, JSCSwift_Lexer_ResultCount> results;
+    scanInSwift(JSCSwift_Lexer_RegExp, start, length, m_literalCooked16, m_literalRaw16, results);
+    size_t end = results[1];
+    size_t bodyEnd = results[2];
+    uint32_t status = results[0] & 0xffff;
+    RELEASE_ASSERT(end <= length && (status == 1 || bodyEnd < end));
     m_code = start + end;
     m_current = m_code < m_codeEnd ? *m_code : T { };
-    uint32_t status = scan & 0xffff;
 
     JSTokenType token;
     if (status == 1) [[unlikely]] {
@@ -3188,7 +2895,7 @@ JSTokenType Lexer<T>::scanRegExp(JSToken* tokenRecord, char16_t patternPrefix)
         if (patternPrefix)
             record16(patternPrefix);
         append16(std::span { start, bodyEnd });
-        tokenData->pattern = makeRightSizedIdentifier(m_buffer16, static_cast<char16_t>(scan >> 16));
+        tokenData->pattern = makeRightSizedIdentifier(m_buffer16, static_cast<char16_t>(results[0] >> 16));
         m_buffer16.shrink(0);
 
         if (status == 2) [[unlikely]] {
@@ -3217,105 +2924,11 @@ JSTokenType Lexer<T>::scanRegExp(JSToken* tokenRecord, char16_t patternPrefix)
     return token;
 }
 
-template <typename T>
-JSTokenType Lexer<T>::scanRegExpCxx(JSToken* tokenRecord, char16_t patternPrefix)
-{
-    JSTokenData* tokenData = &tokenRecord->m_data;
-    ASSERT(m_buffer16.isEmpty());
-
-    bool lastWasEscape = false;
-    bool inBrackets = false;
-    char16_t charactersOredTogether = 0;
-
-    if (patternPrefix) {
-        ASSERT(!isLineTerminator(patternPrefix));
-        ASSERT(patternPrefix != '/');
-        ASSERT(patternPrefix != '[');
-        record16(patternPrefix);
-    }
-
-    while (true) {
-        if (isLineTerminator(m_current) || atEnd()) {
-            m_buffer16.shrink(0);
-            JSTokenType token = UNTERMINATED_REGEXP_LITERAL_ERRORTOK;
-            fillTokenInfo(tokenRecord, currentPosition());
-            m_error = true;
-            m_lexErrorMessage = makeString("Unterminated regular expression literal '"_s, getToken(*tokenRecord), '\'');
-            return token;
-        }
-
-        T prev = m_current;
-        
-        shift();
-
-        if (prev == '/' && !lastWasEscape && !inBrackets)
-            break;
-
-        record16(prev);
-        orCharacter<T>(charactersOredTogether, prev);
-
-        if (lastWasEscape) {
-            lastWasEscape = false;
-            continue;
-        }
-
-        switch (prev) {
-        case '[':
-            inBrackets = true;
-            break;
-        case ']':
-            inBrackets = false;
-            break;
-        case '\\':
-            lastWasEscape = true;
-            break;
-        }
-    }
-
-    tokenData->pattern = makeRightSizedIdentifier(m_buffer16, charactersOredTogether);
-    m_buffer16.shrink(0);
-
-    ASSERT(m_buffer8.isEmpty());
-    while (isLatin1(m_current)) [[likely]] {
-        if (!isIdentPart(static_cast<Latin1Character>(m_current)))
-            break;
-        record8(static_cast<Latin1Character>(m_current));
-        shift();
-    }
-
-    // Normally this would not be a lex error but dealing with surrogate pairs here is annoying and it's going to be an error anyway...
-    if (!isLatin1(m_current) && !isWhiteSpace(m_current) && !isLineTerminator(m_current)) [[unlikely]] {
-        m_buffer8.shrink(0);
-        JSTokenType token = INVALID_IDENTIFIER_UNICODE_ERRORTOK;
-        fillTokenInfo(tokenRecord, currentPosition());
-        m_error = true;
-        String codePoint = String::fromCodePoint(currentCodePoint());
-        if (!codePoint)
-            codePoint = "`invalid unicode character`"_s;
-        m_lexErrorMessage = makeString("Invalid non-latin character in RexExp literal's flags '"_s, getToken(*tokenRecord), codePoint, '\'');
-        return token;
-    }
-
-    tokenData->flags = makeIdentifier(m_buffer8.span());
-    m_buffer8.shrink(0);
-
-    // Since RegExp always ends with / or flags (IdentifierPart), m_atLineStart always becomes false.
-    m_atLineStart = false;
-
-    JSTokenType token = REGEXP;
-    fillTokenInfo(tokenRecord, currentPosition());
-    return token;
-}
-
-// The scan (parseTemplateLiteral) runs in Swift (LexerEscapedLiterals.swift), which writes the cooked and raw values
-// to m_literalCooked16 and m_literalRaw16. scanTemplateStringCxx, the original, handles odd-aligned UTF-16 sources.
+// The scan (the original parseTemplateLiteral) runs in Swift (swift/Lexer), which writes the cooked and raw values to
+// m_literalCooked16 and m_literalRaw16.
 template <typename T>
 JSTokenType Lexer<T>::scanTemplateString(JSToken* tokenRecord, RawStringsBuildMode rawStringsBuildMode)
 {
-    if constexpr (std::is_same_v<T, char16_t>) {
-        if (reinterpret_cast<uintptr_t>(m_code) & 1) [[unlikely]]
-            return scanTemplateStringCxx(tokenRecord, rawStringsBuildMode);
-    }
     JSTokenData* tokenData = &tokenRecord->m_data;
     ASSERT(!m_error);
     ASSERT(m_buffer16.isEmpty());
@@ -3323,19 +2936,18 @@ JSTokenType Lexer<T>::scanTemplateString(JSToken* tokenRecord, RawStringsBuildMo
 
     bool buildRaw = rawStringsBuildMode == RawStringsBuildMode::BuildRawStrings;
     const T* start = m_code;
-    size_t results[JSCSwift_LexerEscapedLiterals_ResultCount];
+    size_t length = m_codeEnd - start;
+    std::array<size_t, JSCSwift_Lexer_ResultCount> results;
     while (true) {
-        if constexpr (std::is_same_v<T, Latin1Character>)
-            JSCSwift_LexerEscapedLiterals_template8(byteCast<uint8_t>(start), m_codeEnd - start, buildRaw, m_literalCooked16.mutableSpan().data(), m_literalCooked16.size(), m_literalRaw16.mutableSpan().data(), m_literalRaw16.size(), results);
-        else
-            JSCSwift_LexerEscapedLiterals_template16(start, m_codeEnd - start, buildRaw, m_literalCooked16.mutableSpan().data(), m_literalCooked16.size(), m_literalRaw16.mutableSpan().data(), m_literalRaw16.size(), results);
-        if ((results[0] & 0xff) != JSCSwift_LexerEscapedLiterals_NeedsCapacity) [[likely]]
+        scanInSwift(JSCSwift_Lexer_Template | (buildRaw ? JSCSwift_Lexer_Build : 0), start, length, m_literalCooked16, m_literalRaw16, results);
+        if ((results[0] & 0xff) != JSCSwift_Lexer_NeedsCapacity) [[likely]]
             break;
         if (results[2] > m_literalCooked16.size())
             growSwiftLiteralScratch(m_literalCooked16, results[2]);
         if (results[3] > m_literalRaw16.size())
             growSwiftLiteralScratch(m_literalRaw16, results[3]);
     }
+    RELEASE_ASSERT(results[1] <= length && results[2] <= m_literalCooked16.size() && results[3] <= m_literalRaw16.size());
     m_code = start + results[1];
     m_current = m_code < m_codeEnd ? *m_code : T { };
     if (size_t message = (results[0] >> 8) & 0xff)
@@ -3346,7 +2958,7 @@ JSTokenType Lexer<T>::scanTemplateString(JSToken* tokenRecord, RawStringsBuildMo
 
     JSTokenType token = ERRORTOK;
     if (result != StringParsedSuccessfully) [[unlikely]] {
-        // The original returns with the partial values in its buffers.
+        // The original returned with the partial values in its buffers.
         m_buffer16.append(cooked);
         m_bufferForRawTemplateString16.append(raw);
         token = result == StringUnterminated ? UNTERMINATED_TEMPLATE_LITERAL_ERRORTOK : INVALID_TEMPLATE_LITERAL_ERRORTOK;
@@ -3368,29 +2980,6 @@ JSTokenType Lexer<T>::scanTemplateString(JSToken* tokenRecord, RawStringsBuildMo
     m_atLineStart = false;
     fillTokenInfo(tokenRecord, currentPosition());
 
-    return token;
-}
-
-template <typename T>
-JSTokenType Lexer<T>::scanTemplateStringCxx(JSToken* tokenRecord, RawStringsBuildMode rawStringsBuildMode)
-{
-    JSTokenData* tokenData = &tokenRecord->m_data;
-    ASSERT(!m_error);
-    ASSERT(m_buffer16.isEmpty());
-
-    // Leading backquote ` (for template head) or closing brace } (for template trailing) are already shifted in the previous token scan.
-    // So in this re-scan phase, shift() is not needed here.
-    StringParseResult result = parseTemplateLiteral(tokenData, rawStringsBuildMode);
-    JSTokenType token = ERRORTOK;
-    if (result != StringParsedSuccessfully) [[unlikely]] {
-        token = result == StringUnterminated ? UNTERMINATED_TEMPLATE_LITERAL_ERRORTOK : INVALID_TEMPLATE_LITERAL_ERRORTOK;
-        m_error = true;
-    } else
-        token = TEMPLATE;
-
-    // Since TemplateString always ends with ` or }, m_atLineStart always becomes false.
-    m_atLineStart = false;
-    fillTokenInfo(tokenRecord, currentPosition());
     return token;
 }
 

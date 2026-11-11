@@ -23,26 +23,29 @@
 
 // Boundary for PathStream::computeFastBoundingRect in Source/WebCore/platform/graphics/PathStream.cpp, declared in
 // PathFastBoundsSwiftBoundary.h: wraps the PathSegment array (4-byte aligned; PathStream.cpp static_asserts it) and the
-// state struct in spans, and forwards the endPoint and extendRect callbacks.
+// state struct in spans, and forwards the cxxWork callback.
 
 @_cdecl("WebCoreSwift_PathFastBounds_computeFastBoundingRect")
 func WebCoreSwift_PathFastBounds_computeFastBoundingRect(_ segments: UnsafeRawPointer?, _ wordCount: Int,
     _ segmentSizeInWords: Int, _ tagOffset: Int, _ context: UnsafeRawPointer?,
-    _ endPoint: @convention(c) (UnsafeRawPointer?, Int, UInt64, UnsafeMutablePointer<UInt64>?) -> UInt64,
-    _ extendRect: @convention(c) (UnsafeRawPointer?, Int, UnsafeMutableRawPointer?) -> Void, _ state: UnsafeMutableRawPointer)
+    _ cxxWork: @convention(c) (UnsafeRawPointer?, Int, UInt64, UnsafeMutablePointer<UInt64>?, UnsafeMutableRawPointer?) -> UInt64,
+    _ state: UnsafeMutableRawPointer, _ stateCount: Int)
 {
+    precondition(stateCount == PathFastBounds.State.count)
     let words = unsafe UnsafeBufferPointer(start: segments?.assumingMemoryBound(to: UInt32.self), count: wordCount)
     var stateFields = unsafe UnsafeMutableBufferPointer(start: state.assumingMemoryBound(to: Float.self), count: PathFastBounds.State.count).mutableSpan
     unsafe PathFastBounds.computeFastBoundingRect(segments: words.span, segmentSizeInWords: segmentSizeInWords, tagOffset: tagOffset,
-        state: &stateFields,
-        endPoint: { segmentIndex, currentPoint, lastMoveToPoint in
-            var lastMoveToPoint = lastMoveToPoint
-            let currentPoint = unsafe endPoint(context, segmentIndex, currentPoint, &lastMoveToPoint)
-            return (currentPoint, lastMoveToPoint)
-        },
-        extendRect: { segmentIndex, state in
-            state.withFields { fields in
-                fields.withUnsafeMutableBufferPointer { unsafe extendRect(context, segmentIndex, UnsafeMutableRawPointer($0.baseAddress)) }
+        state: &stateFields) { segmentIndex, extendRect, state in
+            if extendRect {
+                // The whole state, for segment.extendFastBoundingRect() on its rect.
+                state.withFields { fields in
+                    fields.withUnsafeMutableBufferPointer { _ = unsafe cxxWork(context, segmentIndex, 0, nil, UnsafeMutableRawPointer($0.baseAddress)) }
+                }
+                return
             }
-        })
+            // The points in registers, for segment.calculateEndPoint().
+            var lastMoveToPoint = state.packedLastMoveToPoint
+            state.packedCurrentPoint = unsafe cxxWork(context, segmentIndex, state.packedCurrentPoint, &lastMoveToPoint, nil)
+            state.packedLastMoveToPoint = lastMoveToPoint
+        }
 }

@@ -22,11 +22,11 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 
 // The header of an IPC stream message, read from the bytes that the sending process wrote into the stream
-// connection's shared memory. This is the body of
+// connection's shared memory. This was the C++ body of
 //     IPC::Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID)
-// in Source/WebKit/Platform/IPC/Decoder.cpp (the original C++ is kept there as Decoder::decodeStreamHeaderCxx()), which
-// the stream message decoder (IPCStreamMessage.swift) runs before locating the arguments.
-// The checks and the wire format are those of the C++ decoders that the constructor calls:
+// in Source/WebKit/Platform/IPC/Decoder.cpp, which now calls the stream message decoder (IPCStreamMessage.swift), which
+// runs this before locating the arguments.
+// The checks and the wire format are those of the C++ decoders that the constructor called:
 // - Decoder::decodeSpan<T>(1): a T is read at roundUpToMultipleOf<alignof(T)>(its address), and only if
 //   alignedBufferIsLargeEnoughToContain(size, alignedPosition, sizeof(T)).
 // - ArgumentCoder<MessageName> (the enum coder): a uint16_t that must satisfy isValidEnum<MessageName>, i.e. <= Last.

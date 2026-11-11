@@ -25,17 +25,21 @@
 
 #pragma once
 
-// C boundary of the HTMLScan Swift kernels (Source/WebCore/swift/HTMLScan): the batching scans of
+// C boundary of the HTMLScan Swift kernels (Source/WebCore/swift/HTMLScan): the batching scan of
 // HTMLTokenizer::processToken (HTMLTokenizer.cpp) and the scanners of HTMLFastPathParser
 // (HTMLDocumentParserFastPath.cpp). The symbols are internal to WebCore (hidden); only WebCore .cpp files may call
 // them, never header-inline code.
 //
-// Inputs are the parser's remaining characters: `length` Latin-1 bytes (…8 functions, or is8Bit) or `length` UTF-16
-// code units (!is8Bit) at any alignment. Pointers may be null only when the length is 0. Offsets and lengths are in
-// code units, relative to the start of the input.
+// Inputs are the parser's remaining characters: `length` Latin-1 bytes (is8Bit, or the …8 function) or `length`
+// UTF-16 code units (!is8Bit) at any alignment. Pointers may be null only when the length is 0. Offsets and lengths
+// are in code units, relative to the start of the input.
 
 #include <stddef.h>
 #include <stdint.h>
+
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
 
 #if defined(__cplusplus) && defined(NODELETE)
 #define WEBCORE_SWIFT_HTML_SCAN_NODELETE NODELETE
@@ -75,6 +79,14 @@ typedef struct {
 #define WebCoreSwiftHTMLScanAttributeNameNeedsLowering 0x80000000u
 #define WebCoreSwiftHTMLScanAttributeCapacity 16
 
+// What a start tag scan writes besides its result: where the attribute list scan stopped (see
+// WebCoreSwiftHTMLScanAttributes) and attributes[0 ..< count], one record per attribute that parseAttributes()
+// appends or drops as a duplicate.
+typedef struct {
+    uint64_t consumed;
+    WebCoreSwiftHTMLScanAttribute attributes[WebCoreSwiftHTMLScanAttributeCapacity];
+} WebCoreSwiftHTMLScanStartTag;
+
 // Tag classes: the supported tags in FOR_EACH_SUPPORTED_TAG order, then these two.
 #define WebCoreSwiftHTMLScanTagClassOther 18
 #define WebCoreSwiftHTMLScanTagClassFailed 19
@@ -97,12 +109,16 @@ enum WebCoreSwiftHTMLScanFailure {
 };
 
 // scanTagName() (from just after the '<') and the scanning of parseAttributes(); with scanTagName false, the rest
-// of an attribute list from the start of an attribute name. Fills attributes[0 ..< count]. Returns
+// of an attribute list from the start of an attribute name. Fills *startTag. Returns
 //   tag class (0 when scanTagName is false; for ...TagClassFailed nothing else is set)
-//   | attributes status << 8 | first failure << 12 | count << 16
+//   | attributes status << 8 | first failure << 12 | attribute count << 16
 //   | where scanTagName() leaves the position (after the name and the whitespace after it) << 32.
-WEBCORE_SWIFT_HTML_SCAN_NODELETE uint64_t WebCoreSwift_HTMLScan_fastPathScanStartTag(const void* characters, size_t length, bool is8Bit, bool scanTagName, WebCoreSwiftHTMLScanAttribute* attributes, size_t attributeCapacity, size_t* consumed);
+WEBCORE_SWIFT_HTML_SCAN_NODELETE uint64_t WebCoreSwift_HTMLScan_fastPathScanStartTag(const void* characters, size_t length, bool is8Bit, bool scanTagName, WebCoreSwiftHTMLScanStartTag* startTag);
 
 #ifdef __cplusplus
 }
+
+// The Swift side writes WebCoreSwiftHTMLScanStartTag by these offsets (HTMLScan.startTag* in HTMLScanFastPath.swift).
+static_assert(offsetof(WebCoreSwiftHTMLScanStartTag, consumed) == 0 && offsetof(WebCoreSwiftHTMLScanStartTag, attributes) == 8);
+static_assert(sizeof(WebCoreSwiftHTMLScanAttribute) == 16 && sizeof(WebCoreSwiftHTMLScanStartTag) == 8 + 16 * WebCoreSwiftHTMLScanAttributeCapacity);
 #endif

@@ -23,10 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// JSObject's indexed-storage fill and shape-conversion loops implemented in Swift (ButterflyFill.swift). Each
-// function rewrites data[0 ..< count], a butterfly's indexed payload or a sub-range of it, viewed as 64-bit
-// elements; data must be 8-byte aligned and may be null only if count is 0. The symbols are hidden in
-// JavaScriptCore: only runtime/JSObject.cpp calls them.
+// JSObject's indexed-storage fill and shape-conversion loops implemented in Swift (ButterflyFill.swift).
+// JSCSwift_ButterflyFill_apply rewrites data[0 ..< count], a butterfly's indexed payload or a sub-range of it, viewed
+// as 64-bit elements; data must be 8-byte aligned and may be null only if count is 0. The symbol is hidden in
+// JavaScriptCore: only runtime/JSObject.cpp calls it.
 
 #pragma once
 
@@ -37,19 +37,21 @@
 extern "C" {
 #endif
 
-// Every element = PNaN (PNaNAsBits), the hole of a Double-shape butterfly.
-__attribute__((nothrow)) void JSCSwift_ButterflyFill_fillWithPureNaN(uint64_t* data, size_t count);
+enum {
+    // Every element = PNaN (PNaNAsBits), the hole of a Double-shape butterfly.
+    JSCSwift_ButterflyFill_FillWithPureNaN = 0,
+    // Every element = JSValue::encode(JSValue()) (0), the hole of an Int32- or Contiguous-shape butterfly.
+    JSCSwift_ButterflyFill_FillWithEmptyValue = 1,
+    // In place, as JSObject::convertInt32ToDouble: an int32 JSValue becomes the bits of the double of its value, any
+    // other bit pattern becomes PNaN.
+    JSCSwift_ButterflyFill_Int32ToDouble = 2,
+    // In place, as JSObject::convertDoubleToContiguous: a NaN becomes JSValue() (0), any other double d becomes
+    // JSValue::encode(JSValue(JSValue::EncodeAsDouble, d)).
+    JSCSwift_ButterflyFill_DoubleToJSValue = 3,
+};
 
-// Every element = JSValue::encode(JSValue()) (0), the hole of an Int32- or Contiguous-shape butterfly.
-__attribute__((nothrow)) void JSCSwift_ButterflyFill_fillWithEmptyValue(uint64_t* data, size_t count);
-
-// In place, as JSObject::convertInt32ToDouble: an int32 JSValue becomes the bits of the double of its value, any
-// other bit pattern becomes PNaN.
-__attribute__((nothrow)) void JSCSwift_ButterflyFill_int32ToDouble(uint64_t* data, size_t count);
-
-// In place, as JSObject::convertDoubleToContiguous: a NaN becomes JSValue() (0), any other double d becomes
-// JSValue::encode(JSValue(JSValue::EncodeAsDouble, d)).
-__attribute__((nothrow)) void JSCSwift_ButterflyFill_doubleToJSValue(uint64_t* data, size_t count);
+// Applies one of the operations above (traps on any other value) to data[0 ..< count].
+__attribute__((nothrow)) void JSCSwift_ButterflyFill_apply(uint64_t* data, size_t count, uint32_t operation);
 
 #ifdef __cplusplus
 }

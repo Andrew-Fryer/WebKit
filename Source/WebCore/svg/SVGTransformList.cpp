@@ -32,7 +32,6 @@
 #include "ExceptionOr.h"
 #include "SVGParserUtilities.h"
 #include "SVGTransform.h"
-#include "SVGTransformListInlines.h"
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/StringParsingBuffer.h>
 #include <wtf/text/StringView.h>
@@ -55,36 +54,39 @@ SVGTransformList::SVGTransformList(const SVGTransformList& other, SVGPropertyAcc
 
 SVGTransformList::~SVGTransformList() = default;
 
-template<typename CharacterType> static constexpr std::array<CharacterType, 5> skewXDesc  { 's', 'k', 'e', 'w', 'X' };
-template<typename CharacterType> static constexpr std::array<CharacterType, 5> skewYDesc  { 's', 'k', 'e', 'w', 'Y' };
-template<typename CharacterType> static constexpr std::array<CharacterType, 5> scaleDesc  { 's', 'c', 'a', 'l', 'e' };
-template<typename CharacterType> static constexpr std::array<CharacterType, 9> translateDesc  { 't', 'r', 'a', 'n', 's', 'l', 'a', 't', 'e' };
-template<typename CharacterType> static constexpr std::array<CharacterType, 6> rotateDesc  { 'r', 'o', 't', 'a', 't', 'e' };
-template<typename CharacterType> static constexpr std::array<CharacterType, 6> matrixDesc  { 'm', 'a', 't', 'r', 'i', 'x' };
+// SVG transform lists are lexed in Swift (Source/WebCore/swift/SVGTransform/SVGTransformLexer.swift); this file applies
+// the lexed items to the list.
+
+// Lexes up to items.size() items from the start of buffer, advances buffer past the last one (also if it failed) and
+// returns how many were lexed (at least one). Lexing stops after an item that did not parse. Item i's values go to
+// values[6 * i ..< 6 * i + 6].
+template<typename CharacterType> NODELETE static size_t lexSVGTransformListItems(StringParsingBuffer<CharacterType>& buffer, std::span<uint32_t> items, std::span<float> values)
+{
+    auto characters = buffer.span();
+    auto lexed = WebCoreSwift_SVGTransform_lexItems(characters.data(), characters.size(), sizeof(CharacterType) == sizeof(char16_t), items.data(), items.size(), values.data(), values.size());
+    buffer.advanceBy(WebCoreSwift_SVGTransform_consumed(lexed));
+    return WebCoreSwift_SVGTransform_itemCount(lexed);
+}
 
 template<typename CharacterType> NODELETE static std::optional<SVGTransformValue::SVGTransformType> parseTransformTypeGeneric(StringParsingBuffer<CharacterType>& buffer)
 {
-    if (buffer.atEnd())
+    // The keyword must start at the cursor (the lexer skips whitespace before an item).
+    if (buffer.atEnd() || isASCIIWhitespace(*buffer))
         return std::nullopt;
 
-    if (*buffer == 's') {
-        if (skipCharactersExactly(buffer, std::span { skewXDesc<CharacterType> }))
-            return SVGTransformValue::SVG_TRANSFORM_SKEWX;
-        if (skipCharactersExactly(buffer, std::span { skewYDesc<CharacterType> }))
-            return SVGTransformValue::SVG_TRANSFORM_SKEWY;
-        if (skipCharactersExactly(buffer, std::span { scaleDesc<CharacterType> }))
-            return SVGTransformValue::SVG_TRANSFORM_SCALE;
+    // Lex the item that starts with the keyword, but only advance past the keyword.
+    auto start = buffer;
+    std::array<uint32_t, 1> item { };
+    std::array<float, 6> values { };
+    lexSVGTransformListItems(start, std::span { item }, std::span { values });
+    if (WebCoreSwift_SVGTransform_status(item[0]) == WebCoreSwift_SVGTransform_NoTransformType)
         return std::nullopt;
-    }
 
-    if (skipCharactersExactly(buffer, std::span { translateDesc<CharacterType> }))
-        return SVGTransformValue::SVG_TRANSFORM_TRANSLATE;
-    if (skipCharactersExactly(buffer, std::span { rotateDesc<CharacterType> }))
-        return SVGTransformValue::SVG_TRANSFORM_ROTATE;
-    if (skipCharactersExactly(buffer, std::span { matrixDesc<CharacterType> }))
-        return SVGTransformValue::SVG_TRANSFORM_MATRIX;
-
-    return std::nullopt;
+    // The lengths of "matrix", "translate", "scale", "rotate", "skewX" and "skewY", indexed by SVGTransformType.
+    static constexpr std::array<uint8_t, 7> keywordLengths { 0, 6, 9, 5, 6, 5, 5 };
+    auto type = static_cast<SVGTransformValue::SVGTransformType>(WebCoreSwift_SVGTransform_type(item[0]));
+    buffer.advanceBy(keywordLengths[type]);
+    return type;
 }
 
 std::optional<SVGTransformValue::SVGTransformType> SVGTransformList::parseTransformType(StringView string)
@@ -137,74 +139,8 @@ std::optional<AffineTransform> SVGTransformList::concatenate() const
     return result;
 }
 
-template<typename CharacterType> bool SVGTransformList::parseGeneric(StringParsingBuffer<CharacterType>& buffer, ListReplacement listReplacement)
-{
-    bool delimParsed = false;
-    skipOptionalSVGSpaces(buffer);
-
-    size_t itemIndex = 0;
-    auto currentListReplacement = listReplacement;
-
-    while (buffer.hasCharactersRemaining()) {
-        delimParsed = false;
-
-        auto parsedTransformType = parseTransformType(buffer);
-        if (!parsedTransformType)
-            return false;
-
-        if (currentListReplacement == ListReplacement::Replace && itemIndex < m_items.size() && parsedTransformType == m_items[itemIndex]->type()) {
-            if (!parseAndReplaceTransform(*parsedTransformType, buffer, m_items[itemIndex]))
-                return false;
-        } else {
-            // Switch to `Append` mode and remove the existing SVGTransforms starting from `itemIndex`.
-            if (currentListReplacement == ListReplacement::Replace) {
-                currentListReplacement = ListReplacement::Append;
-                resize(itemIndex);
-            }
-
-            RefPtr parsedTransform = parseTransform(*parsedTransformType, buffer);
-            if (!parsedTransform)
-                return false;
-
-            append(parsedTransform.releaseNonNull());
-        }
-
-        skipOptionalSVGSpaces(buffer);
-
-        if (skipExactly(buffer, ','))
-            delimParsed = true;
-
-        skipOptionalSVGSpaces(buffer);
-
-        ++itemIndex;
-    }
-
-    if (itemIndex < m_items.size()) {
-        ASSERT(currentListReplacement == ListReplacement::Replace);
-        resize(itemIndex);
-    }
-
-    return !delimParsed;
-}
-
-// Latin-1 transform lists are lexed in Swift (Source/WebCore/swift/SVGTransform/SVGTransformLexer.swift),
-// up to 8 items per call; the specialization of parseGeneric below applies each item to the list
-// exactly like the primary template does. char16_t lists (rare) still use the primary template.
-
-// Lexes items from the start of buffer in Swift, advances buffer past the last one (also if it failed)
-// and returns how many were lexed (at least one). Lexing stops after an item that did not parse.
-static size_t lexSVGTransformListItems(StringParsingBuffer<Latin1Character>& buffer, std::array<uint32_t, 8>& items, std::array<std::array<float, 6>, 8>& values)
-{
-    static_assert(sizeof(values) == sizeof(float) * 6 * 8);
-    auto characters = byteCast<uint8_t>(buffer.span());
-    size_t consumed = 0;
-    size_t itemCount = WebCoreSwift_SVGTransform_lexItems8(characters.data(), characters.size(), items.data(), values[0].data(), items.size(), &consumed);
-    buffer.advanceBy(consumed);
-    return itemCount;
-}
-
-// The tail of parseAndReplaceTransform (SVGTransformListInlines.h), after the parameter list is parsed.
-static bool setSVGTransformFromLexedValues(SVGTransformValue::SVGTransformType type, const std::array<float, 6>& values, int valueCount, SVGTransform& transform)
+// Sets transform (whose type is type) to the lexed item.
+static bool setSVGTransformFromLexedValues(SVGTransformValue::SVGTransformType type, std::span<const float, 6> values, int valueCount, SVGTransform& transform)
 {
     ASSERT(type == transform.value().type());
 
@@ -250,8 +186,8 @@ static bool setSVGTransformFromLexedValues(SVGTransformValue::SVGTransformType t
     return false;
 }
 
-// The tail of parseTransform (SVGTransformListInlines.h), after the parameter list is parsed.
-static RefPtr<SVGTransform> createSVGTransformFromLexedValues(SVGTransformValue::SVGTransformType type, const std::array<float, 6>& values, int valueCount)
+// A new SVGTransform for the lexed item.
+static RefPtr<SVGTransform> createSVGTransformFromLexedValues(SVGTransformValue::SVGTransformType type, std::span<const float, 6> values, int valueCount)
 {
     switch (type) {
     case SVGTransformValue::SVG_TRANSFORM_UNKNOWN:
@@ -303,7 +239,7 @@ static RefPtr<SVGTransform> createSVGTransformFromLexedValues(SVGTransformValue:
     return nullptr;
 }
 
-template<> bool SVGTransformList::parseGeneric(StringParsingBuffer<Latin1Character>& buffer, ListReplacement listReplacement)
+template<typename CharacterType> bool SVGTransformList::parseGeneric(StringParsingBuffer<CharacterType>& buffer, ListReplacement listReplacement)
 {
     bool delimParsed = false;
 
@@ -312,12 +248,13 @@ template<> bool SVGTransformList::parseGeneric(StringParsingBuffer<Latin1Charact
 
     while (buffer.hasCharactersRemaining()) {
         std::array<uint32_t, 8> items { };
-        std::array<std::array<float, 6>, 8> values { };
-        size_t itemCount = lexSVGTransformListItems(buffer, items, values);
+        std::array<float, 6 * 8> values { };
+        size_t itemCount = lexSVGTransformListItems(buffer, std::span { items }, std::span { values });
         for (size_t i = 0; i < itemCount; ++i) {
+            auto itemValues = std::span { values }.subspan(6 * i).first<6>();
             auto status = WebCoreSwift_SVGTransform_status(items[i]);
 
-            // The primary template skips whitespace before the loop; only the first item can see it.
+            // Only the first item can be whitespace: every item skips the whitespace after it.
             if (status == WebCoreSwift_SVGTransform_OnlyWhitespace)
                 break;
 
@@ -330,7 +267,7 @@ template<> bool SVGTransformList::parseGeneric(StringParsingBuffer<Latin1Charact
             int valueCount = WebCoreSwift_SVGTransform_valueCount(items[i]);
 
             if (currentListReplacement == ListReplacement::Replace && itemIndex < m_items.size() && parsedTransformType == m_items[itemIndex]->type()) {
-                if (status != WebCoreSwift_SVGTransform_Parsed || !setSVGTransformFromLexedValues(parsedTransformType, values[i], valueCount, m_items[itemIndex]))
+                if (status != WebCoreSwift_SVGTransform_Parsed || !setSVGTransformFromLexedValues(parsedTransformType, itemValues, valueCount, m_items[itemIndex]))
                     return false;
             } else {
                 // Switch to `Append` mode and remove the existing SVGTransforms starting from `itemIndex`.
@@ -342,7 +279,7 @@ template<> bool SVGTransformList::parseGeneric(StringParsingBuffer<Latin1Charact
                 if (status != WebCoreSwift_SVGTransform_Parsed)
                     return false;
 
-                RefPtr parsedTransform = createSVGTransformFromLexedValues(parsedTransformType, values[i], valueCount);
+                RefPtr parsedTransform = createSVGTransformFromLexedValues(parsedTransformType, itemValues, valueCount);
                 if (!parsedTransform)
                     return false;
 

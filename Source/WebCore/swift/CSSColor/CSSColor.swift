@@ -21,33 +21,142 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// Memory-safe port of the Latin-1 numeric color fast path of CSSParserFastPaths.cpp:
-// parseNumericColor (#hex, quirks-mode bare hex, rgb()/rgba(), hsl()/hsla() dispatch),
-// parseHexColorInternal, finishParsingHexColor, parseColorIntOrPercentage, parseRGBAlphaValue,
-// isTenthAlpha, checkForValidDouble and parseDouble. hsl()/hsla() is in CSSColorHSL.swift.
+// Memory-safe port of the numeric color fast paths of CSSParserFastPaths.cpp (at 05fbeeaa85b0) for Latin-1 and
+// UTF-16 strings: parseNumericColor (#hex, quirks-mode bare hex, rgb()/rgba(), hsl()/hsla() dispatch),
+// CSSParserFastPaths::parseHexColor, parseHexColorInternal, finishParsingHexColor, parseColorIntOrPercentage,
+// parseRGBAlphaValue, isTenthAlpha, checkForValidDouble and parseDouble. hsl()/hsla() is in CSSColorHSL.swift.
 // Every function mirrors its C++ twin statement by statement; the C++ names are kept.
 //
-// Results are packed into a UInt64: 0 means "not a numeric color" (std::nullopt), otherwise
-// bit 32 is set and the low 32 bits are PackedColor::RGBA (r << 24 | g << 16 | b << 8 | a).
+// Results are packed into a UInt64: 0 means "not a color" (std::nullopt), otherwise bit 32 is set and the low 32
+// bits are PackedColor::RGBA (r << 24 | g << 16 | b << 8 | a).
 //
-// Index discipline: each helper validates its [start, end) range against the span once up front,
-// and the scanning loops run over a sub-span (`extracting`) whose count is the loop bound, so the
-// optimizer can drop the per-character bounds checks. No allocation, no reference counting.
+// Characters: the C++ templates only ever compare characters with ASCII constants or ASCII ranges, so every
+// non-ASCII character behaves like every other one. UTF-16 code units are therefore read as bytes, with any unit
+// >= 0x80 replaced by 0x80 (CSSColorUTF16Characters), and both widths run the same code.
+//
+// Index discipline: each helper validates its [start, end) range against the characters once up front, and the
+// scanning loops run over a sub-range (`extracting`) whose count is the loop bound, so the optimizer can drop the
+// per-character bounds checks. No allocation, no reference counting (outside the cold number fallback in
+// CSSColorHSL.swift).
 
 #if compiler(>=6.4) || WTF_PLATFORM_MAC
 
+/// The characters being parsed, as bytes: Latin-1 characters as they are; UTF-16 code units below 0x80 as they are,
+/// the others as 0x80.
+protocol CSSColorCharacters: ~Escapable {
+    var count: Int { get }
+    var indices: Range<Int> { get }
+    subscript(_ position: Int) -> UInt8 { get }
+    @_lifetime(copy self)
+    func extracting(_ bounds: Range<Int>) -> Self
+    /// Characters [position, position + 8) as the bytes of a little-endian word, or a word with a non-digit byte
+    /// when one of them is not ASCII.
+    func eightCharacters(at position: Int) -> UInt64
+}
+
+/// Latin-1 characters. A wrapper rather than a conformance of Span to the internal protocol: such a conformance on a
+/// standard-library type prints an unparseable .swiftinterface when the module is built with library evolution.
+struct CSSColorLatin1Characters: CSSColorCharacters, ~Escapable {
+    let span: Span<UInt8>
+
+    @_lifetime(copy span)
+    init(_ span: Span<UInt8>) {
+        self.span = span
+    }
+
+    var count: Int {
+        @inline(__always) get { span.count }
+    }
+
+    var indices: Range<Int> {
+        @inline(__always) get { span.indices }
+    }
+
+    subscript(_ position: Int) -> UInt8 {
+        @inline(__always) get { span[position] }
+    }
+
+    @_lifetime(copy self)
+    func extracting(_ bounds: Range<Int>) -> CSSColorLatin1Characters {
+        CSSColorLatin1Characters(span.extracting(bounds))
+    }
+
+    @inline(__always)
+    func eightCharacters(at position: Int) -> UInt64 {
+        span.bytes.load(fromByteOffset: position, as: UInt64.self)
+    }
+}
+
+/// UTF-16 code units in any alignment (2 bytes each, little-endian).
+struct CSSColorUTF16Characters: CSSColorCharacters, ~Escapable {
+    let bytes: RawSpan
+
+    @_lifetime(copy bytes)
+    init(_ bytes: RawSpan) {
+        self.bytes = bytes
+    }
+
+    var count: Int {
+        @inline(__always) get { bytes.byteCount &>> 1 }
+    }
+
+    var indices: Range<Int> {
+        @inline(__always) get { 0..<count }
+    }
+
+    subscript(_ position: Int) -> UInt8 {
+        @inline(__always) get {
+            precondition(position >= 0 && position < count)
+            let unit = bytes.load(fromByteOffset: position &* 2, as: UInt16.self)
+            return unit < 0x80 ? UInt8(truncatingIfNeeded: unit) : 0x80
+        }
+    }
+
+    @inline(__always)
+    func eightCharacters(at position: Int) -> UInt64 {
+        let low = bytes.load(fromByteOffset: position &* 2, as: UInt64.self)
+        let high = bytes.load(fromByteOffset: position &* 2 &+ 8, as: UInt64.self)
+        if (low | high) & 0xFF80_FF80_FF80_FF80 != 0 {
+            return 0x8080_8080_8080_8080
+        }
+        let lowBytes = (low | low &>> 8) & 0x0000_FFFF_0000_FFFF
+        let highBytes = (high | high &>> 8) & 0x0000_FFFF_0000_FFFF
+        return (lowBytes | lowBytes &>> 16) & 0xFFFF_FFFF | ((highBytes | highBytes &>> 16) & 0xFFFF_FFFF) &<< 32
+    }
+
+    @inline(__always)
+    @_lifetime(copy self)
+    func extracting(_ bounds: Range<Int>) -> CSSColorUTF16Characters {
+        precondition(bounds.lowerBound >= 0 && bounds.upperBound <= count)
+        return CSSColorUTF16Characters(bytes.extracting((bounds.lowerBound &* 2)..<(bounds.upperBound &* 2)))
+    }
+}
+
 enum CSSColor {
+    // What to parse; CSSColorSwiftBoundary.h's WebCoreSwift_CSSColor_Mode values.
+    static var modeNumeric: UInt8 { 0 }
+    static var modeNumericQuirks: UInt8 { 1 }
+    static var modeHex: UInt8 { 2 }
+
+    // parseNumericColor (modeNumeric, or modeNumericQuirks for isQuirksModeBehavior()) or
+    // CSSParserFastPaths::parseHexColor (modeHex). Any other mode traps.
+    @inline(__always)
+    static func parseColor<C: CSSColorCharacters & ~Escapable>(_ characters: C, mode: UInt8) -> UInt64 {
+        switch mode {
+        case modeNumeric:
+            return parseNumericColor(characters, quirksMode: false)
+        case modeNumericQuirks:
+            return parseNumericColor(characters, quirksMode: true)
+        case modeHex:
+            return parseHexColorInternal(characters, 0, characters.count)
+        default:
+            preconditionFailure("unknown CSSColor mode")
+        }
+    }
 }
 
 extension CSSColor {
-    // Parses a number with WTF::charactersToDouble() semantics. The arguments are (offset, length) into the
-    // characters being parsed; nil is charactersToDouble() setting ok = false. The production conformance
-    // (CSSColorBoundary.swift) calls back into the C++ glue; generic so it is specialized and inlined.
-    protocol NumberParser {
-        func parseNumber(_ offset: Int, _ length: Int) -> Double?
-    }
-
-    static func parseNumericColor<Parser: NumberParser>(_ characters: Span<UInt8>, quirksMode: Bool, parser: Parser) -> UInt64 {
+    static func parseNumericColor<C: CSSColorCharacters & ~Escapable>(_ characters: C, quirksMode: Bool) -> UInt64 {
         let count = characters.count
         if count >= 4 && characters[0] == asciiHash {
             let hexColor = parseHexColorInternal(characters, 1, count)
@@ -70,11 +179,11 @@ extension CSSColor {
 
         // hsl() and hsla() are synonyms.
         if mightBeHSLA(characters) {
-            return parseHSL(characters, 5, parser)
+            return parseHSL(characters, 5)
         }
 
         if mightBeHSL(characters) {
-            return parseHSL(characters, 4, parser)
+            return parseHSL(characters, 4)
         }
 
         return notAColor
@@ -95,11 +204,13 @@ extension CSSColor {
 
     static let asciiTab: UInt8 = 0x09
     static let asciiNewline: UInt8 = 0x0A
+    static let asciiVerticalTab: UInt8 = 0x0B
     static let asciiFormFeed: UInt8 = 0x0C
     static let asciiCarriageReturn: UInt8 = 0x0D
     static let asciiSpace: UInt8 = 0x20
     static let asciiHash: UInt8 = 0x23
     static let asciiPercent: UInt8 = 0x25
+    static let asciiPlus: UInt8 = 0x2B
     static let asciiOpenParen: UInt8 = 0x28
     static let asciiCloseParen: UInt8 = 0x29
     static let asciiComma: UInt8 = 0x2C
@@ -148,7 +259,7 @@ extension CSSColor {
     // MARK: - Function names
 
     @inline(__always)
-    private static func mightBeFunction(_ characters: Span<UInt8>, _ name0: UInt8, _ name1: UInt8, _ name2: UInt8) -> Bool {
+    private static func mightBeFunction<C: CSSColorCharacters & ~Escapable>(_ characters: C, _ name0: UInt8, _ name1: UInt8, _ name2: UInt8) -> Bool {
         if characters.count < 4 {
             return false
         }
@@ -159,7 +270,7 @@ extension CSSColor {
     }
 
     @inline(__always)
-    private static func mightBeFunction(_ characters: Span<UInt8>, _ name0: UInt8, _ name1: UInt8, _ name2: UInt8, _ name3: UInt8) -> Bool {
+    private static func mightBeFunction<C: CSSColorCharacters & ~Escapable>(_ characters: C, _ name0: UInt8, _ name1: UInt8, _ name2: UInt8, _ name3: UInt8) -> Bool {
         if characters.count < 5 {
             return false
         }
@@ -171,22 +282,22 @@ extension CSSColor {
     }
 
     @inline(__always)
-    private static func mightBeRGBA(_ characters: Span<UInt8>) -> Bool {
+    private static func mightBeRGBA<C: CSSColorCharacters & ~Escapable>(_ characters: C) -> Bool {
         mightBeFunction(characters, 0x72, 0x67, 0x62, 0x61) // "rgba("
     }
 
     @inline(__always)
-    private static func mightBeRGB(_ characters: Span<UInt8>) -> Bool {
+    private static func mightBeRGB<C: CSSColorCharacters & ~Escapable>(_ characters: C) -> Bool {
         mightBeFunction(characters, 0x72, 0x67, 0x62) // "rgb("
     }
 
     @inline(__always)
-    private static func mightBeHSLA(_ characters: Span<UInt8>) -> Bool {
+    private static func mightBeHSLA<C: CSSColorCharacters & ~Escapable>(_ characters: C) -> Bool {
         mightBeFunction(characters, 0x68, 0x73, 0x6C, 0x61) // "hsla("
     }
 
     @inline(__always)
-    private static func mightBeHSL(_ characters: Span<UInt8>) -> Bool {
+    private static func mightBeHSL<C: CSSColorCharacters & ~Escapable>(_ characters: C) -> Bool {
         mightBeFunction(characters, 0x68, 0x73, 0x6C) // "hsl("
     }
 
@@ -221,7 +332,7 @@ extension CSSColor {
 
     // parseHexColorInternal(characters[start..<end]).
     @inline(__always)
-    private static func parseHexColorInternal(_ characters: Span<UInt8>, _ start: Int, _ end: Int) -> UInt64 {
+    static func parseHexColorInternal<C: CSSColorCharacters & ~Escapable>(_ characters: C, _ start: Int, _ end: Int) -> UInt64 {
         let length = end &- start
         guard start >= 0, end <= characters.count, length == 3 || length == 4 || length == 6 || length == 8 else {
             return notAColor
@@ -260,7 +371,7 @@ extension CSSColor {
     // The terminator is never a digit (callers pass '%' or ')'), so testing for a digit first, which keeps
     // the common case to one well-predicted branch per character, is equivalent to the C++ order.
     @inline(__always)
-    static func checkForValidDouble(_ string: Span<UInt8>, _ terminator: UInt8) -> Int {
+    static func checkForValidDouble<C: CSSColorCharacters & ~Escapable>(_ string: C, _ terminator: UInt8) -> Int {
         let length = string.count
         if length < 1 {
             return 0
@@ -295,7 +406,7 @@ extension CSSColor {
 
     // checkForValidDouble(characters[start..<end], terminator).
     @inline(__always)
-    static func checkForValidDouble(_ characters: Span<UInt8>, _ start: Int, _ end: Int, _ terminator: UInt8) -> Int {
+    static func checkForValidDouble<C: CSSColorCharacters & ~Escapable>(_ characters: C, _ start: Int, _ end: Int, _ terminator: UInt8) -> Int {
         guard start >= 0, start <= end, end <= characters.count else {
             return 0
         }
@@ -305,7 +416,7 @@ extension CSSColor {
     // Returns the number of characters consumed for parsing a valid double
     // terminated by the given terminator character (parseDouble). `value` is only written on success.
     @inline(__always)
-    static func parseDouble(_ string: Span<UInt8>, _ terminator: UInt8, _ value: inout Double) -> Int {
+    static func parseDouble<C: CSSColorCharacters & ~Escapable>(_ string: C, _ terminator: UInt8, _ value: inout Double) -> Int {
         let length = checkForValidDouble(string, terminator)
         // A non-zero result is the index of the terminator, so it is < string.count.
         guard length > 0, length < string.count else {
@@ -349,7 +460,7 @@ extension CSSColor {
 
     // parseDouble(characters[start..<end], terminator, value).
     @inline(__always)
-    static func parseDouble(_ characters: Span<UInt8>, _ start: Int, _ end: Int, _ terminator: UInt8, _ value: inout Double) -> Int {
+    static func parseDouble<C: CSSColorCharacters & ~Escapable>(_ characters: C, _ start: Int, _ end: Int, _ terminator: UInt8, _ value: inout Double) -> Int {
         guard start >= 0, start <= end, end <= characters.count else {
             return 0
         }
@@ -392,7 +503,7 @@ extension CSSColor {
 
     // parseColorIntOrPercentage. `position` is the start of the remaining characters; on success it is
     // advanced past the component (and the terminator, if any) and the byte is returned; nil is std::nullopt.
-    private static func parseColorIntOrPercentage(_ characters: Span<UInt8>, _ position: inout Int, _ consumableTerminator: UInt8?, _ expectedUnitType: inout CSSUnitType) -> UInt8? {
+    private static func parseColorIntOrPercentage<C: CSSColorCharacters & ~Escapable>(_ characters: C, _ position: inout Int, _ consumableTerminator: UInt8?, _ expectedUnitType: inout CSSUnitType) -> UInt8? {
         let end = characters.count
         var current = position
         guard current >= 0, current <= end else {
@@ -491,7 +602,7 @@ extension CSSColor {
 
     // isTenthAlpha(characters[start..<end]).
     @inline(__always)
-    private static func isTenthAlpha(_ characters: Span<UInt8>, _ start: Int, _ end: Int) -> Bool {
+    private static func isTenthAlpha<C: CSSColorCharacters & ~Escapable>(_ characters: C, _ start: Int, _ end: Int) -> Bool {
         guard start >= 0, end <= characters.count else {
             return false
         }
@@ -529,7 +640,7 @@ extension CSSColor {
 
     // parseRGBAlphaValue on characters[position...]. On success the remaining characters are
     // consumed (position = end) and the alpha byte is returned; nil is std::nullopt.
-    private static func parseRGBAlphaValue(_ characters: Span<UInt8>, _ position: inout Int, _ terminator: UInt8) -> UInt8? {
+    private static func parseRGBAlphaValue<C: CSSColorCharacters & ~Escapable>(_ characters: C, _ position: inout Int, _ terminator: UInt8) -> UInt8? {
         let end = characters.count
         var start = position
         guard start >= 0, start <= end else {
@@ -586,7 +697,7 @@ extension CSSColor {
     }
 
     // The rgb()/rgba() branch of parseNumericColor; `start` is just past the '('.
-    private static func parseRGB(_ characters: Span<UInt8>, _ start: Int) -> UInt64 {
+    private static func parseRGB<C: CSSColorCharacters & ~Escapable>(_ characters: C, _ start: Int) -> UInt64 {
         let end = characters.count
         var expectedUnitType = CSSUnitType.unknown
         var current = start

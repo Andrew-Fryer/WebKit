@@ -23,13 +23,72 @@
 
 // Two text-run scans of WebCore's text code:
 //  * FontCascade::characterRangeCodePath(std::span<const char16_t>) (platform/graphics/FontCascade.cpp): which
-//    FontCascade::CodePath a UTF-16 run needs, a cascade of code point range checks. Transcribed statement by statement.
+//    FontCascade::CodePath a UTF-16 run needs, a cascade of code point range checks. Transcribed statement by statement
+//    from the original C++ (which this replaces, also for odd-aligned UTF-16).
 //  * The per-character loop of Layout::TextUtil::canUseSimplifiedTextMeasuring (layout/formattingContexts/inline/text/
 //    TextUtil.cpp), as far as FontCascade::canUseSimplifiedTextMeasuring(character, FontVariant::Auto, ...) answers
 //    from its per-font cache: scanSimplifiedMeasuring stops at the first character the cache cannot answer, and the
 //    C++ glue asks FontCascade (glyph lookup, which also fills the cache) about it and calls again after it.
 
 #if compiler(>=6.4) || WTF_PLATFORM_MAC
+
+// A run's code units, zero-extended to 32 bits.
+protocol TextRunCodeUnits: ~Escapable {
+    var count: Int { get }
+    subscript(_ index: Int) -> UInt32 { get }
+}
+
+struct TextRunLatin1Units: TextRunCodeUnits, ~Escapable {
+    let units: Span<UInt8>
+
+    @_lifetime(copy units)
+    init(_ units: Span<UInt8>) {
+        self.units = units
+    }
+
+    var count: Int {
+        @inline(__always) get { units.count }
+    }
+
+    subscript(_ index: Int) -> UInt32 {
+        @inline(__always) get { UInt32(units[index]) }
+    }
+}
+
+struct TextRunUTF16Units: TextRunCodeUnits, ~Escapable {
+    let units: Span<UInt16>
+
+    @_lifetime(copy units)
+    init(_ units: Span<UInt16>) {
+        self.units = units
+    }
+
+    var count: Int {
+        @inline(__always) get { units.count }
+    }
+
+    subscript(_ index: Int) -> UInt32 {
+        @inline(__always) get { UInt32(units[index]) }
+    }
+}
+
+// UTF-16 code units at an odd address (C++ strings can be odd-aligned, e.g. after structuredClone), 2 bytes each.
+struct TextRunUnalignedUTF16Units: TextRunCodeUnits, ~Escapable {
+    let bytes: RawSpan
+
+    @_lifetime(copy bytes)
+    init(_ bytes: RawSpan) {
+        self.bytes = bytes
+    }
+
+    var count: Int {
+        @inline(__always) get { bytes.byteCount &>> 1 }
+    }
+
+    subscript(_ index: Int) -> UInt32 {
+        @inline(__always) get { UInt32(bytes.load(fromByteOffset: index &<< 1, as: UInt16.self)) }
+    }
+}
 
 enum TextRunScanners {
     // FontCascadeCodePath raw values (FontCascadeEnums.h).
@@ -54,8 +113,8 @@ enum TextRunScanners {
     }
 
     @inline(__always) // into its C entry point: one call, not two.
-    static func characterRangeCodePath(_ span: Span<UInt16>) -> UInt8 {
-        let zeroWidthJoiner: UInt16 = 0x200D
+    static func characterRangeCodePath<Units: TextRunCodeUnits & ~Escapable>(_ span: Units) -> UInt8 {
+        let zeroWidthJoiner: UInt32 = 0x200D
         var result = simple
         var previousCharacterIsEmojiGroupCandidate = false
         let size = span.count
@@ -221,12 +280,12 @@ enum TextRunScanners {
     // is not collapsed, which is answered before the cache, or a cached false); otherwise characters[index] is the
     // first character the cache does not answer (not cached, or not Latin-1), or index == count.
     @inline(__always)
-    static func scanSimplifiedMeasuring<Character: FixedWidthInteger & UnsignedInteger>(_ characters: Span<Character>, cache: Span<UInt64>, whitespaceIsCollapsed: Bool) -> Int {
+    static func scanSimplifiedMeasuring<Units: TextRunCodeUnits & ~Escapable>(_ characters: Units, cache: Span<UInt64>, whitespaceIsCollapsed: Bool) -> Int {
         precondition(cache.count == 8)
         let count = characters.count
         var index = 0
         while index < count {
-            let character = UInt32(characters[index])
+            let character = characters[index]
             if character > 0xFF {
                 return index &<< 1
             }

@@ -21,30 +21,19 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// C entry points for CSSColor (declared to C++ in CSSColorSwiftBoundary.h). This is the only file of the
-// unit with `unsafe`: it wraps the C++-owned characters in a Span, forwards the number-parsing callback
-// that the C++ glue passes in, and calls the safe core in CSSColor.swift.
+// C entry point for CSSColor (declared to C++ in CSSColorSwiftBoundary.h). This is the only file of the unit with
+// `unsafe`: it wraps the C++-owned characters (Latin-1 bytes, or UTF-16 code units read as raw bytes because they
+// may be odd-aligned) in a span and calls the safe core in CSSColor.swift. `characters` may be null only when
+// `length` is 0.
 
 #if compiler(>=6.4) || WTF_PLATFORM_MAC
 
-// The hue-number callback the C++ glue passes in (WebCoreSwift_CSSColor_ParseNumber) with its context.
-@unsafe struct CSSColorCallbackNumberParser: CSSColor.NumberParser {
-    let context: UnsafeRawPointer?
-    let function: @convention(c) (UnsafeRawPointer?, Int, Int, UnsafeMutablePointer<Bool>?) -> Double
-
-    @inline(__always)
-    func parseNumber(_ offset: Int, _ length: Int) -> Double? {
-        var ok = false
-        let number = unsafe function(context, offset, length, &ok)
-        return ok ? number : nil
+@_cdecl("WebCoreSwift_CSSColor_parseColor")
+func WebCoreSwift_CSSColor_parseColor(_ characters: UnsafeRawPointer?, _ length: Int, _ is8Bit: Bool, _ mode: UInt8) -> UInt64 {
+    if is8Bit {
+        return unsafe CSSColor.parseColor(CSSColorLatin1Characters(UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt8.self), count: length).span), mode: mode)
     }
-}
-
-@_cdecl("WebCoreSwift_CSSColor_parseNumericColor8")
-func WebCoreSwift_CSSColor_parseNumericColor8(_ characters: UnsafePointer<UInt8>?, _ length: Int, _ quirksMode: Bool, _ context: UnsafeRawPointer?, _ parseNumber: @convention(c) (UnsafeRawPointer?, Int, Int, UnsafeMutablePointer<Bool>?) -> Double) -> UInt64 {
-    let buffer = unsafe UnsafeBufferPointer(start: characters, count: length)
-    let parser = unsafe CSSColorCallbackNumberParser(context: context, function: parseNumber)
-    return unsafe CSSColor.parseNumericColor(buffer.span, quirksMode: quirksMode, parser: parser)
+    return unsafe CSSColor.parseColor(CSSColorUTF16Characters(UnsafeRawBufferPointer(start: characters, count: length &* 2).bytes), mode: mode)
 }
 
 #endif // compiler(>=6.4) || WTF_PLATFORM_MAC

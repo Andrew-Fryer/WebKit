@@ -25,12 +25,15 @@
 // dfg/DFGInPlaceAbstractState.cpp. Operands<AbstractValue> arrays come as a pointer to the first element (null only
 // when empty) and an element count, an element being four 64-bit words; Operands<Node*> as a pointer and a count of
 // one-word elements. The only unsafe operations turn those, and the slow-index buffer, into spans and write the
-// slow count. The C++ glue never passes overlapping arrays (to->valuesAtHead and from->valuesAtTail are distinct
-// Operands even when from == to).
+// slow count. The C++ glue never passes overlapping arrays
+// (to->valuesAtHead and from->valuesAtTail are distinct Operands even when from == to).
 
 @_cdecl("JSCSwift_DFGCFAMerge_mergeValues")
 @inline(__always)
 func JSCSwift_DFGCFAMerge_mergeValues(_ destination: UnsafeMutablePointer<UInt64>?, _ destinationCount: Int, _ source: UnsafePointer<UInt64>?, _ sourceCount: Int, _ destinationNodes: UnsafePointer<UInt64>?, _ destinationNodeCount: Int, _ checkNodes: Bool, _ count: Int, _ slowIndices: UnsafeMutablePointer<UInt32>?, _ slowCapacity: Int, _ slowCount: UnsafeMutablePointer<Int>) -> Bool {
+    // The element-to-word conversions trap on overflow (a precondition and then `&*`, which, unlike a checked `*`,
+    // leaves the loop's bounds checks hoistable).
+    precondition(UInt(bitPattern: destinationCount) <= UInt(Int.max / 4) && UInt(bitPattern: sourceCount) <= UInt(Int.max / 4))
     var destinationWords = unsafe UnsafeMutableBufferPointer(start: destination, count: 4 &* destinationCount).mutableSpan
     let sourceWords = unsafe UnsafeBufferPointer(start: source, count: 4 &* sourceCount).span
     let nodes = unsafe UnsafeBufferPointer(start: destinationNodes, count: destinationNodeCount).span

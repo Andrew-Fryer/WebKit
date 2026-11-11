@@ -41,13 +41,20 @@ enum CGColorCache {
     @inline(__always) static var slotMask: UInt8 { 0x7f }
     @inline(__always) static var outOfLineFlag: UInt8 { 0x80 }
     @inline(__always) static var missFlag: UInt32 { 0x100 }
+    @inline(__always) static var sizeShift: UInt32 { 16 }
+
+    // Decides whether the out-of-line entry in a slot equals the key (Color::operator==, in C++).
+    protocol OutOfLineEntryEquals {
+        func callAsFunction(_ slot: UInt8) -> Bool
+    }
 
     // Both lookups return the slot of the entry equal to the key, or with missFlag the slot C++ must fill with the key
-    // (a new slot, or the least recently used entry's). Either way, that entry is now the most recently used one.
+    // (a new slot, or the least recently used entry's). Either way, that entry is now the most recently used one. The
+    // number of live entries after the lookup is in the bits from sizeShift up.
 
     // An inline key: equal exactly to the entry with the same bits.
     @inline(__always)
-    static func lookup(keys: inout MutableSpan<UInt64>, order: inout MutableSpan<UInt8>, size: inout Int, keyBits: UInt64)
+    static func lookup(keys: inout MutableSpan<UInt64>, order: inout MutableSpan<UInt8>, size: Int, keyBits: UInt64)
         -> UInt32
     {
         let count = checkedCount(keys: keys, order: order, size: size)
@@ -59,16 +66,17 @@ enum CGColorCache {
                 if i != count &- 1 {
                     makeMostRecentlyUsed(keys: &keys, order: &order, index: i, count: count, key: keyBits, entry: entry)
                 }
-                return UInt32(entry & slotMask)
+                return UInt32(entry & slotMask) | UInt32(truncatingIfNeeded: count) &<< sizeShift
             }
         }
-        return insert(keys: &keys, order: &order, size: &size, count: count, keyBits: keyBits, flags: 0)
+        return insert(keys: &keys, order: &order, count: count, keyBits: keyBits, flags: 0)
     }
 
-    // An out-of-line key: only out-of-line entries can be equal, and C++ decides which (Color::operator==).
-    @inline(__always)
-    static func lookupOutOfLine(keys: inout MutableSpan<UInt64>, order: inout MutableSpan<UInt8>, size: inout Int,
-        keyBits: UInt64, outOfLineEntryEquals: (UInt8) -> Bool) -> UInt32
+    // An out-of-line key: only out-of-line entries can be equal, and C++ decides which (Color::operator==). Not inlined
+    // into the C entry point, so that the frame its callback loop needs is not set up for inline keys (the common case).
+    @inline(never)
+    static func lookupOutOfLine<Equals: OutOfLineEntryEquals>(keys: inout MutableSpan<UInt64>, order: inout MutableSpan<UInt8>,
+        size: Int, keyBits: UInt64, _ outOfLineEntryEquals: Equals) -> UInt32
     {
         let count = checkedCount(keys: keys, order: order, size: size)
         var i = count
@@ -80,10 +88,10 @@ enum CGColorCache {
                     // The entry's own bits, not the key's: they hold a different OutOfLineComponents pointer.
                     makeMostRecentlyUsed(keys: &keys, order: &order, index: i, count: count, key: keys[i], entry: entry)
                 }
-                return UInt32(entry & slotMask)
+                return UInt32(entry & slotMask) | UInt32(truncatingIfNeeded: count) &<< sizeShift
             }
         }
-        return insert(keys: &keys, order: &order, size: &size, count: count, keyBits: keyBits, flags: outOfLineFlag)
+        return insert(keys: &keys, order: &order, count: count, keyBits: keyBits, flags: outOfLineFlag)
     }
 
     @inline(__always)
@@ -97,19 +105,18 @@ enum CGColorCache {
     // A miss: the key becomes the most recently used entry, in a new slot while there is room, else in the least
     // recently used entry's slot.
     @inline(__always)
-    static func insert(keys: inout MutableSpan<UInt64>, order: inout MutableSpan<UInt8>, size: inout Int, count: Int,
-        keyBits: UInt64, flags: UInt8) -> UInt32
+    static func insert(keys: inout MutableSpan<UInt64>, order: inout MutableSpan<UInt8>, count: Int, keyBits: UInt64,
+        flags: UInt8) -> UInt32
     {
         if count == keys.count {
             let slot = order[0] & slotMask
             makeMostRecentlyUsed(keys: &keys, order: &order, index: 0, count: count, key: keyBits, entry: slot | flags)
-            return UInt32(slot) | missFlag
+            return UInt32(slot) | missFlag | UInt32(truncatingIfNeeded: count) &<< sizeShift
         }
         let slot = UInt8(truncatingIfNeeded: count)
         keys[count] = keyBits
         order[count] = slot | flags
-        size = count &+ 1
-        return UInt32(slot) | missFlag
+        return UInt32(slot) | missFlag | UInt32(truncatingIfNeeded: count &+ 1) &<< sizeShift
     }
 
     // Drops position `index`, moves the more recently used entries down by one, and stores (key, entry) at the end.

@@ -27,7 +27,7 @@
 
 // C boundary of the TextRunScanners Swift kernels (Source/WebCore/swift/TextRunScanners). The symbols are internal to
 // WebCore (hidden); only platform/graphics/FontCascade.cpp calls them, never header-inline code. Pointers may be null
-// only when their count is 0; char16_t pointers must be 2-byte aligned.
+// only when their count is 0; char16_t data may be at any address (odd-aligned strings are read as raw bytes).
 
 #include <stddef.h>
 #include <stdint.h>
@@ -44,13 +44,12 @@ extern "C" {
 // (0 Simple, 1 Complex, 2 SimpleWithGlyphOverflow).
 uint8_t WebCoreSwift_TextRunScanners_characterRangeCodePath(const char16_t* characters, size_t length);
 
-// Scans characters[0 ..< length] with FontCascade::canUseSimplifiedTextMeasuring(character, FontVariant::Auto,
-// whitespaceIsCollapsed, primaryFont) as far as `cache` (m_canUseSimplifiedTextMeasuringForAutoVariantCache.storage(),
-// cacheWordCount = 8 64-bit words) answers it. Returns index << 1 | isFalse: if isFalse, characters[index] answers false;
-// otherwise index == length (every character answered true) or characters[index] needs the C++ function (not cached,
-// or, in the 16-bit scan, not Latin-1).
-size_t WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring8(const uint8_t* characters, size_t length, const uint64_t* cache, size_t cacheWordCount, bool whitespaceIsCollapsed);
-size_t WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring16(const char16_t* characters, size_t length, const uint64_t* cache, size_t cacheWordCount, bool whitespaceIsCollapsed);
+// Scans characters[0 ..< length] (Latin-1, or UTF-16 if is16Bit) with FontCascade::canUseSimplifiedTextMeasuring(
+// character, FontVariant::Auto, whitespaceIsCollapsed, primaryFont) as far as `cache`
+// (m_canUseSimplifiedTextMeasuringForAutoVariantCache.storage(), cacheWordCount = 8 64-bit words) answers it. Returns
+// index << 1 | isFalse: if isFalse, characters[index] answers false; otherwise index == length (every character
+// answered true) or characters[index] needs the C++ function (not cached, or not Latin-1).
+size_t WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring(const void* characters, size_t length, bool is16Bit, const uint64_t* cache, size_t cacheWordCount, bool whitespaceIsCollapsed);
 
 #ifdef __cplusplus
 }

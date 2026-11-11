@@ -19,36 +19,61 @@
 // INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 // CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
 
-// C entry point of the stream message decoder, declared to C++ in IPCStreamMessageSwiftBoundary.h. The only unsafe
-// operations: wrapping the C++ spans (pointer + size) of the stream and of the layout table as a RawSpan and a Span,
-// taking the stream's start address modulo 8, and storing the reply ID and the arguments through the out-parameters.
+// The C entry points of the WebKit IPC decoders, declared to C++ in IPCStreamMessageSwiftBoundary.h. The only unsafe
+// operations: wrapping the C++ spans (pointer + count) as Spans and MutableSpans with cxxSpan() and cxxMutableSpan(),
+// and the C structs as MutableRawSpans, and storing the reply ID. Everything else is in the safe cores (IPCStreamMessage.swift, IPCArgDecoders.swift,
+// IPCPathDecode.swift).
+
+/// A C++ span (start, count). A std::span is never larger than PTRDIFF_MAX, so a negative count (a larger size_t) traps
+/// rather than forming a buffer with a negative count.
+@inline(__always)
+private func cxxSpan<T>(_ start: UnsafePointer<T>?, _ count: Int) -> UnsafeBufferPointer<T> {
+    precondition(count >= 0, "C++ span larger than PTRDIFF_MAX")
+    return unsafe UnsafeBufferPointer(start: start, count: count)
+}
+
+@inline(__always)
+private func cxxMutableSpan<T>(_ start: UnsafeMutablePointer<T>?, _ count: Int) -> UnsafeMutableBufferPointer<T> {
+    precondition(count >= 0, "C++ span larger than PTRDIFF_MAX")
+    return unsafe UnsafeMutableBufferPointer(start: start, count: count)
+}
+
+/// The address of a span's start modulo 8: values are aligned in memory, not in the span.
+@inline(__always)
+private func baseMisalignment(_ data: UnsafePointer<UInt8>?) -> Int {
+    Int(truncatingIfNeeded: UInt(bitPattern: data) & 7)
+}
 
 @_cdecl("WebKitSwift_IPCStreamMessage_decode")
-func WebKitSwift_IPCStreamMessage_decode(_ data: UnsafeRawPointer?, _ size: Int, _ destinationID: UInt64,
-                                         _ firstMessageNameWithReplyID: UInt16, _ argumentLayouts: UnsafePointer<UInt8>?,
-                                         _ layoutCount: Int, _ replyID: UnsafeMutablePointer<UInt64>,
-                                         _ arguments: UnsafeMutableRawPointer) -> UInt64 {
-    // Both are size_t. A std::span can't be larger than PTRDIFF_MAX (no object is), so a negative Int means the caller's
-    // span is already undefined behavior; trap rather than form a span with a negative count.
-    precondition(size >= 0 && layoutCount >= 0, "IPC stream span larger than PTRDIFF_MAX")
-    let stream = unsafe UnsafeRawBufferPointer(start: data, count: size)
-    let layouts = unsafe UnsafeBufferPointer(start: argumentLayouts, count: layoutCount)
-    let baseMisalignment = Int(truncatingIfNeeded: UInt(bitPattern: data) & 7)
-    var located = IPCStreamArguments()
-    let header = unsafe decodeIPCStreamMessage(stream.bytes, baseMisalignment: baseMisalignment, destinationID: destinationID,
-                                               firstMessageNameWithReplyID: firstMessageNameWithReplyID, layouts: layouts.span,
-                                               arguments: &located)
+func WebKitSwift_IPCStreamMessage_decode(_ data: UnsafePointer<UInt8>?, _ size: Int, _ destinationID: UInt64, _ firstMessageNameWithReplyID: UInt16,
+                                         _ argumentLayouts: UnsafePointer<UInt8>?, _ layoutCount: Int,
+                                         _ replyID: UnsafeMutablePointer<UInt64>, _ arguments: UnsafeMutableRawPointer) -> UInt64 {
+    var output = unsafe UnsafeMutableRawBufferPointer(start: arguments, count: IPCStreamArguments.byteCount).mutableBytes
+    let header = unsafe decodeIPCStreamMessage(cxxSpan(data, size).span.bytes, baseMisalignment: baseMisalignment(data), destinationID: destinationID,
+                                               firstMessageNameWithReplyID: firstMessageNameWithReplyID,
+                                               layouts: cxxSpan(argumentLayouts, layoutCount).span, arguments: &output)
     // Only a successfully decoded reply ID is non-zero; the C++ leaves m_replyID untouched otherwise.
     if header.replyID != 0 {
         unsafe replyID.pointee = header.replyID
     }
-    // WebKitSwift_IPCStreamMessage_Arguments: uint64_t, size_t, size_t, uint8_t, uint8_t.
-    unsafe arguments.storeBytes(of: located.identifier, toByteOffset: 0, as: UInt64.self)
-    unsafe arguments.storeBytes(of: located.valuesOffset, toByteOffset: 8, as: Int.self)
-    unsafe arguments.storeBytes(of: located.endOffset, toByteOffset: 16, as: Int.self)
-    unsafe arguments.storeBytes(of: located.status.rawValue, toByteOffset: 24, as: UInt8.self)
-    unsafe arguments.storeBytes(of: located.flag, toByteOffset: 25, as: UInt8.self)
     return header.packed
+}
+
+@_cdecl("WebKitSwift_IPCStreamMessage_locateArguments")
+func WebKitSwift_IPCStreamMessage_locateArguments(_ data: UnsafePointer<UInt8>?, _ size: Int, _ position: Int, _ layout: UInt8,
+                                                  _ arguments: UnsafeMutableRawPointer) {
+    var output = unsafe UnsafeMutableRawBufferPointer(start: arguments, count: IPCStreamArguments.byteCount).mutableBytes
+    unsafe locateIPCArguments(cxxSpan(data, size).span.bytes, baseMisalignment: baseMisalignment(data), position: position, layout: layout,
+                              arguments: &output)
+}
+
+// `progress` is a WebKitSwift_IPCStreamMessage_PathProgress: four 64-bit words.
+@_cdecl("WebKitSwift_IPCStreamMessage_decodePath")
+func WebKitSwift_IPCStreamMessage_decodePath(_ data: UnsafePointer<UInt8>?, _ size: Int, _ position: Int, _ words: UnsafeMutablePointer<UInt32>?,
+                                             _ wordCapacity: Int, _ trailingBoolEnum: Bool, _ progress: UnsafeMutablePointer<UInt64>) -> Int {
+    var output = unsafe cxxMutableSpan(words, wordCapacity).mutableSpan
+    var state = unsafe cxxMutableSpan(progress, IPCPathDecoder.progressWordCount).mutableSpan
+    return unsafe IPCPathDecoder.decodePath(cxxSpan(data, size).span.bytes, baseMisalignment: baseMisalignment(data), position: position,
+                                            into: &output, trailingBoolEnum: trailingBoolEnum, progress: &state)
 }

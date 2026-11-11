@@ -1288,22 +1288,22 @@ static_assert(JSValue::NumberTag == static_cast<int64_t>(0xfffe000000000000ULL) 
 
 static ALWAYS_INLINE void fillWithPNaN(double* data, unsigned length)
 {
-    JSCSwift_ButterflyFill_fillWithPureNaN(std::bit_cast<uint64_t*>(data), length);
+    JSCSwift_ButterflyFill_apply(std::bit_cast<uint64_t*>(data), length, JSCSwift_ButterflyFill_FillWithPureNaN);
 }
 
 static ALWAYS_INLINE void fillWithEmptyValue(WriteBarrier<Unknown>* data, unsigned length)
 {
-    JSCSwift_ButterflyFill_fillWithEmptyValue(std::bit_cast<uint64_t*>(data), length);
+    JSCSwift_ButterflyFill_apply(std::bit_cast<uint64_t*>(data), length, JSCSwift_ButterflyFill_FillWithEmptyValue);
 }
 
 static ALWAYS_INLINE void convertInt32ValuesToDoubles(WriteBarrier<Unknown>* data, unsigned length)
 {
-    JSCSwift_ButterflyFill_int32ToDouble(std::bit_cast<uint64_t*>(data), length);
+    JSCSwift_ButterflyFill_apply(std::bit_cast<uint64_t*>(data), length, JSCSwift_ButterflyFill_Int32ToDouble);
 }
 
 static ALWAYS_INLINE void convertDoublesToValues(double* data, unsigned length)
 {
-    JSCSwift_ButterflyFill_doubleToJSValue(std::bit_cast<uint64_t*>(data), length);
+    JSCSwift_ButterflyFill_apply(std::bit_cast<uint64_t*>(data), length, JSCSwift_ButterflyFill_DoubleToJSValue);
 }
 
 Butterfly* JSObject::createInitialIndexedStorage(VM& vm, unsigned length)

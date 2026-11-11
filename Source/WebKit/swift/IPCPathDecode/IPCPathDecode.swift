@@ -19,11 +19,11 @@
 // INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 // CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
 
 // Decoder for the WebCore::Path arguments of the GPU process's stream messages (StrokePath, FillPath, ClipPath, ...). It
 // does what IPC::Decoder::decode<WebCore::Path>() does up to building the C++ objects, which the glue
-// (GPUProcess/graphics/RemoteGraphicsContextSwiftArgumentDecoders.cpp) does from the records this writes.
+// (GPUProcess/graphics/RemoteGraphicsContextSwiftArgumentDecoders.cpp) does from the words this writes
+// (WebKitSwift_IPCStreamMessage_decodePath() in IPCStreamMessageSwiftBoundary.h documents them).
 //
 // The wire format is that of the C++ coders (IPCArgDecoders.swift describes the primitives, which use its Reader):
 // - ArgumentCoder<Path> (generated): Vector<PathSegment>.
@@ -40,113 +40,126 @@
 //   one, an alternative's floats are one aligned run.
 // A failure anywhere fails the Path and leaves the decoder invalid, so the decoder stops at the first one.
 // ClipPath's Path is followed by an enum class : bool (WindRule), which the call that decodes the last segments also
-// decodes, so that a message takes one call into Swift (for up to as many segments as the caller has records for).
+// decodes, so that a message takes one call into Swift (for up to as many segments as fit in the caller's buffer).
 
 enum IPCPathDecoder {
-    /// The UInt32 words of one segment's record (IPCPathDecodeSwiftBoundary.h): word 0 is the alternative index, the
-    /// trailing enum and the number of floats (index | enum << 8 | floats << 16), then the alternative's floats.
+    /// The number of 64-bit words of WebKitSwift_IPCStreamMessage_PathProgress: segmentCount, segmentsDecoded,
+    /// wordCount, boolEnum.
     @inline(__always)
-    static var recordWords: Int { 13 }
+    static var progressWordCount: Int { 4 }
 
-    /// For each PathSegment::Data alternative index: how many floats it has, and whether a 1-byte enum that must be 0 or
-    /// 1 follows them. nil for an index that isn't an alternative (the variant coder fails).
+    /// The most words that one segment takes: its header word and the 12 floats of PathRoundedRect. A call decodes
+    /// segments while that many words are left in the caller's buffer.
     @inline(__always)
-    static func layout(ofAlternative index: UInt8) -> (floats: Int, trailingEnum: Bool)? {
-        switch index {
-        case 0: return (2, false) // PathMoveTo: point
-        case 1: return (2, false) // PathLineTo: point
-        case 2: return (4, false) // PathQuadCurveTo: controlPoint, endPoint
-        case 3: return (6, false) // PathBezierCurveTo: controlPoint1, controlPoint2, endPoint
-        case 4: return (5, false) // PathArcTo: controlPoint1, controlPoint2, radius
-        case 5: return (5, true) // PathArc: center, radius, startAngle, endAngle, direction
-        case 6: return (5, true) // PathClosedArc: arc (a PathArc)
-        case 7: return (7, true) // PathEllipse: center, radiusX, radiusY, rotation, startAngle, endAngle, direction
-        case 8: return (4, false) // PathEllipseInRect: rect
-        case 9: return (4, false) // PathRect: rect
-        case 10: return (12, true) // PathRoundedRect: roundedRect (rect, then 4 radii FloatSizes), strategy
-        case 11: return (6, false) // PathContinuousRoundedRect: rect, cornerWidth, cornerHeight
-        case 12: return (4, false) // PathDataLine: std::span<const float, 4>
-        case 13: return (6, false) // PathDataQuadCurve: start, controlPoint, endPoint
-        case 14: return (8, false) // PathDataBezierCurve: start, controlPoint1, controlPoint2, endPoint
-        case 15: return (7, false) // PathDataArc: start, controlPoint1, controlPoint2, radius
-        case 16: return (0, false) // PathCloseSubpath
-        default: return nil
-        }
-    }
+    static var maximumSegmentWords: Int { 13 }
 
-    /// decode<PathSegment>(): one segment into the record at `records[record...]`. Returns false if it fails.
+    /// decode<PathSegment>(): one segment into `words[start...]`, which has room for maximumSegmentWords: its header word
+    /// (index | trailing enum << 8), then its floats. Returns the number of words written, or nil if decoding failed
+    /// (an index that isn't an alternative fails the variant coder). Each alternative's floats are copied with a
+    /// constant count, so that the copy is unrolled.
     @inline(__always)
-    static func decodeSegment(_ reader: inout IPCArgumentDecoders.Reader, into records: inout MutableSpan<UInt32>, record: Int) -> Bool {
+    static func decodeSegment(_ reader: inout IPCArgumentDecoders.Reader, into words: inout MutableSpan<UInt32>, at start: Int) -> Int? {
         guard let indexOffset = reader.reserve(byteCount: 1, alignment: 1) else {
-            return false
+            return nil
         }
         let index = reader.stream.load(fromByteOffset: indexOffset, as: UInt8.self)
-        guard let layout = layout(ofAlternative: index) else {
-            return false
+        switch index {
+        case 0, 1: // PathMoveTo, PathLineTo: point
+            return decodeAlternative(index, floats: 2, trailingEnum: false, &reader, into: &words, at: start)
+        case 2, 8, 9, 12: // PathQuadCurveTo: controlPoint, endPoint; PathEllipseInRect, PathRect: rect; PathDataLine: std::span<const float, 4>
+            return decodeAlternative(index, floats: 4, trailingEnum: false, &reader, into: &words, at: start)
+        case 3, 11, 13: // PathBezierCurveTo: 3 points; PathContinuousRoundedRect: rect, cornerWidth, cornerHeight; PathDataQuadCurve: 3 points
+            return decodeAlternative(index, floats: 6, trailingEnum: false, &reader, into: &words, at: start)
+        case 4: // PathArcTo: controlPoint1, controlPoint2, radius
+            return decodeAlternative(index, floats: 5, trailingEnum: false, &reader, into: &words, at: start)
+        case 5, 6: // PathArc: center, radius, startAngle, endAngle, direction; PathClosedArc: arc (a PathArc)
+            return decodeAlternative(index, floats: 5, trailingEnum: true, &reader, into: &words, at: start)
+        case 7: // PathEllipse: center, radiusX, radiusY, rotation, startAngle, endAngle, direction
+            return decodeAlternative(index, floats: 7, trailingEnum: true, &reader, into: &words, at: start)
+        case 10: // PathRoundedRect: roundedRect (rect, then 4 radii FloatSizes), strategy
+            return decodeAlternative(index, floats: 12, trailingEnum: true, &reader, into: &words, at: start)
+        case 14: // PathDataBezierCurve: start, controlPoint1, controlPoint2, endPoint
+            return decodeAlternative(index, floats: 8, trailingEnum: false, &reader, into: &words, at: start)
+        case 15: // PathDataArc: start, controlPoint1, controlPoint2, radius
+            return decodeAlternative(index, floats: 7, trailingEnum: false, &reader, into: &words, at: start)
+        case 16: // PathCloseSubpath
+            return decodeAlternative(index, floats: 0, trailingEnum: false, &reader, into: &words, at: start)
+        default:
+            return nil
         }
-        if layout.floats > 0 {
-            guard let offset = reader.reserveValues(layout.floats, size: 4) else {
-                return false
-            }
-            // One bounds check for the run and one for the record's words, rather than two per float.
-            let values = reader.stream.extracting(offset..<offset &+ 4 &* layout.floats)
-            precondition(record &+ 1 &+ layout.floats <= records.count)
-            for i in 0..<layout.floats {
-                records[record &+ 1 &+ i] = values.load(fromByteOffset: 4 &* i, as: UInt32.self)
-            }
-        }
-        var trailingEnum: UInt8 = 0
-        if layout.trailingEnum {
-            guard let value = reader.readBoolEnum() else {
-                return false
-            }
-            trailingEnum = value
-        }
-        records[record] = UInt32(index) | UInt32(trailingEnum) << 8 | UInt32(truncatingIfNeeded: layout.floats) << 16
-        return true
     }
 
-    /// The next min(`segmentsLeft`, capacity) segments into the first records, where the capacity is the number of
-    /// whole records in `records`. If those are all the segments left and `trailingBoolEnum`, then the enum class : bool
-    /// that follows the Path, stored in `boolEnum`.
+    /// The rest of decodeSegment() for alternative `index`, which has `floats` floats (at most 12), then a 1-byte enum
+    /// that must be 0 or 1 if `trailingEnum`.
     @inline(__always)
-    static func decodeSegments(_ reader: inout IPCArgumentDecoders.Reader, into records: inout MutableSpan<UInt32>, segmentsLeft: UInt64,
-                               trailingBoolEnum: Bool, boolEnum: inout UInt8) -> Int {
-        let capacity = records.count / recordWords
-        let count = segmentsLeft < UInt64(capacity) ? Int(segmentsLeft) : capacity
-        var record = 0
-        for _ in 0..<count {
-            guard decodeSegment(&reader, into: &records, record: record) else {
+    static func decodeAlternative(_ index: UInt8, floats: Int, trailingEnum: Bool, _ reader: inout IPCArgumentDecoders.Reader,
+                                  into words: inout MutableSpan<UInt32>, at start: Int) -> Int? {
+        if floats > 0 {
+            guard let offset = reader.reserveValues(floats, size: 4) else {
+                return nil
+            }
+            // One bounds check for the run and one for the words, rather than two per float.
+            let values = reader.stream.extracting(offset..<offset &+ 4 &* floats)
+            precondition(start >= 0 && start &+ 1 &+ floats <= words.count)
+            for i in 0..<floats {
+                words[start &+ 1 &+ i] = values.load(fromByteOffset: 4 &* i, as: UInt32.self)
+            }
+        }
+        var enumValue: UInt8 = 0
+        if trailingEnum {
+            guard let value = reader.readBoolEnum() else {
+                return nil
+            }
+            enumValue = value
+        }
+        words[start] = UInt32(index) | UInt32(enumValue) &<< 8
+        return 1 &+ floats
+    }
+
+    /// WebKitSwift_IPCStreamMessage_decodePath(): decode<Path>() from `position` of `stream`, one bufferful of segments
+    /// per call, with `progress` (WebKitSwift_IPCStreamMessage_PathProgress) carried from one call to the next.
+    @inline(__always)
+    static func decodePath(_ stream: RawSpan, baseMisalignment: Int, position: Int, into words: inout MutableSpan<UInt32>,
+                           trailingBoolEnum: Bool, progress: inout MutableSpan<UInt64>) -> Int {
+        // A decoder's position is never past the end of its span.
+        precondition(position >= 0 && position <= stream.byteCount, "IPC decoder position outside its span")
+        var reader = IPCArgumentDecoders.Reader(stream, baseMisalignment: baseMisalignment, position: position)
+        var segmentCount = progress[0]
+        var decoded = progress[1]
+        if decoded == 0 {
+            guard let sizeOffset = reader.reserveValues(1, size: 8) else {
                 return IPCArgumentDecodeFailure.invalid.rawValue
             }
-            record &+= recordWords
+            segmentCount = reader.stream.load(fromByteOffset: sizeOffset, as: UInt64.self)
+            // Each segment takes at least its index byte, so with more segments than bytes left the C++ fails at the
+            // first segment past the end (after reserving up to 1 MB for the vector). Failing now also bounds what the
+            // glue allocates by the bytes in the span.
+            guard segmentCount <= UInt64(reader.stream.byteCount &- reader.position) else {
+                return IPCArgumentDecodeFailure.invalid.rawValue
+            }
+            progress[0] = segmentCount
         }
-        if trailingBoolEnum && UInt64(count) == segmentsLeft {
+        // The caller calls again while segments are left, so each call must have room for one.
+        let lastStart = words.count &- maximumSegmentWords
+        precondition(lastStart >= 0, "IPC path words buffer smaller than a segment")
+        var wordCount = 0
+        while decoded < segmentCount && wordCount <= lastStart {
+            guard let segmentWords = decodeSegment(&reader, into: &words, at: wordCount) else {
+                return IPCArgumentDecodeFailure.invalid.rawValue
+            }
+            wordCount &+= segmentWords
+            decoded &+= 1
+        }
+        var boolEnum: UInt8 = 0
+        if trailingBoolEnum && decoded == segmentCount {
             guard let value = reader.readBoolEnum() else {
                 return IPCArgumentDecodeFailure.invalid.rawValue
             }
             boolEnum = value
         }
+        progress[1] = decoded
+        progress[2] = UInt64(truncatingIfNeeded: wordCount)
+        progress[3] = UInt64(boolEnum)
         return reader.position
-    }
-
-    /// decode<Path>() up to the first min(size, capacity) segments: the vector's size, stored in `segmentCount`, then
-    /// those segments, and the trailing enum as decodeSegments() decodes it.
-    @inline(__always)
-    static func decodePath(_ reader: inout IPCArgumentDecoders.Reader, into records: inout MutableSpan<UInt32>, segmentCount: inout UInt64,
-                           trailingBoolEnum: Bool, boolEnum: inout UInt8) -> Int {
-        guard let sizeOffset = reader.reserveValues(1, size: 8) else {
-            return IPCArgumentDecodeFailure.invalid.rawValue
-        }
-        let size = reader.stream.load(fromByteOffset: sizeOffset, as: UInt64.self)
-        // Each segment takes at least its index byte, so with more segments than bytes left the C++ fails at the first
-        // segment past the end (after reserving up to 1 MB for the vector). Failing now also bounds what the glue
-        // allocates by the bytes in the span.
-        let bytesLeft = reader.stream.byteCount &- reader.position
-        guard size <= UInt64(bytesLeft) else {
-            return IPCArgumentDecodeFailure.invalid.rawValue
-        }
-        segmentCount = size
-        return decodeSegments(&reader, into: &records, segmentsLeft: size, trailingBoolEnum: trailingBoolEnum, boolEnum: &boolEnum)
     }
 }

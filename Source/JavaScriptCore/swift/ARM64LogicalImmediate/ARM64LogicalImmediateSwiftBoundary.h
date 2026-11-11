@@ -35,10 +35,10 @@
 extern "C" {
 #endif
 
-// Both return the immN:immr:imms encoding of value (0...0x1fff) as an ARM64 logical immediate, or -1
-// (ARM64LogicalImmediate::InvalidLogicalImmediate) if it has none. Pure functions of their argument.
-__attribute__((const, nothrow, warn_unused_result)) int32_t JSCSwift_ARM64LogicalImmediate_create32(uint32_t value);
-__attribute__((const, nothrow, warn_unused_result)) int32_t JSCSwift_ARM64LogicalImmediate_create64(uint64_t value);
+// ARM64LogicalImmediate::create64(value): the immN:immr:imms encoding of value (0...0x1fff) as an ARM64 logical
+// immediate, or -1 (ARM64LogicalImmediate::InvalidLogicalImmediate) if it has none. A pure function of its argument.
+// For a 32-bit value v, create(uint64_t(v) << 32 | v) is create32(v).
+__attribute__((const, nothrow, warn_unused_result)) int32_t JSCSwift_ARM64LogicalImmediate_create(uint64_t value);
 
 #ifdef __cplusplus
 } // extern "C"

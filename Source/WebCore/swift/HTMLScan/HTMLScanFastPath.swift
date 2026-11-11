@@ -318,10 +318,24 @@ extension HTMLScan {
     static var failureEndOfInputReached: UInt64 { 3 }
     static var failureParsingAttributes: UInt64 { 4 }
 
-    // Attribute records: 4 words each (WebCoreSwiftHTMLScanAttribute): nameOffset, nameLength | lowering flag,
-    // valueOffset, valueLength.
-    static var attributeRecordWords: Int { 4 }
+    // The start tag scan buffer (WebCoreSwiftHTMLScanStartTag): `consumed` (64 bits), then the attribute records,
+    // 16 bytes each (WebCoreSwiftHTMLScanAttribute): nameOffset, nameLength | lowering flag, valueOffset, valueLength
+    // (32 bits each).
+    static var startTagConsumedOffset: Int { 0 }
+    static var startTagAttributesOffset: Int { 8 }
+    static var attributeRecordBytes: Int { 16 }
+    static var attributeCapacity: Int { 16 }
+    static var startTagByteCount: Int { startTagAttributesOffset + attributeCapacity * attributeRecordBytes }
     static var attributeNameNeedsLowering: UInt32 { 0x8000_0000 }
+
+    // One record, as two little-endian 64-bit words (offset | length << 32).
+    @inline(__always)
+    static func storeAttribute(_ startTag: inout MutableRawSpan, at offset: Int, nameOffset: Int, nameLength: Int, nameFlags: UInt32, valueOffset: Int, valueLength: Int) {
+        let name = UInt64(UInt32(truncatingIfNeeded: nameOffset)) | (UInt64(UInt32(truncatingIfNeeded: nameLength) | nameFlags) &<< 32)
+        let value = UInt64(UInt32(truncatingIfNeeded: valueOffset)) | (UInt64(UInt32(truncatingIfNeeded: valueLength)) &<< 32)
+        startTag.storeBytes(of: name.littleEndian, toByteOffset: offset, as: UInt64.self)
+        startTag.storeBytes(of: value.littleEndian, toByteOffset: offset &+ 8, as: UInt64.self)
+    }
 
     // The class of a lowercase tag name of `length` (1 ... 6) code units packed by packedLowercaseName.
     @inline(__always)
@@ -372,11 +386,11 @@ extension HTMLScan {
     }
 
     // One start tag from just after its '<', or (scanTagName false) the rest of an attribute list from the start of
-    // an attribute name. Appends to `records` one record per attribute that parseAttributes() would append or drop as
-    // a duplicate (the dedupe is the glue's). Packed result:
+    // an attribute name. Writes to the records of `startTag` one record per attribute that parseAttributes() would
+    // append or drop as a duplicate (the dedupe is the glue's), and `consumed`. Packed result:
     //   bits 0-7   tag class (0 when scanTagName is false); for tagClassFailed nothing else is set
     //   bits 8-11  attributesDone: the tag ended ('>' or '/' whitespace* '>'), `consumed` is past the '>'.
-    //              attributesMore: `records` is full; call again at `consumed`.
+    //              attributesMore: the records are full; call again at `consumed`.
     //              attributesEscapedValue: the last record's value needs scanEscapedAttributeValue() from the quote at
     //              its valueOffset (== `consumed`); the glue then skips ASCII whitespace and calls again.
     //              attributesFailed: parseAttributes() returns at `consumed` without parserSetAttributes().
@@ -385,7 +399,15 @@ extension HTMLScan {
     //   bits 32-63 where scanTagName() leaves the position: after the name and the ASCII whitespace that follows it
     //              (for tagClassFailed, where the case-insensitive loop stopped)
     @inline(__always)
-    static func scanStartTag<Input: HTMLScanInput & ~Escapable>(_ input: Input, scanTagName: Bool, records: inout MutableSpan<UInt32>, consumed: inout Int) -> UInt64 {
+    static func scanStartTag<Input: HTMLScanInput & ~Escapable>(_ input: Input, scanTagName: Bool, startTag: inout MutableRawSpan) -> UInt64 {
+        var consumed = 0
+        let result = scanStartTag(input, scanTagName: scanTagName, startTag: &startTag, consumed: &consumed)
+        startTag.storeBytes(of: UInt64(truncatingIfNeeded: consumed).littleEndian, toByteOffset: startTagConsumedOffset, as: UInt64.self)
+        return result
+    }
+
+    @inline(__always)
+    static func scanStartTag<Input: HTMLScanInput & ~Escapable>(_ input: Input, scanTagName: Bool, startTag: inout MutableRawSpan, consumed: inout Int) -> UInt64 {
         let count = input.count
         var index = 0
         var head: UInt64 = 0
@@ -421,8 +443,8 @@ extension HTMLScan {
         var failure = failureNone
         var status = attributesDone
         while true {
-            let record = recordCount &* attributeRecordWords
-            if record &+ attributeRecordWords > records.count {
+            let record = startTagAttributesOffset &+ recordCount &* attributeRecordBytes
+            if record &+ attributeRecordBytes > startTag.byteCount {
                 status = attributesMore
                 break
             }
@@ -493,10 +515,7 @@ extension HTMLScan {
                         index = cursor &+ 1
                     } else if cursor < count && input[cursor] != 0 {
                         // '&' or '\r': scanEscapedAttributeValue() from the quote, in the glue.
-                        records[record] = UInt32(truncatingIfNeeded: nameStart)
-                        records[record &+ 1] = UInt32(truncatingIfNeeded: nameLength) | nameFlags
-                        records[record &+ 2] = UInt32(truncatingIfNeeded: quoteStart)
-                        records[record &+ 3] = 0
+                        storeAttribute(&startTag, at: record, nameOffset: nameStart, nameLength: nameLength, nameFlags: nameFlags, valueOffset: quoteStart, valueLength: 0)
                         recordCount &+= 1
                         index = quoteStart
                         status = attributesEscapedValue
@@ -519,10 +538,7 @@ extension HTMLScan {
                 }
                 index = skipWhitespace(input, index)
             }
-            records[record] = UInt32(truncatingIfNeeded: nameStart)
-            records[record &+ 1] = UInt32(truncatingIfNeeded: nameLength) | nameFlags
-            records[record &+ 2] = UInt32(truncatingIfNeeded: valueOffset)
-            records[record &+ 3] = UInt32(truncatingIfNeeded: valueLength)
+            storeAttribute(&startTag, at: record, nameOffset: nameStart, nameLength: nameLength, nameFlags: nameFlags, valueOffset: valueOffset, valueLength: valueLength)
             recordCount &+= 1
         }
         consumed = index

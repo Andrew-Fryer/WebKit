@@ -22,9 +22,10 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 
 // The scanning part of Lexer<T>::scanRegExp (parser/Lexer.cpp): the body of a regular expression literal up to its
-// closing '/', then its flags. The C++ glue (Lexer<T>::scanRegExp) turns the offsets into the pattern and flags
-// identifiers and the error tokens, exactly where the original builds them. The source is the text from the
-// character after the opening '/' (m_code) to m_codeEnd; offsets are relative to it.
+// closing '/', then its flags, in Latin-1 or UTF-16 text at any alignment (LexerCharacters.swift). The C++ glue
+// (Lexer<T>::scanRegExp) turns the offsets into the pattern and flags identifiers and the error tokens, exactly where
+// the original builds them. The source is the text from the character after the opening '/' (m_code) to m_codeEnd;
+// offsets are relative to it.
 //
 // Correspondence with the C++: index i is m_code - start, and m_current is source[i] when i < count and 0 at the end
 // (Lexer::shift). atEnd() is i == count: a NUL inside the source is an ordinary character.
@@ -71,8 +72,8 @@ enum LexerRegExp {
     }
 
     @inline(__always)
-    static func scan<Character: FixedWidthInteger & UnsignedInteger>(_ source: Span<Character>) -> Result {
-        let wide = Character.bitWidth == 16
+    static func scan<Source: LexerCharacters & ~Escapable>(_ source: Source) -> Result {
+        let wide = Source.isWide
         let count = source.count
         var lastWasEscape = false
         var inBrackets = false
@@ -84,7 +85,7 @@ enum LexerRegExp {
             if i == count {
                 return Result(status: .unterminated, bodyEnd: 0, end: i, charactersOredTogether: 0)
             }
-            let previous = UInt32(source[i])
+            let previous = source.unit(i)
             if isLineTerminator(previous, wide: wide) {
                 return Result(status: .unterminated, bodyEnd: 0, end: i, charactersOredTogether: 0)
             }
@@ -116,7 +117,7 @@ enum LexerRegExp {
 
         // Flags: while (isLatin1(m_current) && isIdentPart(m_current)). The 0 of the end is Latin-1 and not an IdentPart.
         while i < count {
-            let character = UInt32(source[i])
+            let character = source.unit(i)
             if character > 0xFF || !isLatin1IdentPart(character) {
                 break
             }
@@ -127,7 +128,7 @@ enum LexerRegExp {
         // non-Latin-1 m_current, and for it isWhiteSpace is isNonLatin1WhiteSpace and isLineTerminator is LS/PS.
         var status = Status.ok
         if wide && i < count {
-            let character = UInt32(source[i])
+            let character = source.unit(i)
             if character > 0xFF && !isNonLatin1WhiteSpace(character) && !isLineTerminator(character, wide: true) {
                 status = .invalidFlagCharacter
             }

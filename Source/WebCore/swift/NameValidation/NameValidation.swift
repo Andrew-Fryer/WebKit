@@ -21,28 +21,78 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// Memory-safe port of the name checks of dom/NameValidation.cpp: isValidAttributeName(StringView) and
-// isValidElementName(StringView), including their character predicates (isInvalidAttributeNameCharacter,
-// isInvalidElementNameCharacterAfterAlphaStart, isValidElementNameContinuationCharacter).
+// Memory-safe port of the name checks of dom/NameValidation.cpp, with their character predicates:
+// isValidAttributeName (isInvalidAttributeNameCharacter), isValidElementName (isInvalidElementNameCharacterAfterAlphaStart,
+// isValidElementNameContinuationCharacter), isValidNamespacePrefix (isInvalidNamespacePrefixCharacter),
+// isValidDoctypeName (isInvalidDoctypeNameCharacter) and isValidXMLName (isValidASCIIXMLName, isValidXMLNameStart,
+// isValidXMLNamePart, over StringView::codePoints()).
 //
 // Latin-1 names arrive as a Span<UInt8>. UTF-16 names arrive as a RawSpan (2 bytes per code unit, any alignment) and
 // every code unit is compared whole, so U+0120 (low byte ' ') or U+013D (low byte '=') stay valid.
 //
 // isValidAttributeName is hot (setAttribute); its Latin-1 path tests 8 or 16 bytes per step with SIMD compares and
 // overlapping loads instead of the C++ per-character loop. The answer is an any-match over the bytes, so checking a
-// byte twice is harmless. No allocation, no reference counting, no traps beyond the Span bounds checks (which cannot
+// byte twice is harmless. The other checks have no training counts and share one generic implementation over
+// Latin-1 and UTF-16. No allocation, no reference counting, no traps beyond the Span bounds checks (which cannot
 // fire: every load is in range by construction).
 
 enum NameValidation {
 }
 
+// The code units of a name: Latin-1 bytes or UTF-16 code units (raw bytes, any alignment).
+protocol NameValidationUnits: ~Escapable {
+    var count: Int { get }
+    subscript(_ index: Int) -> UInt16 { get }
+}
+
+struct NameValidationLatin1: NameValidationUnits, ~Escapable {
+    let characters: Span<UInt8>
+
+    @_lifetime(copy characters)
+    init(_ characters: Span<UInt8>) {
+        self.characters = characters
+    }
+
+    var count: Int {
+        @inline(__always) get { characters.count }
+    }
+
+    subscript(_ index: Int) -> UInt16 {
+        @inline(__always) get { UInt16(characters[index]) }
+    }
+}
+
+struct NameValidationUTF16: NameValidationUnits, ~Escapable {
+    let bytes: RawSpan
+    let count: Int
+
+    @_lifetime(copy bytes)
+    init(_ bytes: RawSpan) {
+        self.bytes = bytes
+        self.count = bytes.byteCount &>> 1
+    }
+
+    subscript(_ index: Int) -> UInt16 {
+        @inline(__always) get { UInt16(littleEndian: bytes.load(fromByteOffset: index &* 2, as: UInt16.self)) }
+    }
+}
+
 extension NameValidation {
-    // The invalid ASCII code units as bit sets over c < 64 (every code unit >= 64 is valid in both sets):
+    // The checks (WebCoreSwiftNameValidationKind in NameValidationSwiftBoundary.h).
+    static var attributeName: UInt8 { 0 }
+    static var elementName: UInt8 { 1 }
+    static var namespacePrefix: UInt8 { 2 }
+    static var doctypeName: UInt8 { 3 }
+    static var xmlName: UInt8 { 4 }
+
+    // The invalid ASCII code units as bit sets over c < 64 (every code unit >= 64 is valid in these sets):
     // isInvalidAttributeNameCharacter: !c || isASCIIWhitespace(c) || c == '/' || c == '>' || c == '='
     //   = { NUL, '\t', '\n', '\f', '\r', ' ', '/', '=', '>' }. '\v' (0x0B) is not ASCII whitespace.
-    // isInvalidElementNameCharacterAfterAlphaStart: the same without '='.
+    // isInvalidElementNameCharacterAfterAlphaStart and isInvalidNamespacePrefixCharacter: the same without '='.
+    // isInvalidDoctypeNameCharacter: !c || isASCIIWhitespace(c) || c == '>'.
     static var invalidAttributeNameCharacters: UInt64 { 0x6000_8001_0000_3601 }
     static var invalidElementNameCharactersAfterAlphaStart: UInt64 { 0x4000_8001_0000_3601 }
+    static var invalidDoctypeNameCharacters: UInt64 { 0x4000_0001_0000_3601 }
 
     @inline(__always)
     static func isInSet(_ character: UInt16, _ set: UInt64) -> Bool {
@@ -50,8 +100,13 @@ extension NameValidation {
     }
 
     @inline(__always)
-    static func isASCIIAlpha(_ character: UInt16) -> Bool {
+    static func isASCIIAlpha(_ character: UInt32) -> Bool {
         (character | 0x20) &- 0x61 < 26
+    }
+
+    @inline(__always)
+    static func isASCIIDigit(_ character: UInt32) -> Bool {
+        character &- 0x30 < 10
     }
 
     // isValidElementNameContinuationCharacter: isASCIIAlphanumeric(c) || c == '-' || c == '.' || c == ':' || c == '_'
@@ -61,10 +116,109 @@ extension NameValidation {
         if character >= 0x80 {
             return true
         }
-        return isASCIIAlpha(character) || character &- 0x30 < 10 || character == 0x2D || character == 0x2E || character == 0x3A || character == 0x5F
+        let c = UInt32(character)
+        return isASCIIAlpha(c) || isASCIIDigit(c) || c == 0x2D || c == 0x2E || c == 0x3A || c == 0x5F
     }
 
-    // MARK: isValidAttributeName
+    // isValidXMLNameStart: https://www.w3.org/TR/xml/#NT-NameStartChar
+    @inline(__always)
+    static func isValidXMLNameStart(_ c: UInt32) -> Bool {
+        c == 0x3A || isASCIIAlpha(c) || c == 0x5F || (c >= 0x00C0 && c <= 0x00D6)
+            || (c >= 0x00D8 && c <= 0x00F6) || (c >= 0x00F8 && c <= 0x02FF) || (c >= 0x0370 && c <= 0x037D) || (c >= 0x037F && c <= 0x1FFF)
+            || (c >= 0x200C && c <= 0x200D) || (c >= 0x2070 && c <= 0x218F) || (c >= 0x2C00 && c <= 0x2FEF) || (c >= 0x3001 && c <= 0xD7FF)
+            || (c >= 0xF900 && c <= 0xFDCF) || (c >= 0xFDF0 && c <= 0xFFFD) || (c >= 0x10000 && c <= 0xEFFFF)
+    }
+
+    // isValidXMLNamePart: https://www.w3.org/TR/xml/#NT-NameChar
+    @inline(__always)
+    static func isValidXMLNamePart(_ c: UInt32) -> Bool {
+        isValidXMLNameStart(c) || c == 0x2D || c == 0x2E || isASCIIDigit(c) || c == 0x00B7
+            || (c >= 0x0300 && c <= 0x036F) || (c >= 0x203F && c <= 0x2040)
+    }
+
+    // !name.contains(c in set).
+    @inline(__always)
+    static func containsNone<Units: NameValidationUnits & ~Escapable>(_ name: Units, _ set: UInt64) -> Bool {
+        for index in 0..<name.count where isInSet(name[index], set) {
+            return false
+        }
+        return true
+    }
+
+    // MARK: The checks
+
+    // !name.isEmpty() && !name.contains(isInvalidAttributeNameCharacter).
+    @inline(__always)
+    static func isValidAttributeName<Units: NameValidationUnits & ~Escapable>(_ name: Units) -> Bool {
+        name.count > 0 && containsNone(name, invalidAttributeNameCharacters)
+    }
+
+    // https://dom.spec.whatwg.org/#valid-element-name
+    @inline(__always)
+    static func isValidElementName<Units: NameValidationUnits & ~Escapable>(_ name: Units) -> Bool {
+        let count = name.count
+        if count == 0 {
+            return false
+        }
+        let firstCharacter = name[0]
+        if isASCIIAlpha(UInt32(firstCharacter)) {
+            return containsNone(name, invalidElementNameCharactersAfterAlphaStart)
+        }
+        if firstCharacter == 0x3A || firstCharacter == 0x5F || firstCharacter >= 0x80 {
+            for index in 0..<count where !isValidElementNameContinuationCharacter(name[index]) {
+                return false
+            }
+            return true
+        }
+        return false
+    }
+
+    // Every check but the Latin-1 attribute and element name checks, which the C entry point inlines.
+    @inline(never)
+    static func isValidName<Units: NameValidationUnits & ~Escapable>(_ name: Units, kind: UInt8) -> Bool {
+        switch kind {
+        case attributeName:
+            return isValidAttributeName(name)
+        case elementName:
+            return isValidElementName(name)
+        case namespacePrefix:
+            // !prefix.isEmpty() && !prefix.contains(isInvalidNamespacePrefixCharacter).
+            return name.count > 0 && containsNone(name, invalidElementNameCharactersAfterAlphaStart)
+        case doctypeName:
+            // !name.contains(isInvalidDoctypeNameCharacter).
+            return containsNone(name, invalidDoctypeNameCharacters)
+        default:
+            return isValidXMLName(name)
+        }
+    }
+
+    // isValidXMLName: the ASCII fast path of the C++ (isValidASCIIXMLName) accepts exactly the all-ASCII names the
+    // code point loop accepts, so only the loop is ported. The code points are StringView::codePoints()'s: Latin-1
+    // units as they are; for UTF-16 a lead surrogate followed by a trail surrogate is one supplementary code point,
+    // any other unit is its own code point (lone surrogates fail both predicates).
+    static func isValidXMLName<Units: NameValidationUnits & ~Escapable>(_ name: Units) -> Bool {
+        let count = name.count
+        var index = 0
+        var isFirst = true
+        while index < count {
+            var codePoint = UInt32(name[index])
+            index &+= 1
+            if codePoint & 0xFC00 == 0xD800 && index < count {
+                let trail = UInt32(name[index])
+                if trail & 0xFC00 == 0xDC00 {
+                    codePoint = 0x10000 &+ ((codePoint &- 0xD800) &<< 10) &+ (trail &- 0xDC00)
+                    index &+= 1
+                }
+            }
+            if !(isFirst ? isValidXMLNameStart(codePoint) : isValidXMLNamePart(codePoint)) {
+                return false
+            }
+            isFirst = false
+        }
+        return !isFirst
+    }
+
+    // MARK: isValidAttributeName, Latin-1
 
     // The lanes holding one of the invalid attribute name characters.
     @inline(__always)
@@ -88,7 +242,7 @@ extension NameValidation {
     }
 
     // isValidAttributeName(StringView) for Latin-1: !name.isEmpty() && !name.contains(isInvalidAttributeNameCharacter).
-    // Inlined into its C entry point so that the call from C++ has no further call or stack frame.
+    // Inlined into the C entry point so that the call from C++ has no further call or stack frame.
     @inline(__always)
     static func isValidAttributeName(_ name: Span<UInt8>) -> Bool {
         let count = name.count
@@ -124,67 +278,5 @@ extension NameValidation {
             word = UInt64(name[0]) | (UInt64(name[count &>> 1]) &<< 8) | (UInt64(name[count &- 1]) &<< 16) | 0x6161_6161_6100_0000
         }
         return !hasAnyLane(invalidAttributeNameCharacters(bitCast(word, to: SIMD8<UInt8>.self)))
-    }
-
-    // isValidAttributeName(StringView) for UTF-16 (no UTF-16 names in the profiles; a plain loop).
-    static func isValidAttributeName(utf16 name: RawSpan) -> Bool {
-        let count = name.byteCount &>> 1
-        if count == 0 {
-            return false
-        }
-        let set = invalidAttributeNameCharacters
-        for index in 0..<count where isInSet(name.load(fromByteOffset: index &* 2, as: UInt16.self), set) {
-            return false
-        }
-        return true
-    }
-
-    // MARK: isValidElementName
-
-    // isValidElementName(StringView) for Latin-1 (inlined into its C entry point).
-    @inline(__always)
-    static func isValidElementName(_ name: Span<UInt8>) -> Bool {
-        let count = name.count
-        if count == 0 {
-            return false
-        }
-        let firstCharacter = UInt16(name[0])
-        if isASCIIAlpha(firstCharacter) {
-            let set = invalidElementNameCharactersAfterAlphaStart
-            for index in 0..<count where isInSet(UInt16(name[index]), set) {
-                return false
-            }
-            return true
-        }
-        if firstCharacter == 0x3A || firstCharacter == 0x5F || firstCharacter >= 0x80 {
-            for index in 0..<count where !isValidElementNameContinuationCharacter(UInt16(name[index])) {
-                return false
-            }
-            return true
-        }
-        return false
-    }
-
-    // isValidElementName(StringView) for UTF-16.
-    static func isValidElementName(utf16 name: RawSpan) -> Bool {
-        let count = name.byteCount &>> 1
-        if count == 0 {
-            return false
-        }
-        let firstCharacter = name.load(fromByteOffset: 0, as: UInt16.self)
-        if isASCIIAlpha(firstCharacter) {
-            let set = invalidElementNameCharactersAfterAlphaStart
-            for index in 0..<count where isInSet(name.load(fromByteOffset: index &* 2, as: UInt16.self), set) {
-                return false
-            }
-            return true
-        }
-        if firstCharacter == 0x3A || firstCharacter == 0x5F || firstCharacter >= 0x80 {
-            for index in 0..<count where !isValidElementNameContinuationCharacter(name.load(fromByteOffset: index &* 2, as: UInt16.self)) {
-                return false
-            }
-            return true
-        }
-        return false
     }
 }

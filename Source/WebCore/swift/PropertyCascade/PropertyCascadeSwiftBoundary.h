@@ -49,27 +49,27 @@ extern "C" {
 //       uint8(styleScopeOrdinal) << 16 | fromStyleAttribute << 24 | cascadeLayerPriority << 32 |
 //       isStartingStyle << 48 | isCacheable << 56;
 //   [2] the storage byte count | isMutable << 63.
-// config[7]: UserAgent, User and Author match counts, includedTypes (OptionSet<PropertyType> bits),
-//   firstLogicalGroupProperty, sizeof(PackedPtr<const CSSValue>), and the scratch count S.
+// state[11] (stateCount = 11): UserAgent, User and Author match counts, includedTypes (OptionSet<PropertyType>
+//   bits), firstLogicalGroupProperty, sizeof(PackedPtr<const CSSValue>), the scratch count S; then, in/out,
+//   m_lastIndexForLogicalGroup, m_seenLogicalGroupPropertyCount (out), m_lowestSeenLogicalGroupProperty and
+//   m_highestSeenLogicalGroupProperty.
 // includedIDs: IncludedProperties::ids. table[cssPropertyIDEnumValueCount]: cascadeAliasProperty(id) |
 //   CSSProperty::isInheritedProperty(id) << 15.
 // properties: m_properties (40-byte Property records: id u16 @0, origin u8 @2, styleScopeOrdinal @3,
 //   cascadeLayerPriority u16 @4, fromStyleAttribute @6, cssValue[3] @8, origins[3] @32).
 // propertyIsPresent: m_propertyIsPresent words. logicalGroupIndices / logicalGroupIDs: the
 //   m_logicalGroupPropertyIndices / m_logicalGroupPropertyIDs arrays, logicalGroupCount entries each.
-// scalars[4] in/out: m_lastIndexForLogicalGroup, m_seenLogicalGroupPropertyCount,
-//   m_lowestSeenLogicalGroupProperty, m_highestSeenLogicalGroupProperty.
 // work: S >= max(logicalGroupCount, largest origin match count) scratch words, then room for one
 //   entry per property of all matches.
 //
 // Returns the number n of CSSPropertyID::Custom sets the caller must apply, in order, with set(): work[S + i]
 // is match << 32 | property index. Returns -1 when the caller must run the C++ instead; the presence words
 // and logical-group indices have then been zeroed again and nothing else the C++ reads was changed.
-ptrdiff_t WebCoreSwift_PropertyCascade_build(const uint64_t* matches, size_t matchWordCount, const uint32_t* config, size_t configCount,
+ptrdiff_t WebCoreSwift_PropertyCascade_build(const uint64_t* matches, size_t matchWordCount, uint32_t* state, size_t stateCount,
     const uint16_t* includedIDs, size_t includedIDCount, const uint16_t* table, size_t tableCount,
     void* properties, size_t propertyBytes, uint64_t* propertyIsPresent, size_t propertyIsPresentWordCount,
     uint32_t* logicalGroupIndices, uint16_t* logicalGroupIDs, size_t logicalGroupCount,
-    uint32_t* scalars, uint64_t* work, size_t workCount);
+    uint64_t* work, size_t workCount);
 
 #ifdef __cplusplus
 }

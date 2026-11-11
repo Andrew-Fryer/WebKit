@@ -25,17 +25,26 @@
 
 #pragma once
 
-// The decoder of IPC stream messages implemented in Swift (IPCStreamMessage.swift, with the IPCStreamHeader and
-// IPCArgDecoders safe cores), called from IPC::Decoder::Decoder(std::span<const uint8_t>, uint64_t) in
-// Platform/IPC/Decoder.cpp. It decodes the message header and, for a message whose arguments have a layout it knows
-// (IPC::swiftArgumentLayout(), generated into MessageNames.h by messages.py from the parameter types of the messages
-// with the SwiftArgumentDecoder attribute), validates and locates the arguments in the same call. Their
-// decodeArgumentsInSwift() glue (GPUProcess/graphics/RemoteGraphicsContextSwiftArgumentDecoders.cpp) then only builds
-// the C++ arguments.
+// The WebKit IPC decoders implemented in Swift, which are the only decoders of what they decode:
+// - WebKitSwift_IPCStreamMessage_decode(): the header of every stream message, and, for a message whose arguments have a
+//   layout (IPC::swiftArgumentLayout(), generated into MessageNames.h by messages.py from the parameter types of the
+//   messages with the SwiftArgumentDecoder attribute), the location and validation of the arguments, in one call from
+//   IPC::Decoder::Decoder(std::span<const uint8_t>, uint64_t) (Platform/IPC/Decoder.cpp). Swift sources:
+//   IPCStreamMessage.swift, IPCStreamHeader.swift, IPCArgDecoders.swift.
+// - WebKitSwift_IPCStreamMessage_locateArguments(): the same arguments for a decoder that isn't a stream message's (a
+//   message sent out of stream), from its position.
+// - WebKitSwift_IPCStreamMessage_decodePath(): the WebCore::Path arguments of the messages with the SwiftArgumentDecoder
+//   attribute and no layout (StrokePath, FillPath, ...). Swift source: IPCPathDecode.swift.
+// The decodeArgumentsInSwift() glue of those messages (GPUProcess/graphics/RemoteGraphicsContextSwiftArgumentDecoders.cpp)
+// only builds the C++ arguments from what Swift returns.
 // Decoder.cpp is compiled into the WebKitPlatform static library (Platform/Sources.txt), which WebKit.framework and
-// TestIPC both link, so the Swift files belong to the WebKitPlatform target too. The symbols are hidden: only call them
-// from WebKit and WebKitPlatform .cpp files, never from a header.
+// TestIPC both link, so the Swift files belong to the WebKitPlatform target. The symbols are hidden: only call them from
+// WebKit and WebKitPlatform .cpp files, never from a header.
+//
+// Spans are passed as (data, size): data's address matters, because values are aligned to their size in memory, not in
+// the span. Sizes and positions must be at most PTRDIFF_MAX, like the size of any std::span; larger ones trap.
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -55,7 +64,8 @@ enum {
 // The argument layouts, the values of IPC::swiftArgumentLayout(). Every value is read at its alignment in memory (not
 // in the span), as IPC::Decoder::decodeSpan<T>() reads it.
 enum {
-    // Not located: the arguments are decoded by the message's decodeArgumentsInSwift(), or with decode<Arguments>().
+    // Not located: the arguments are decoded by the message's decodeArgumentsInSwift() (a Path), or with
+    // decode<Arguments>() (a message without the SwiftArgumentDecoder attribute).
     WebKitSwift_IPCStreamMessage_LayoutNone = 0,
     // 1-15: that many 4-byte values that accept every bit pattern (float, uint32_t, and structs made of them, decoded
     // with decodeObject<T>() each), one aligned run at valuesOffset.
@@ -95,16 +105,46 @@ typedef struct {
 } WebKitSwift_IPCStreamMessage_Arguments;
 
 // Decodes the message name, the reply ID of a message name >= firstMessageNameWithReplyID, and then, for a message name
-// whose argumentLayouts entry is not None, the arguments, from the start of the stream span (data, size). data's
-// address matters: values are aligned to their size in memory, not in the span. argumentLayouts has one entry per
-// message name, so a message name is valid if and only if it is less than layoutCount (MessageName::Last + 1).
-// Stores the reply ID in *replyID only on success and only if the message has one, and always stores all of *arguments
-// (all 0, which is status None, if the header failed or the layout is None).
-// size and layoutCount must be at most PTRDIFF_MAX, like the size of any std::span; larger ones trap.
+// whose argumentLayouts entry is not None, the arguments, from the start of the stream span (data, size).
+// argumentLayouts has one entry per message name, so a message name is valid if and only if it is less than layoutCount
+// (MessageName::Last + 1). Stores the reply ID in *replyID only on success and only if the message has one, and always
+// stores all of *arguments (all 0, which is status None, if the header failed or the layout is None).
 __attribute__((visibility("hidden"))) __attribute__((nothrow)) __attribute__((warn_unused_result))
 uint64_t WebKitSwift_IPCStreamMessage_decode(const uint8_t* data, size_t size, uint64_t destinationID,
     uint16_t firstMessageNameWithReplyID, const uint8_t* argumentLayouts, size_t layoutCount, uint64_t* replyID,
     WebKitSwift_IPCStreamMessage_Arguments* arguments);
+
+// Locates the arguments of `layout` (not None) from `position` of the span (data, size), as decode<Arguments>() decodes
+// them from a decoder at that position, into all of *arguments.
+__attribute__((visibility("hidden"))) __attribute__((nothrow))
+void WebKitSwift_IPCStreamMessage_locateArguments(const uint8_t* data, size_t size, size_t position, uint8_t layout,
+    WebKitSwift_IPCStreamMessage_Arguments* arguments);
+
+// The progress of decoding a Path, which takes one call per bufferful of segments (most paths take one call). All the
+// fields are 64-bit words, which Swift stores whole.
+typedef struct {
+    uint64_t segmentCount; // The size of the Vector<PathSegment>, which the first call decodes.
+    uint64_t segmentsDecoded; // 0 before the first call; after each call, the segments decoded so far.
+    uint64_t wordCount; // The words of the buffer that the last call wrote.
+    uint64_t boolEnum; // The trailing enum class : bool, 0 or 1, once all the segments are decoded (0 before that).
+} WebKitSwift_IPCStreamMessage_PathProgress;
+
+// Decodes decode<WebCore::Path>() from `position` of the span (data, size): the first call (progress->segmentsDecoded
+// 0) the size of the Vector<PathSegment>, then, on each call, as many of the segments left as fit in the buffer `words`
+// (wordCapacity words), and then, if trailingBoolEnum, the enum class : bool that follows the Path (ClipPath's WindRule).
+// Returns the position after what it decoded, for the next call, or -1 if decoding failed, after which nothing it
+// stored is meaningful. A size larger than the bytes left in the span fails (each segment takes at least one byte), so
+// segmentCount <= size - position.
+// The call stores into `words` the segments it decoded, one after the other, and their total length in
+// progress->wordCount, and writes no other word: each segment is a word that holds the PathSegment::Data alternative
+// index (bits 0-7, less than 17) and its trailing 1-byte enum (bits 8-15, 0 or 1: the RotationDirection of PathArc,
+// PathClosedArc and PathEllipse, the Strategy of PathRoundedRect, 0 for the other alternatives), then the bit
+// patterns of the alternative's floats (0 to 12 of them), in the order the coders read them. A call decodes segments
+// while the buffer has room for the largest one (13 words), so the buffer must have at least that many words; a
+// smaller one traps.
+__attribute__((visibility("hidden"))) __attribute__((nothrow)) __attribute__((warn_unused_result))
+intptr_t WebKitSwift_IPCStreamMessage_decodePath(const uint8_t* data, size_t size, size_t position, uint32_t* words,
+    size_t wordCapacity, bool trailingBoolEnum, WebKitSwift_IPCStreamMessage_PathProgress* progress);
 
 #ifdef __cplusplus
 }

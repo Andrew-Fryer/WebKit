@@ -44,28 +44,26 @@
 }
 
 @_cdecl("WebCoreSwift_PropertyCascade_build")
-func WebCoreSwift_PropertyCascade_build(_ matches: UnsafePointer<UInt64>?, _ matchWordCount: Int, _ config: UnsafePointer<UInt32>?, _ configCount: Int,
+func WebCoreSwift_PropertyCascade_build(_ matches: UnsafePointer<UInt64>?, _ matchWordCount: Int, _ state: UnsafeMutablePointer<UInt32>?, _ stateCount: Int,
     _ includedIDs: UnsafePointer<UInt16>?, _ includedIDCount: Int, _ table: UnsafePointer<UInt16>?, _ tableCount: Int,
     _ properties: UnsafeMutableRawPointer?, _ propertyBytes: Int, _ propertyIsPresent: UnsafeMutablePointer<UInt64>?, _ propertyIsPresentWordCount: Int,
     _ logicalGroupIndices: UnsafeMutablePointer<UInt32>?, _ logicalGroupIDs: UnsafeMutablePointer<UInt16>?, _ logicalGroupCount: Int,
-    _ scalars: UnsafeMutablePointer<UInt32>?, _ work: UnsafeMutablePointer<UInt64>?, _ workCount: Int) -> Int
+    _ work: UnsafeMutablePointer<UInt64>?, _ workCount: Int) -> Int
 {
     let matchBuffer = unsafe UnsafeBufferPointer(start: matches, count: matchWordCount)
     let storage = unsafe PropertyCascadeMatchStorageFromGlue(matches: matchBuffer)
-    let configBuffer = unsafe UnsafeBufferPointer(start: config, count: configCount)
     let includedIDBuffer = unsafe UnsafeBufferPointer(start: includedIDs, count: includedIDCount)
     let tableBuffer = unsafe UnsafeBufferPointer(start: table, count: tableCount)
     let propertyBuffer = unsafe UnsafeMutableRawBufferPointer(start: properties, count: propertyBytes)
     let presentBuffer = unsafe UnsafeMutableBufferPointer(start: propertyIsPresent, count: propertyIsPresentWordCount)
     let indexBuffer = unsafe UnsafeMutableBufferPointer(start: logicalGroupIndices, count: logicalGroupCount)
     let idBuffer = unsafe UnsafeMutableBufferPointer(start: logicalGroupIDs, count: logicalGroupCount)
-    let scalarBuffer = unsafe UnsafeMutableBufferPointer(start: scalars, count: PropertyCascade.scalarCount)
     let workBuffer = unsafe UnsafeMutableBufferPointer(start: work, count: workCount)
     var logicalIDSpan = unsafe idBuffer.mutableSpan
-    var scalarSpan = unsafe scalarBuffer.mutableSpan
-    return unsafe PropertyCascade.build(storage: storage, matches: matchBuffer.span, config: configBuffer.span, includedIDs: includedIDBuffer.span,
+    var stateSpan = unsafe UnsafeMutableBufferPointer(start: state, count: stateCount).mutableSpan
+    return unsafe PropertyCascade.build(storage: storage, matches: matchBuffer.span, state: &stateSpan, includedIDs: includedIDBuffer.span,
         table: tableBuffer.span, records: propertyBuffer.mutableBytes, present: presentBuffer.mutableSpan, logicalIndices: indexBuffer.mutableSpan,
-        logicalIDs: &logicalIDSpan, scalars: &scalarSpan, work: workBuffer.mutableSpan)
+        logicalIDs: &logicalIDSpan, work: workBuffer.mutableSpan)
 }
 
 #endif // compiler(>=6.4) || WTF_PLATFORM_MAC

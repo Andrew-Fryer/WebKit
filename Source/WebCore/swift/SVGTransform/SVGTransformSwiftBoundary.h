@@ -32,20 +32,29 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if defined(__cplusplus) && defined(NODELETE)
+#define WEBCORE_SWIFT_SVG_TRANSFORM_NODELETE NODELETE
+#else
+#define WEBCORE_SWIFT_SVG_TRANSFORM_NODELETE
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Lexes SVG transform-list items from the start of characters[0..<length] (length > 0) until one does
-// not parse, the input ends, or `capacity` (> 0) items were lexed. An item is: leading whitespace, the
-// transform keyword, its parenthesized parameter list, then the whitespace, optional ',' and whitespace
-// that SVGTransformList::parseGeneric skips after each item. Returns the number of items lexed (>= 1).
-// results[k] holds item k's WebCoreSwift_SVGTransform_status() and, for InvalidParameters and Parsed,
-// its SVGTransformValue::SVGTransformType; for Parsed also its number of values, written to
-// values[6 * k ..< 6 * k + count], and whether a ',' followed it. *consumed receives how far the C++
-// lexer would have advanced the StringParsingBuffer after the last lexed item, also when that item
-// failed (callers may keep parsing after a failure).
-size_t WebCoreSwift_SVGTransform_lexItems8(const uint8_t* characters, size_t length, uint32_t* results, float* values /* [6 * capacity] */, size_t capacity, size_t* consumed);
+// Lexes SVG transform-list items from the start of characters[0..<length] (Latin-1 code units, or UTF-16 code units
+// at any alignment if is16Bit) until one does not parse, the input ends, or resultCapacity (1...255) items were lexed.
+// An item is: leading whitespace, the transform keyword, its parenthesized parameter list, then the whitespace,
+// optional ',' and whitespace that SVGTransformList::parseGeneric skips after each item. Lexes at least one item.
+// results[k] holds item k's WebCoreSwift_SVGTransform_status() and, for InvalidParameters and Parsed, its
+// SVGTransformValue::SVGTransformType; for Parsed also its number of values, written to values[6 * k ..< 6 * k + count]
+// (values has valueCapacity floats; too few traps), and whether a ',' followed it. Returns the number of items lexed
+// and how far the cursor advanced after the last of them, also when it failed (callers may keep parsing after a
+// failure); see WebCoreSwift_SVGTransform_itemCount() and WebCoreSwift_SVGTransform_consumed().
+WEBCORE_SWIFT_SVG_TRANSFORM_NODELETE uint64_t WebCoreSwift_SVGTransform_lexItems(const void* characters, size_t length, bool is16Bit, uint32_t* results, size_t resultCapacity, float* values, size_t valueCapacity);
+
+static inline size_t WebCoreSwift_SVGTransform_itemCount(uint64_t lexed) { return lexed & 0xff; }
+static inline size_t WebCoreSwift_SVGTransform_consumed(uint64_t lexed) { return lexed >> 8; }
 
 enum {
     WebCoreSwift_SVGTransform_NoTransformType = 0, // No transform keyword at the cursor.

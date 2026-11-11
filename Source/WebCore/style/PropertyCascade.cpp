@@ -136,6 +136,38 @@ static_assert(offsetof(MatchedProperties, styleScopeOrdinal) == 10 && offsetof(M
 static_assert(offsetof(MatchedProperties, cascadeLayerPriority) == 12 && offsetof(MatchedProperties, isStartingStyle) == 14 && offsetof(MatchedProperties, isCacheable) == 15);
 static_assert(sizeof(PropertyAllowlist) == 1 && sizeof(ScopeOrdinal) == 1 && sizeof(FromStyleAttribute) == 1 && sizeof(CascadeLayerPriority) == 2 && sizeof(IsStartingStyle) == 1 && sizeof(IsCacheable) == 1);
 static_assert(!std::to_underlying(PropertyAllowlist::None));
+// The match storage the kernel reads: CSSProperty records (StylePropertyMetadata, then the Ref<CSSValue>) for
+// MutableStyleProperties; for ImmutableStyleProperties, m_storage followed by StylePropertyMetadata[n], then
+// PackedPtr<const CSSValue>[n], each pointer stored as its low storageSize bytes, little-endian. The parts that
+// cannot be static_asserted from here (CSSProperty's private members, the order of ImmutableStyleProperties' arrays,
+// StylePropertyMetadata's bit-fields) are checked against the public API on every Swift-built cascade in debug builds
+// (assertStorageLayoutForSwift()).
+static_assert(std::endian::native == std::endian::little);
+static_assert(!PackedPtr<const CSSValue>::alignmentShiftSize && sizeof(PackedPtr<const CSSValue>) == PackedPtr<const CSSValue>::storageSize);
+static_assert(ImmutableStyleProperties::objectSize(1) - ImmutableStyleProperties::objectSize(0) == sizeof(StylePropertyMetadata) + sizeof(PackedPtr<const CSSValue>));
+
+#if ASSERT_ENABLED
+// Decodes every property of one match's storage as the kernel does (StylePropertyMetadata: m_propertyID in bits 0-9,
+// m_important in bit 13) and compares it with the public API.
+static void assertStorageLayoutForSwift(const StyleProperties& properties, std::span<const uint8_t> storage)
+{
+    unsigned count = properties.propertyCount();
+    bool isMutable = properties.isMutable();
+    for (unsigned i = 0; i < count; ++i) {
+        auto property = properties.propertyAt(i);
+        size_t metadataOffset = isMutable ? i * sizeof(CSSProperty) : i * sizeof(StylePropertyMetadata);
+        size_t valueOffset = isMutable ? i * sizeof(CSSProperty) + sizeof(uintptr_t) : count * sizeof(StylePropertyMetadata) + i * sizeof(PackedPtr<const CSSValue>);
+        size_t valueSize = isMutable ? sizeof(uintptr_t) : sizeof(PackedPtr<const CSSValue>);
+        uint32_t metadata = 0;
+        memcpySpan(asMutableByteSpan(metadata), storage.subspan(metadataOffset, sizeof(metadata)));
+        uintptr_t value = 0;
+        memcpySpan(asMutableByteSpan(value).first(valueSize), storage.subspan(valueOffset, valueSize));
+        ASSERT((metadata & 0x3FF) == std::to_underlying(property.id()));
+        ASSERT(!!(metadata & (1 << 13)) == property.isImportant());
+        ASSERT(value == reinterpret_cast<uintptr_t>(property.value()));
+    }
+}
+#endif
 
 // For each CSSPropertyID: cascadeAliasProperty(id) | CSSProperty::isInheritedProperty(id) << 15.
 static std::span<const uint16_t> propertyTableForSwift()
@@ -195,12 +227,19 @@ bool PropertyCascade::buildCascadeWithSwift()
                 words[0] = reinterpret_cast<uintptr_t>(storage.data());
                 words[2] = storage.size() | uint64_t { count } << 32 | 1ull << 63;
                 propertyTotal += count;
+#if ASSERT_ENABLED
+                assertStorageLayoutForSwift(properties, storage);
+#endif
             } else {
                 auto& immutableProperties = uncheckedDowncast<ImmutableStyleProperties>(properties);
                 size_t count = immutableProperties.propertyCount();
+                size_t byteCount = count * (sizeof(StylePropertyMetadata) + sizeof(PackedPtr<const CSSValue>));
                 words[0] = reinterpret_cast<uintptr_t>(&immutableProperties.m_storage);
-                words[2] = count * (sizeof(StylePropertyMetadata) + sizeof(PackedPtr<const CSSValue>)) | uint64_t { count } << 32;
+                words[2] = byteCount | uint64_t { count } << 32;
                 propertyTotal += count;
+#if ASSERT_ENABLED
+                assertStorageLayoutForSwift(properties, unsafeMakeSpan(reinterpret_cast<const uint8_t*>(&immutableProperties.m_storage), byteCount));
+#endif
             }
             // linkMatchType through isCacheable, in their byte order (static_asserted above).
             memcpySpan(asMutableByteSpan(words[1]), asByteSpan(matchedProperties).subspan(offsetof(MatchedProperties, linkMatchType), sizeof(uint64_t)));
@@ -210,27 +249,26 @@ bool PropertyCascade::buildCascadeWithSwift()
 
     size_t scratchCount = std::max<size_t>({ logicalGroupPropertyCount, userAgentCount, userCount, authorCount });
     Vector<uint64_t, 256> work(scratchCount + propertyTotal);
-    std::array<uint32_t, 7> config { static_cast<uint32_t>(userAgentCount), static_cast<uint32_t>(userCount), static_cast<uint32_t>(authorCount),
-        types.toRaw(), std::to_underlying(firstLogicalGroupProperty), sizeof(PackedPtr<const CSSValue>), static_cast<uint32_t>(scratchCount) };
-    std::array<uint32_t, 4> scalars { m_lastIndexForLogicalGroup, m_seenLogicalGroupPropertyCount,
-        std::to_underlying(m_lowestSeenLogicalGroupProperty), std::to_underlying(m_highestSeenLogicalGroupProperty) };
+    std::array<uint32_t, 11> state { static_cast<uint32_t>(userAgentCount), static_cast<uint32_t>(userCount), static_cast<uint32_t>(authorCount),
+        types.toRaw(), std::to_underlying(firstLogicalGroupProperty), sizeof(PackedPtr<const CSSValue>), static_cast<uint32_t>(scratchCount),
+        m_lastIndexForLogicalGroup, m_seenLogicalGroupPropertyCount, std::to_underlying(m_lowestSeenLogicalGroupProperty), std::to_underlying(m_highestSeenLogicalGroupProperty) };
     auto includedIDs = spanReinterpretCast<const uint16_t>(m_includedProperties.ids.span());
     auto table = propertyTableForSwift();
     auto properties = asMutableByteSpan(std::span { m_properties });
     auto propertyIsPresent = m_propertyIsPresent.storage();
     auto logicalGroupIDs = spanReinterpretCast<uint16_t>(std::span { m_logicalGroupPropertyIDs });
 
-    auto customCount = WebCoreSwift_PropertyCascade_build(matchWords.span().data(), matchWords.size(), config.data(), config.size(),
+    auto customCount = WebCoreSwift_PropertyCascade_build(matchWords.span().data(), matchWords.size(), state.data(), state.size(),
         includedIDs.data(), includedIDs.size(), table.data(), table.size(), properties.data(), properties.size(),
         propertyIsPresent.data(), propertyIsPresent.size(), m_logicalGroupPropertyIndices.data(), logicalGroupIDs.data(), logicalGroupPropertyCount,
-        scalars.data(), work.mutableSpan().data(), work.size());
+        work.mutableSpan().data(), work.size());
     if (customCount < 0)
         return false;
 
-    m_lastIndexForLogicalGroup = scalars[0];
-    m_seenLogicalGroupPropertyCount = scalars[1];
-    m_lowestSeenLogicalGroupProperty = static_cast<CSSPropertyID>(scalars[2]);
-    m_highestSeenLogicalGroupProperty = static_cast<CSSPropertyID>(scalars[3]);
+    m_lastIndexForLogicalGroup = state[7];
+    m_seenLogicalGroupPropertyCount = state[8];
+    m_lowestSeenLogicalGroupProperty = static_cast<CSSPropertyID>(state[9]);
+    m_highestSeenLogicalGroupProperty = static_cast<CSSPropertyID>(state[10]);
 
     // The custom property sets, in cascade order.
     for (auto entry : work.span().subspan(scratchCount, customCount)) {

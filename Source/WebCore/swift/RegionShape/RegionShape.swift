@@ -68,10 +68,75 @@ struct RegionShapeBounds {
 }
 
 enum RegionShape {
-    // Layout of the shapeOperation resume state (size_t[8] owned by the C++ glue, zero before the first call).
+    // Layout of the combine() resume state (size_t[stateWordCount] owned by the C++ glue, zero before the first call).
     // [0] p1, [1] p2: next span of each shape. [2] lo1, [3] hi1, [4] lo2, [5] hi2: the current segments of each shape.
-    // [6] segment count, [7] span count of the result so far.
-    static var stateWordCount: Int { 10 }
+    // [6] segment count, [7] span count of the result so far. [8] 1 if the span at y = [9] is pending. When done,
+    // [10] ... [13] are the result's bounds (x, y, width, height, sign-extended).
+    static var stateWordCount: Int { 14 }
+
+    // Operation codes of the C entry points; keep in sync with RegionShapeSwiftBoundary.h.
+    static var combineUnion: Int { 0 }
+    static var combineIntersect: Int { 1 }
+    static var combineSubtract: Int { 2 }
+    static var combineBoundsOnly: Int { 3 }
+    static var queryContains: Int { 0 }
+    static var queryIntersects: Int { 1 }
+    static var queryIsValid: Int { 2 }
+
+    /// Region::Shape::shapeOperation<UnionOperation / IntersectOperation / SubtractOperation> (see shapeOperation()),
+    /// and, once done, Region::Shape::bounds() of the result into state[10 ..< 14]. combineBoundsOnly only stores
+    /// Region::Shape::bounds() of shape1 there.
+    @inline(__always) // into its C entry point: one call, not two.
+    static func combine(_ operation: Int, _ segments1: Span<Int32>, _ words1: Span<UInt64>, _ segments2: Span<Int32>,
+        _ words2: Span<UInt64>, _ outSegments: inout MutableSpan<Int32>, _ outWords: inout MutableSpan<UInt64>,
+        _ state: inout MutableSpan<Int>) -> Int
+    {
+        precondition(state.count == stateWordCount)
+        let needed: Int
+        switch operation {
+        case combineUnion:
+            needed = shapeOperation(.union, segments1, words1, segments2, words2, &outSegments, &outWords, &state)
+        case combineIntersect:
+            needed = shapeOperation(.intersect, segments1, words1, segments2, words2, &outSegments, &outWords, &state)
+        case combineSubtract:
+            needed = shapeOperation(.subtract, segments1, words1, segments2, words2, &outSegments, &outWords, &state)
+        case combineBoundsOnly:
+            storeBounds(bounds(segments1, words1), &state)
+            return 0
+        default:
+            preconditionFailure("unknown Region::Shape combination")
+        }
+        if needed == 0 {
+            storeBounds(bounds(outSegments.span.extracting(0 ..< state[6]), outWords.span.extracting(0 ..< 2 &* state[7])), &state)
+        }
+        return needed
+    }
+
+    @inline(__always)
+    static func storeBounds(_ bounds: RegionShapeBounds, _ state: inout MutableSpan<Int>) {
+        state[10] = Int(bounds.x)
+        state[11] = Int(bounds.y)
+        state[12] = Int(bounds.width)
+        state[13] = Int(bounds.height)
+    }
+
+    /// Region::Shape::compareShapes<CompareContainsOperation / CompareIntersectsOperation>(shape1, shape2) and
+    /// isValidShape(shape1).
+    @inline(__always) // into its C entry point: one call, not two.
+    static func query(_ operation: Int, _ segments1: Span<Int32>, _ words1: Span<UInt64>, _ segments2: Span<Int32>,
+        _ words2: Span<UInt64>) -> Bool
+    {
+        switch operation {
+        case queryContains:
+            return compareShapes(contains: true, segments1, words1, segments2, words2)
+        case queryIntersects:
+            return compareShapes(contains: false, segments1, words1, segments2, words2)
+        case queryIsValid:
+            return isValidShape(segments1, words1)
+        default:
+            preconditionFailure("unknown Region::Shape query")
+        }
+    }
 
     // Spans are addressed by the index of their first word: span i is at word 2 * i (its y) and 2 * i + 1 (its
     // segmentIndex). "Span i + 1 exists" is `2 * i + 3 < words.count`, for an even or odd word count alike.

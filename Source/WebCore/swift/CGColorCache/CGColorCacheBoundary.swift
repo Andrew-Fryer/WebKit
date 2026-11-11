@@ -22,31 +22,28 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 
 // Boundary for cachedCGColor() in Source/WebCore/platform/graphics/cg/ColorCG.cpp, declared in
-// CGColorCacheSwiftBoundary.h: wraps C++'s arrays in spans, reads and writes the size, and forwards the equality callback.
+// CGColorCacheSwiftBoundary.h: wraps C++'s arrays in spans and forwards the equality callback.
 
 @_cdecl("WebCoreSwift_CGColorCache_lookup")
-func WebCoreSwift_CGColorCache_lookup(_ keys: UnsafeMutablePointer<UInt64>?, _ order: UnsafeMutablePointer<UInt8>?,
-    _ capacity: Int, _ size: UnsafeMutablePointer<Int>, _ keyBits: UInt64) -> UInt32
-{
-    var keySpan = unsafe UnsafeMutableBufferPointer(start: keys, count: capacity).mutableSpan
-    var orderSpan = unsafe UnsafeMutableBufferPointer(start: order, count: capacity).mutableSpan
-    var count = unsafe size.pointee
-    let result = CGColorCache.lookup(keys: &keySpan, order: &orderSpan, size: &count, keyBits: keyBits)
-    unsafe size.pointee = count
-    return result
-}
-
-@_cdecl("WebCoreSwift_CGColorCache_lookupOutOfLine")
-func WebCoreSwift_CGColorCache_lookupOutOfLine(_ keys: UnsafeMutablePointer<UInt64>?, _ order: UnsafeMutablePointer<UInt8>?,
-    _ capacity: Int, _ size: UnsafeMutablePointer<Int>, _ keyBits: UInt64, _ context: UnsafeRawPointer?,
+func WebCoreSwift_CGColorCache_lookup(_ keys: UnsafeMutablePointer<UInt64>?, _ keyCount: Int, _ order: UnsafeMutablePointer<UInt8>?,
+    _ orderCount: Int, _ size: Int, _ keyBits: UInt64, _ outOfLineKey: UnsafeRawPointer?,
     _ outOfLineEntryEquals: @convention(c) (UnsafeRawPointer?, UInt8) -> Bool) -> UInt32
 {
-    var keySpan = unsafe UnsafeMutableBufferPointer(start: keys, count: capacity).mutableSpan
-    var orderSpan = unsafe UnsafeMutableBufferPointer(start: order, count: capacity).mutableSpan
-    var count = unsafe size.pointee
-    let result = CGColorCache.lookupOutOfLine(keys: &keySpan, order: &orderSpan, size: &count, keyBits: keyBits) { slot in
-        unsafe outOfLineEntryEquals(context, slot)
+    var keySpan = unsafe UnsafeMutableBufferPointer(start: keys, count: keyCount).mutableSpan
+    var orderSpan = unsafe UnsafeMutableBufferPointer(start: order, count: orderCount).mutableSpan
+    guard unsafe outOfLineKey != nil else {
+        return CGColorCache.lookup(keys: &keySpan, order: &orderSpan, size: size, keyBits: keyBits)
     }
-    unsafe size.pointee = count
-    return result
+    let equals = unsafe CGColorCacheEquals(key: outOfLineKey, equals: outOfLineEntryEquals)
+    return unsafe CGColorCache.lookupOutOfLine(keys: &keySpan, order: &orderSpan, size: size, keyBits: keyBits, equals)
+}
+
+// The out-of-line equality callback from C++ and its context.
+@unsafe struct CGColorCacheEquals: CGColorCache.OutOfLineEntryEquals {
+    let key: UnsafeRawPointer?
+    let equals: @convention(c) (UnsafeRawPointer?, UInt8) -> Bool
+
+    func callAsFunction(_ slot: UInt8) -> Bool {
+        unsafe equals(key, slot)
+    }
 }

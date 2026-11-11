@@ -229,10 +229,9 @@ RetainPtr<CGColorRef> cachedCGColor(const Color& color)
     auto& colors = cache.get();
     auto bits = colorBitsForCachedCGColors(color);
     CachedCGColorsKey key { colors, color };
-    auto result = color.tryGetAsPackedInline()
-        ? WebCoreSwift_CGColorCache_lookup(colors.keys.data(), colors.order.data(), CachedCGColors::capacity, &colors.size, bits)
-        : WebCoreSwift_CGColorCache_lookupOutOfLine(colors.keys.data(), colors.order.data(), CachedCGColors::capacity, &colors.size, bits,
-            &key, cachedCGColorsEntryEqualsKey);
+    auto result = WebCoreSwift_CGColorCache_lookup(colors.keys.data(), colors.keys.size(), colors.order.data(), colors.order.size(), colors.size, bits,
+        color.tryGetAsPackedInline() ? nullptr : &key, cachedCGColorsEntryEqualsKey);
+    colors.size = (result >> WebCoreSwiftCGColorCacheSizeShift) & 0xff;
     auto& entry = colors.entries[result & WebCoreSwiftCGColorCacheSlotMask];
     if (result & WebCoreSwiftCGColorCacheMiss)
         entry = std::pair { color, createCGColor(color) };

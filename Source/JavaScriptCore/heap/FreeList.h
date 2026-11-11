@@ -111,8 +111,7 @@ public:
 
     unsigned cellSize() const { return m_cellSize; }
 
-    // The raw state, which MarkedBlock::Handle::stopAllocating passes to its Swift kernel (swift/MarkedBlockSweep)
-    // and the sweep's validation compares.
+    // The raw state, which MarkedBlock::Handle::stopAllocating passes to its Swift kernel (swift/MarkedBlockSweep).
     char* intervalStart() const { return m_intervalStart; }
     char* intervalEnd() const { return m_intervalEnd; }
     FreeCell* nextIntervalOrSentinel() const { return m_nextInterval; }

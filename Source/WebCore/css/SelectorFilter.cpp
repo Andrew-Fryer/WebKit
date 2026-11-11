@@ -90,30 +90,13 @@ void SelectorFilter::initializeParentStack(Element& parent)
         pushParent(protect(ancestors[i]));
 }
 
-// The Swift kernels update the CountingBloomFilter's bucket array in place (SelectorFilterSwiftBoundary.h).
-template<unsigned keyBits> static std::span<uint8_t> bucketsForSwift(CountingBloomFilter<keyBits>& filter)
+// The Swift kernel updates the CountingBloomFilter's bucket array in place (SelectorFilterSwiftBoundary.h).
+template<unsigned keyBits> NODELETE static void updateWithSwift(CountingBloomFilter<keyBits>& filter, std::span<const unsigned> hashes, uint8_t operation)
 {
     static_assert(sizeof(CountingBloomFilter<keyBits>) == CountingBloomFilter<keyBits>::tableSize);
-    return asMutableByteSpan(filter);
-}
-
-template<unsigned keyBits> static void addHashesWithSwift(CountingBloomFilter<keyBits>& filter, std::span<const unsigned> hashes)
-{
     static_assert(sizeof(unsigned) == sizeof(uint32_t));
-    auto buckets = bucketsForSwift(filter);
-    WebCoreSwift_SelectorFilter_addHashes(buckets.data(), buckets.size(), hashes.data(), hashes.size());
-}
-
-template<unsigned keyBits> NODELETE static void removeHashesWithSwift(CountingBloomFilter<keyBits>& filter, std::span<const unsigned> hashes)
-{
-    auto buckets = bucketsForSwift(filter);
-    WebCoreSwift_SelectorFilter_removeHashes(buckets.data(), buckets.size(), hashes.data(), hashes.size());
-}
-
-template<unsigned keyBits> NODELETE static void clearWithSwift(CountingBloomFilter<keyBits>& filter)
-{
-    auto buckets = bucketsForSwift(filter);
-    WebCoreSwift_SelectorFilter_clear(buckets.data(), buckets.size());
+    auto buckets = asMutableByteSpan(filter);
+    WebCoreSwift_SelectorFilter_update(buckets.data(), buckets.size(), hashes.data(), hashes.size(), operation);
 }
 
 void SelectorFilter::pushParent(Element* parent)
@@ -125,7 +108,7 @@ void SelectorFilter::pushParent(Element* parent)
     // Mix tags, class names and ids into some sort of weird bouillabaisse.
     // The filter is used for fast rejection of child and descendant selectors.
     collectElementIdentifierHashes(*parent, parentFrame.identifierHashes);
-    addHashesWithSwift(m_ancestorIdentifierFilter, parentFrame.identifierHashes.span());
+    updateWithSwift(m_ancestorIdentifierFilter, parentFrame.identifierHashes.span(), WebCoreSwift_SelectorFilter_Add);
 }
 
 void SelectorFilter::pushParentInitializingIfNeeded(Element& parent)
@@ -141,12 +124,9 @@ void SelectorFilter::popParent()
 {
     ASSERT(!m_parentStack.isEmpty());
     const ParentStackFrame& parentFrame = m_parentStack.last();
-    removeHashesWithSwift(m_ancestorIdentifierFilter, parentFrame.identifierHashes.span());
+    // Popping the last parent also clears the filter (after asserting that it is likely empty).
+    updateWithSwift(m_ancestorIdentifierFilter, parentFrame.identifierHashes.span(), m_parentStack.size() == 1 ? WebCoreSwift_SelectorFilter_RemoveAndClear : WebCoreSwift_SelectorFilter_Remove);
     m_parentStack.removeLast();
-    if (m_parentStack.isEmpty()) {
-        ASSERT(m_ancestorIdentifierFilter.likelyEmpty());
-        clearWithSwift(m_ancestorIdentifierFilter);
-    }
 }
 
 void SelectorFilter::popParentsUntil(Element* parent)

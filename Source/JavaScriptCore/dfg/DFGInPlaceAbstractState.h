@@ -383,11 +383,8 @@ private:
     void activateVariable(size_t variableIndex);
     void activateAllVariables();
     
-    static bool mergeVariableBetweenBlocks(AbstractValue& destination, AbstractValue& source, Node* destinationNode, Node* sourceNode);
-
     // The per-variable part of merge(from, to): from->valuesAtTail into to->valuesAtHead.
     bool mergeValues(BasicBlock* from, BasicBlock* to);
-    bool mergeValuesCxx(BasicBlock* from, BasicBlock* to);
     
     Graph& m_graph;
 
@@ -405,10 +402,8 @@ private:
     
     BranchDirection m_branchDirection; // This is only set for blocks that end in Branch and that execute to completion (i.e. m_isValid == true).
 
-#if USE(SWIFT_KERNELS)
     // Scratch for mergeValues(): the indices of the values that DFGCFAMerge.swift leaves to the C++ merge.
     Vector<uint32_t> m_slowMergeIndices;
-#endif
 };
 
 } } // namespace JSC::DFG

@@ -76,26 +76,24 @@ typedef struct {
     float height;
 } WebCoreSwiftPathFastBoundsState;
 
-// Runs `currentPoint = segment.calculateEndPoint(currentPoint, lastMoveToPoint)` for segment segmentIndex of the span
-// that context points to. Points are the bit patterns of FloatPoints (x in the low 32 bits): currentPoint is in,
-// *lastMoveToPoint is in/out, and the result is the new current point. Swift calls it for the segment types whose end
-// point needs trigonometry (PathArcTo, PathArc, PathClosedArc, PathEllipse, PathDataArc) and unknown indices, after the
-// segment's rect extension, and only once a later segment needs the end point (so possibly never for a segment).
-typedef uint64_t (*WebCoreSwiftPathFastBoundsEndPoint)(const void* context, size_t segmentIndex, uint64_t currentPoint, uint64_t* lastMoveToPoint);
-
-// Runs segment.extendFastBoundingRect(currentPoint, lastMoveToPoint, boundingRect) for segment segmentIndex of the span
-// that context points to, updating the rect of *state. Swift calls it for the segments whose rect extension it does not
-// do itself (a rotated PathEllipse, and any unknown index), then treats the end point as for the types above.
-typedef void (*WebCoreSwiftPathFastBoundsExtendRect)(const void* context, size_t segmentIndex, WebCoreSwiftPathFastBoundsState*);
+// The parts of the loop body that need trigonometry, run in C++ for segment segmentIndex of the span that context
+// points to. If stateForRectExtension is null: `currentPoint = segment.calculateEndPoint(currentPoint, lastMoveToPoint)`,
+// where points are the bit patterns of FloatPoints (x in the low 32 bits): currentPoint is in, *lastMoveToPoint in/out,
+// and the result is the new current point. Swift calls this for the segment types whose end point needs trigonometry
+// (PathArcTo, PathArc, PathClosedArc, PathEllipse, PathDataArc) and unknown indices, after the segment's rect
+// extension, and only once a later segment needs the end point (so possibly never for a segment). Otherwise:
+// segment.extendFastBoundingRect(currentPoint, lastMoveToPoint, boundingRect) on *stateForRectExtension (its points and
+// rect; the other arguments are unused, and so is the result), for the segments whose rect extension Swift does not do
+// itself (a rotated PathEllipse, and any unknown index); their end point is then handled as above.
+typedef uint64_t (*WebCoreSwiftPathFastBoundsCxxWork)(const void* context, size_t segmentIndex, uint64_t currentPoint, uint64_t* lastMoveToPoint, WebCoreSwiftPathFastBoundsState* stateForRectExtension);
 
 // segments points to wordCount 32-bit words: the PathSegment array (may be null if wordCount is 0). segmentSizeInWords
 // and tagOffset must be WebCoreSwiftPathFastBoundsSegmentSizeInWords and WebCoreSwiftPathFastBoundsTagOffset, and
-// wordCount a multiple of segmentSizeInWords. *state is in/out: on entry the initial state (both points (0, 0), the rect
-// FloatRect::smallestRect(); the rect counts as still "smallest" at the end if it equals this initial rect), on return
-// x, y, width and height are the bounding rect (the points are unspecified).
+// wordCount a multiple of segmentSizeInWords. *state (stateCount floats, which must be 8) is in/out: on entry the initial
+// state (both points (0, 0), the rect FloatRect::smallestRect(); the rect counts as still "smallest" at the end if it
+// equals this initial rect), on return x, y, width and height are the bounding rect (the points are unspecified).
 void WebCoreSwift_PathFastBounds_computeFastBoundingRect(const void* segments, size_t wordCount, size_t segmentSizeInWords,
-    size_t tagOffset, const void* context, WebCoreSwiftPathFastBoundsEndPoint, WebCoreSwiftPathFastBoundsExtendRect,
-    WebCoreSwiftPathFastBoundsState* state);
+    size_t tagOffset, const void* context, WebCoreSwiftPathFastBoundsCxxWork, WebCoreSwiftPathFastBoundsState* state, size_t stateCount);
 
 #ifdef __cplusplus
 }

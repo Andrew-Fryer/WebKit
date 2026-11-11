@@ -2437,15 +2437,16 @@
 		8ABA7749DBC9E48C43D7A04A /* ButterflyFillBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9569F7E0119B8483607FDABC /* ButterflyFillBoundary.swift */; };
 		EAA74ACC6D7A95E92FFBEFA8 /* DFGLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4D09B99AD905D0452F23169 /* DFGLiveness.swift */; };
 		2B988482423399E39A603D8B /* DFGLivenessBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0270A31E989ED9C075D2002D /* DFGLivenessBoundary.swift */; };
-		658B7FDF64FE784DFE0CA7C3 /* LexerEscapedLiterals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05A6CB660EE246087594EC4D /* LexerEscapedLiterals.swift */; };
-		7DF25872F7E3A66FB054F702 /* LexerEscapedLiteralsBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADA00F874491A0602064774E /* LexerEscapedLiteralsBoundary.swift */; };
-		E8E9964CDF8726F5229BCBB9 /* LexerRegExp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7859F94AE2C587D9E4940119 /* LexerRegExp.swift */; };
-		32CBB39C0B1C49FAB5191BB4 /* LexerRegExpBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 497CE475380AEEAB6FE5244D /* LexerRegExpBoundary.swift */; };
 		4F50FDEABD158E899A77147F /* DFGCFAMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 394638F8173A2F8FEFD6C813 /* DFGCFAMerge.swift */; };
 		D28CA5C34083C522E55407A8 /* DFGCFAMergeBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39066EF09EBE556738A9A22D /* DFGCFAMergeBoundary.swift */; };
 		298A9A3F60E46D3DD26372C3 /* MarkedBlockStopAllocating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7322C3B0EA3ECC3198DB4184 /* MarkedBlockStopAllocating.swift */; };
 		8C623C8281F8F736247908F6 /* MarkedBlockSweep.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEEF56A209411AA8F590CAE7 /* MarkedBlockSweep.swift */; };
 		62A4AB539B1755AD4D4FB5A7 /* MarkedBlockSweepBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE8C9A0AED30C372D3AF463C /* MarkedBlockSweepBoundary.swift */; };
+		05DA69E211913B9F412D6BAE /* LexerBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F35613ABEA6222C78A639E9D /* LexerBoundary.swift */; };
+		FD008CC603EEEE9E6090CD81 /* LexerCharacters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60D46038B4FD7A3DE9BD9767 /* LexerCharacters.swift */; };
+		DC508F68200C5F313785A372 /* LexerEscapedLiterals.swift in Sources */ = {isa = PBXBuildFile; fileRef = F233953D3EDB69DEDC327308 /* LexerEscapedLiterals.swift */; };
+		8AC1DECE5A05C8D98031E97C /* LexerRegExp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26893C6C1B6697860709C075 /* LexerRegExp.swift */; };
+		163AC281874D9499CE45C5D8 /* LexerScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC699DA15D0438B17D689595 /* LexerScan.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -6812,7 +6813,6 @@
 		649836D439321539DE36E121 /* LinkRecordSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkRecordSort/LinkRecordSort.swift; sourceTree = "<group>"; };
 		FF56F666D4FCDC30D4B787CD /* LinkRecordSortBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkRecordSort/LinkRecordSortBoundary.swift; sourceTree = "<group>"; };
 		966D81BF524AEFCD15AB1AB3 /* LinkRecordSortSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LinkRecordSort/LinkRecordSortSwiftBoundary.h; sourceTree = "<group>"; };
-		7A71B701B076EBD200804F55 /* SwiftKernelsValidation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SwiftKernelsValidation.h; sourceTree = "<group>"; };
 		9E886273E2866C7CADB425EC /* AvailabilityLocals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvailabilityLocals/AvailabilityLocals.swift; sourceTree = "<group>"; };
 		9FC5EEDB5BDF38D140BE95C5 /* AvailabilityLocalsBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvailabilityLocals/AvailabilityLocalsBoundary.swift; sourceTree = "<group>"; };
 		CDF4C9B94CA9D529A96759E6 /* AvailabilityLocalsSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AvailabilityLocals/AvailabilityLocalsSwiftBoundary.h; sourceTree = "<group>"; };
@@ -6822,12 +6822,6 @@
 		B4D09B99AD905D0452F23169 /* DFGLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DFGLiveness/DFGLiveness.swift; sourceTree = "<group>"; };
 		0270A31E989ED9C075D2002D /* DFGLivenessBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DFGLiveness/DFGLivenessBoundary.swift; sourceTree = "<group>"; };
 		993B25B70BF95C7F4C3A745E /* DFGLivenessSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DFGLiveness/DFGLivenessSwiftBoundary.h; sourceTree = "<group>"; };
-		05A6CB660EE246087594EC4D /* LexerEscapedLiterals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LexerEscapedLiterals/LexerEscapedLiterals.swift; sourceTree = "<group>"; };
-		ADA00F874491A0602064774E /* LexerEscapedLiteralsBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LexerEscapedLiterals/LexerEscapedLiteralsBoundary.swift; sourceTree = "<group>"; };
-		2360AE637806B8C2708C74DE /* LexerEscapedLiteralsSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LexerEscapedLiterals/LexerEscapedLiteralsSwiftBoundary.h; sourceTree = "<group>"; };
-		7859F94AE2C587D9E4940119 /* LexerRegExp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LexerRegExp/LexerRegExp.swift; sourceTree = "<group>"; };
-		497CE475380AEEAB6FE5244D /* LexerRegExpBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LexerRegExp/LexerRegExpBoundary.swift; sourceTree = "<group>"; };
-		64DD8A2C4FE86D410D189992 /* LexerRegExpSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LexerRegExp/LexerRegExpSwiftBoundary.h; sourceTree = "<group>"; };
 		394638F8173A2F8FEFD6C813 /* DFGCFAMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DFGCFAMerge/DFGCFAMerge.swift; sourceTree = "<group>"; };
 		39066EF09EBE556738A9A22D /* DFGCFAMergeBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DFGCFAMerge/DFGCFAMergeBoundary.swift; sourceTree = "<group>"; };
 		5F737479DD022A2A4B1ED7B7 /* DFGCFAMergeSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DFGCFAMerge/DFGCFAMergeSwiftBoundary.h; sourceTree = "<group>"; };
@@ -6835,6 +6829,12 @@
 		EEEF56A209411AA8F590CAE7 /* MarkedBlockSweep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkedBlockSweep/MarkedBlockSweep.swift; sourceTree = "<group>"; };
 		DE8C9A0AED30C372D3AF463C /* MarkedBlockSweepBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkedBlockSweep/MarkedBlockSweepBoundary.swift; sourceTree = "<group>"; };
 		23FC428976CA94CB90734D0F /* MarkedBlockSweepSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MarkedBlockSweep/MarkedBlockSweepSwiftBoundary.h; sourceTree = "<group>"; };
+		F35613ABEA6222C78A639E9D /* LexerBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lexer/LexerBoundary.swift; sourceTree = "<group>"; };
+		60D46038B4FD7A3DE9BD9767 /* LexerCharacters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lexer/LexerCharacters.swift; sourceTree = "<group>"; };
+		F233953D3EDB69DEDC327308 /* LexerEscapedLiterals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lexer/LexerEscapedLiterals.swift; sourceTree = "<group>"; };
+		26893C6C1B6697860709C075 /* LexerRegExp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lexer/LexerRegExp.swift; sourceTree = "<group>"; };
+		BC699DA15D0438B17D689595 /* LexerScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lexer/LexerScan.swift; sourceTree = "<group>"; };
+		CA731FA3FA4069194E764455 /* LexerSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Lexer/LexerSwiftBoundary.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -11304,6 +11304,12 @@
 		D9E037DFCA8FE415AD30CF27 /* swift */ = {
 			isa = PBXGroup;
 			children = (
+				CA731FA3FA4069194E764455 /* LexerSwiftBoundary.h */,
+				BC699DA15D0438B17D689595 /* LexerScan.swift */,
+				26893C6C1B6697860709C075 /* LexerRegExp.swift */,
+				F233953D3EDB69DEDC327308 /* LexerEscapedLiterals.swift */,
+				60D46038B4FD7A3DE9BD9767 /* LexerCharacters.swift */,
+				F35613ABEA6222C78A639E9D /* LexerBoundary.swift */,
 				23FC428976CA94CB90734D0F /* MarkedBlockSweepSwiftBoundary.h */,
 				DE8C9A0AED30C372D3AF463C /* MarkedBlockSweepBoundary.swift */,
 				EEEF56A209411AA8F590CAE7 /* MarkedBlockSweep.swift */,
@@ -11311,12 +11317,6 @@
 				5F737479DD022A2A4B1ED7B7 /* DFGCFAMergeSwiftBoundary.h */,
 				39066EF09EBE556738A9A22D /* DFGCFAMergeBoundary.swift */,
 				394638F8173A2F8FEFD6C813 /* DFGCFAMerge.swift */,
-				64DD8A2C4FE86D410D189992 /* LexerRegExpSwiftBoundary.h */,
-				497CE475380AEEAB6FE5244D /* LexerRegExpBoundary.swift */,
-				7859F94AE2C587D9E4940119 /* LexerRegExp.swift */,
-				2360AE637806B8C2708C74DE /* LexerEscapedLiteralsSwiftBoundary.h */,
-				ADA00F874491A0602064774E /* LexerEscapedLiteralsBoundary.swift */,
-				05A6CB660EE246087594EC4D /* LexerEscapedLiterals.swift */,
 				993B25B70BF95C7F4C3A745E /* DFGLivenessSwiftBoundary.h */,
 				0270A31E989ED9C075D2002D /* DFGLivenessBoundary.swift */,
 				B4D09B99AD905D0452F23169 /* DFGLiveness.swift */,
@@ -11326,7 +11326,6 @@
 				CDF4C9B94CA9D529A96759E6 /* AvailabilityLocalsSwiftBoundary.h */,
 				9FC5EEDB5BDF38D140BE95C5 /* AvailabilityLocalsBoundary.swift */,
 				9E886273E2866C7CADB425EC /* AvailabilityLocals.swift */,
-				7A71B701B076EBD200804F55 /* SwiftKernelsValidation.h */,
 				966D81BF524AEFCD15AB1AB3 /* LinkRecordSortSwiftBoundary.h */,
 				FF56F666D4FCDC30D4B787CD /* LinkRecordSortBoundary.swift */,
 				649836D439321539DE36E121 /* LinkRecordSort.swift */,
@@ -14787,15 +14786,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				077B97302FD2BBE10042BC77 /* JavaScriptCore.swift in Sources */,
+				163AC281874D9499CE45C5D8 /* LexerScan.swift in Sources */,
+				8AC1DECE5A05C8D98031E97C /* LexerRegExp.swift in Sources */,
+				DC508F68200C5F313785A372 /* LexerEscapedLiterals.swift in Sources */,
+				FD008CC603EEEE9E6090CD81 /* LexerCharacters.swift in Sources */,
+				05DA69E211913B9F412D6BAE /* LexerBoundary.swift in Sources */,
 				62A4AB539B1755AD4D4FB5A7 /* MarkedBlockSweepBoundary.swift in Sources */,
 				8C623C8281F8F736247908F6 /* MarkedBlockSweep.swift in Sources */,
 				298A9A3F60E46D3DD26372C3 /* MarkedBlockStopAllocating.swift in Sources */,
 				D28CA5C34083C522E55407A8 /* DFGCFAMergeBoundary.swift in Sources */,
 				4F50FDEABD158E899A77147F /* DFGCFAMerge.swift in Sources */,
-				32CBB39C0B1C49FAB5191BB4 /* LexerRegExpBoundary.swift in Sources */,
-				E8E9964CDF8726F5229BCBB9 /* LexerRegExp.swift in Sources */,
-				7DF25872F7E3A66FB054F702 /* LexerEscapedLiteralsBoundary.swift in Sources */,
-				658B7FDF64FE784DFE0CA7C3 /* LexerEscapedLiterals.swift in Sources */,
 				2B988482423399E39A603D8B /* DFGLivenessBoundary.swift in Sources */,
 				EAA74ACC6D7A95E92FFBEFA8 /* DFGLiveness.swift in Sources */,
 				8ABA7749DBC9E48C43D7A04A /* ButterflyFillBoundary.swift in Sources */,

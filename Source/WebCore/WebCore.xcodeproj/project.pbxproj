@@ -24198,7 +24198,6 @@
 		28D6712B0CA247C83DF82895 /* SVGTransformBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGTransform/SVGTransformBoundary.swift; sourceTree = "<group>"; };
 		46164A44E99EF8D5612A8A86 /* SVGTransformLexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGTransform/SVGTransformLexer.swift; sourceTree = "<group>"; };
 		DFBFE255E385DD217435B700 /* SVGTransformSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SVGTransform/SVGTransformSwiftBoundary.h; sourceTree = "<group>"; };
-		A2BE542B555FF7806837B532 /* SwiftKernelsValidation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SwiftKernelsValidation.h; sourceTree = "<group>"; };
 		99DDFEEC1127373D4E9D3FF8 /* HTMLScanBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLScan/HTMLScanBoundary.swift; sourceTree = "<group>"; };
 		6292A5A155CE6295587C8B29 /* HTMLScanFind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLScan/HTMLScanFind.swift; sourceTree = "<group>"; };
 		3AF66E24D334155A9AEFCB69 /* HTMLScanSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HTMLScan/HTMLScanSwiftBoundary.h; sourceTree = "<group>"; };
@@ -44325,7 +44324,6 @@
 				3AF66E24D334155A9AEFCB69 /* HTMLScanSwiftBoundary.h */,
 				6292A5A155CE6295587C8B29 /* HTMLScanFind.swift */,
 				99DDFEEC1127373D4E9D3FF8 /* HTMLScanBoundary.swift */,
-				A2BE542B555FF7806837B532 /* SwiftKernelsValidation.h */,
 				DFBFE255E385DD217435B700 /* SVGTransformSwiftBoundary.h */,
 				46164A44E99EF8D5612A8A86 /* SVGTransformLexer.swift */,
 				28D6712B0CA247C83DF82895 /* SVGTransformBoundary.swift */,

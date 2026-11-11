@@ -316,6 +316,7 @@ private:
             auto tailRow = tail.subspan(static_cast<size_t>(blockIndex) * wordsPerSet, wordsPerSet);
             size_t worksetCount = JSCSwift_DFGLiveness_processBlock(blockActions.data(), blockActions.size(), tailRow.data(), tailRow.size(),
                 worksetMap.data(), worksetValues.data(), numIndices, blockKills.data(), blockKills.size());
+            RELEASE_ASSERT(worksetCount <= numIndices);
 
             // Update live at head.
             auto& liveAtHead = m_liveAtHead[blockIndex];
@@ -332,6 +333,7 @@ private:
                 blockPredecessors.data(), blockPredecessors.size(),
                 dirtyBlocks.mutableSpan().data(), dirtyBlocks.size(), worklist.mutableSpan().data(), worklist.size(), worklistCount,
                 &newHeadCount);
+            RELEASE_ASSERT(newHeadCount <= liveAtHead.size() && worklistCount <= worklist.size());
             liveAtHead.shrink(newHeadCount);
         }
 

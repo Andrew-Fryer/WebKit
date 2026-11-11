@@ -21,12 +21,14 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// String and template literals with escapes, from parser/Lexer.cpp: Lexer<T>::parseStringSlowCase<shouldBuildStrings>
-// and Lexer<T>::parseTemplateLiteral (the body of scanTemplateString), with the parseComplexEscape, parseUnicodeEscape,
-// shiftLineTerminator, record16/append16 and recordUnicodeCodePoint they use. Each statement mirrors the C++.
+// String and template literals with escapes, from the original parser/Lexer.cpp (which now calls this instead):
+// Lexer<T>::parseStringSlowCase<shouldBuildStrings> and Lexer<T>::parseTemplateLiteral (the body of
+// scanTemplateString), with the parseComplexEscape, parseUnicodeEscape, shiftLineTerminator, record16/append16 and
+// recordUnicodeCodePoint they use. Each statement mirrors the C++.
 //
-// Correspondence: `source` is the text from the lexer's m_code to m_codeEnd and `i` is m_code - start; current(i) is
-// m_current (0 at the end, see Lexer::shift); atEnd() is i == count (a NUL inside the source is an ordinary character).
+// Correspondence: `source` is the text from the lexer's m_code to m_codeEnd (LexerCharacters.swift: Latin-1, or
+// UTF-16 at any alignment) and `i` is m_code - start; current(i) is m_current (0 at the end, see Lexer::shift);
+// atEnd() is i == count (a NUL inside the source is an ordinary character).
 // The C++ appends the cooked value to m_buffer16 and the raw value of a template to m_bufferForRawTemplateString16;
 // here they are written to `cooked` and `raw`, C++-owned scratch buffers. A buffer that is too small is not written
 // past its end: its length keeps counting and the scan reports needsCapacity with the lengths it needs, and the glue
@@ -40,7 +42,7 @@ enum LexerEscapedLiterals {
     static let cannotBeParsed: UInt32 = 2
     static let needsCapacity: UInt32 = 3
 
-    // The m_lexErrorMessage values the C++ assigns (see LexerEscapedLiteralsSwiftBoundary.h); 0 leaves it unchanged.
+    // The m_lexErrorMessage values the C++ assigns (see LexerSwiftBoundary.h); 0 leaves it unchanged.
     static let noMessage: UInt32 = 0
     static let hexEscapeMessage: UInt32 = 1 // "\\x can only be followed by a hex character sequence"
     static let unicodeEscapeMessage: UInt32 = 2 // "\\u can only be followed by a Unicode character sequence"
@@ -61,8 +63,8 @@ enum LexerEscapedLiterals {
     // MARK: Character helpers (SourceCharacters.h, WTF ASCIICType.h, Lexer.cpp)
 
     @inline(__always)
-    static func current<Character: FixedWidthInteger & UnsignedInteger & ConvertibleToBytes>(_ source: Span<Character>, _ i: Int) -> UInt32 {
-        i < source.count ? UInt32(source[i]) : 0
+    static func current<Source: LexerCharacters & ~Escapable>(_ source: Source, _ i: Int) -> UInt32 {
+        i < source.count ? source.unit(i) : 0
     }
 
     // isLineTerminator<T>: LS and PS only in a UTF-16 source.
@@ -118,11 +120,11 @@ enum LexerEscapedLiterals {
     // shift(): the closing quote or backquote, '\\', '$' (templates), and what characterNeedsLiteralSpecialHandling
     // lets through to the end / CR / LF / LS / PS checks. 16 bytes at a time.
     @inline(__always)
-    static func skipOrdinary<Character: FixedWidthInteger & UnsignedInteger & ConvertibleToBytes>(_ source: Span<Character>, _ start: Int, _ stop1: UInt8, _ stop2: UInt8, _ stop3: UInt8) -> Int {
+    static func skipOrdinary<Source: LexerCharacters & ~Escapable>(_ source: Source, _ start: Int, _ stop1: UInt8, _ stop2: UInt8, _ stop3: UInt8) -> Int {
         let count = source.count
         let bytes = source.bytes
         var i = start
-        if Character.bitWidth == 8 {
+        if !Source.isWide {
             while i &+ 16 <= count {
                 let v = bytes.load(fromByteOffset: i, as: SIMD16<UInt8>.self)
                 let hit = (v .== SIMD16(repeating: stop1)) .| (v .== SIMD16(repeating: stop2)) .| (v .== SIMD16(repeating: stop3)) .| (v .< SIMD16(repeating: 0xE))
@@ -145,9 +147,9 @@ enum LexerEscapedLiterals {
             }
         }
         while i < count {
-            let character = UInt32(source[i])
+            let character = source.unit(i)
             if character == UInt32(stop1) || character == UInt32(stop2) || character == UInt32(stop3) || character < 0xE
-                || (Character.bitWidth == 16 && (character & ~1) == 0x2028) {
+                || (Source.isWide && (character & ~1) == 0x2028) {
                 return i
             }
             i &+= 1
@@ -167,7 +169,7 @@ enum LexerEscapedLiterals {
 
     // append16(std::span { source + from, source + to }) (the Latin-1 overload widens).
     @inline(__always)
-    static func append<Character: FixedWidthInteger & UnsignedInteger & ConvertibleToBytes>(_ source: Span<Character>, _ from: Int, _ to: Int, _ buffer: inout MutableSpan<UInt16>, _ length: inout Int) {
+    static func append<Source: LexerCharacters & ~Escapable>(_ source: Source, _ from: Int, _ to: Int, _ buffer: inout MutableSpan<UInt16>, _ length: inout Int) {
         let chunkLength = to &- from
         if chunkLength <= buffer.count &- length {
             copy(source, from, chunkLength, &buffer, length)
@@ -178,9 +180,9 @@ enum LexerEscapedLiterals {
     // buffer[at ..< at + n] = source[from ..< from + n], widening Latin-1. 16 source bytes per step; the last step
     // overlaps the previous one rather than running a scalar remainder (the chunks between escapes are short).
     @inline(__always)
-    static func copy<Character: FixedWidthInteger & UnsignedInteger & ConvertibleToBytes>(_ source: Span<Character>, _ from: Int, _ n: Int, _ buffer: inout MutableSpan<UInt16>, _ at: Int) {
+    static func copy<Source: LexerCharacters & ~Escapable>(_ source: Source, _ from: Int, _ n: Int, _ buffer: inout MutableSpan<UInt16>, _ at: Int) {
         let bytes = source.bytes
-        if Character.bitWidth == 8 {
+        if !Source.isWide {
             if n >= 16 {
                 var output = buffer.mutableBytes
                 var k = 0
@@ -220,7 +222,7 @@ enum LexerEscapedLiterals {
             }
         }
         for k in 0..<n {
-            buffer[at + k] = UInt16(source[from + k])
+            buffer[at + k] = UInt16(truncatingIfNeeded: source.unit(from + k))
         }
     }
 
@@ -237,7 +239,7 @@ enum LexerEscapedLiterals {
 
     // shiftLineTerminator: m_current is a line terminator; a CR LF pair is consumed as one.
     @inline(__always)
-    static func shiftLineTerminator<Character: FixedWidthInteger & UnsignedInteger & ConvertibleToBytes>(_ source: Span<Character>, _ i: inout Int) {
+    static func shiftLineTerminator<Source: LexerCharacters & ~Escapable>(_ source: Source, _ i: inout Int) {
         let previous = current(source, i)
         i &+= 1
         if previous == 0x0D && current(source, i) == 0x0A {
@@ -250,7 +252,7 @@ enum LexerEscapedLiterals {
     // Returns the code point, or nil for ParsedUnicodeEscapeValue::Incomplete / Invalid (which parseComplexEscape,
     // its only caller here, does not distinguish). Consumes exactly what the C++ consumes.
     @inline(__always)
-    static func parseUnicodeEscape<Character: FixedWidthInteger & UnsignedInteger & ConvertibleToBytes>(_ source: Span<Character>, _ i: inout Int) -> UInt32? {
+    static func parseUnicodeEscape<Source: LexerCharacters & ~Escapable>(_ source: Source, _ i: inout Int) -> UInt32? {
         if current(source, i) == 0x7B { // '{'
             i &+= 1
             var codePoint: UInt32 = 0
@@ -294,7 +296,7 @@ enum LexerEscapedLiterals {
     // m_current (source[i]) is the character after the backslash: not a single-character escape, not a line terminator.
     // Returns (StringParseResult, message).
     @inline(__always)
-    static func parseComplexEscape<Character: FixedWidthInteger & UnsignedInteger & ConvertibleToBytes>(_ source: Span<Character>, _ i: inout Int, build: Bool, strictMode: Bool, _ cooked: inout MutableSpan<UInt16>, _ cookedLength: inout Int) -> (UInt32, UInt32) {
+    static func parseComplexEscape<Source: LexerCharacters & ~Escapable>(_ source: Source, _ i: inout Int, build: Bool, strictMode: Bool, _ cooked: inout MutableSpan<UInt16>, _ cookedLength: inout Int) -> (UInt32, UInt32) {
         let count = source.count
         let first = current(source, i)
         if first == 0x78 { // 'x'
@@ -386,8 +388,8 @@ enum LexerEscapedLiterals {
 
     // source[0] is the opening quote. On success `end` is the offset of the closing quote (not consumed).
     @inline(__always)
-    static func scanString<Character: FixedWidthInteger & UnsignedInteger & ConvertibleToBytes>(_ source: Span<Character>, build: Bool, strictMode: Bool, _ cooked: inout MutableSpan<UInt16>) -> Result {
-        let wide = Character.bitWidth == 16
+    static func scanString<Source: LexerCharacters & ~Escapable>(_ source: Source, build: Bool, strictMode: Bool, _ cooked: inout MutableSpan<UInt16>) -> Result {
+        let wide = Source.isWide
         let count = source.count
         var result = Result()
         var cookedLength = 0
@@ -477,8 +479,8 @@ enum LexerEscapedLiterals {
 
     // source[0] is the first character after the '`' or the '}'. On success `end` is after the closing '`' or '${'.
     @inline(__always)
-    static func scanTemplate<Character: FixedWidthInteger & UnsignedInteger & ConvertibleToBytes>(_ source: Span<Character>, buildRaw: Bool, _ cooked: inout MutableSpan<UInt16>, _ raw: inout MutableSpan<UInt16>) -> Result {
-        let wide = Character.bitWidth == 16
+    static func scanTemplate<Source: LexerCharacters & ~Escapable>(_ source: Source, buildRaw: Bool, _ cooked: inout MutableSpan<UInt16>, _ raw: inout MutableSpan<UInt16>) -> Result {
+        let wide = Source.isWide
         let count = source.count
         var result = Result()
         var cookedLength = 0

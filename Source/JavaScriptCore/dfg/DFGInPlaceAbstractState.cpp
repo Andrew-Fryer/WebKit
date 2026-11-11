@@ -32,12 +32,7 @@
 #include "JSCJSValueInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
-#if USE(SWIFT_KERNELS)
 #include "DFGCFAMergeSwiftBoundary.h"
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "SwiftKernelsValidation.h"
-#endif
-#endif
 
 namespace JSC { namespace DFG {
 
@@ -348,8 +343,6 @@ void InPlaceAbstractState::activateVariable(size_t variableIndex)
     m_activeVariables[variableIndex] = true;
 }
 
-#if USE(SWIFT_KERNELS)
-
 // An Operands<AbstractValue> as DFGCFAMerge.swift sees it: four 64-bit words per element (the layout is
 // static_asserted in DFGAbstractValue.h), null when empty. An Operands<Node*> is one word per element.
 static uint64_t* abstractValueWords(Operands<AbstractValue>& values)
@@ -362,31 +355,10 @@ static const uint64_t* nodeWords(const Operands<Node*>& nodes)
     return nodes.size() ? std::bit_cast<const uint64_t*>(&nodes[0]) : nullptr;
 }
 
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-// AbstractValue::operator==, and also m_effectEpoch, which merging into a clear value copies.
-static bool sameAbstractValues(const Operands<AbstractValue>& a, const Operands<AbstractValue>& b)
-{
-    if (a.size() != b.size())
-        return false;
-    for (size_t i = 0; i < a.size(); ++i) {
-        if (a[i] != b[i] || a[i].m_effectEpoch != b[i].m_effectEpoch)
-            return false;
-    }
-    return true;
-}
-#endif
-
-#endif // USE(SWIFT_KERNELS)
-
+// The per-variable part of merge(from, to) runs in Swift (DFGCFAMerge.swift): from->valuesAtTail[i] into
+// to->valuesAtHead[i] for every variable (in ThreadedCPS form only those with a to->variablesAtHead node).
 bool InPlaceAbstractState::mergeValues(BasicBlock* from, BasicBlock* to)
 {
-#if USE(SWIFT_KERNELS)
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    std::optional<Operands<AbstractValue>> original;
-    if (swiftKernelsValidationEnabled()) [[unlikely]]
-        original = to->valuesAtHead;
-#endif
-
     bool isCPS = m_graph.m_form == ThreadedCPS;
     size_t count = isCPS ? from->variablesAtTail.size() : from->valuesAtTail.size();
     if (m_slowMergeIndices.size() < count)
@@ -399,43 +371,6 @@ bool InPlaceAbstractState::mergeValues(BasicBlock* from, BasicBlock* to)
     for (uint32_t index : m_slowMergeIndices.span().first(slowCount)) {
         RELEASE_ASSERT(index < count);
         changed |= to->valuesAtHead[index].merge(from->valuesAtTail[index]);
-    }
-
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (original) {
-        // Rerun the original loops on the original values (from->valuesAtTail is distinct from to->valuesAtHead).
-        std::swap(*original, to->valuesAtHead);
-        RELEASE_ASSERT(mergeValuesCxx(from, to) == changed);
-        RELEASE_ASSERT(sameAbstractValues(to->valuesAtHead, *original));
-    }
-#endif
-    return changed;
-#else
-    return mergeValuesCxx(from, to);
-#endif
-}
-
-bool InPlaceAbstractState::mergeValuesCxx(BasicBlock* from, BasicBlock* to)
-{
-    bool changed = false;
-    switch (m_graph.m_form) {
-    case ThreadedCPS: {
-        for (size_t index = 0; index < from->variablesAtTail.size(); ++index) {
-            AbstractValue& destination = to->valuesAtHead.at(index);
-            changed |= mergeVariableBetweenBlocks(destination, from->valuesAtTail.at(index), to->variablesAtHead.at(index), from->variablesAtTail.at(index));
-        }
-        break;
-    }
-
-    case SSA: {
-        for (size_t i = from->valuesAtTail.size(); i--;)
-            changed |= to->valuesAtHead[i].merge(from->valuesAtTail[i]);
-        break;
-    }
-
-    default:
-        RELEASE_ASSERT_NOT_REACHED();
-        break;
     }
     return changed;
 }
@@ -557,18 +492,6 @@ inline bool InPlaceAbstractState::mergeToSuccessors(BasicBlock* basicBlock)
         RELEASE_ASSERT_NOT_REACHED();
         return false;
     }
-}
-
-inline bool InPlaceAbstractState::mergeVariableBetweenBlocks(AbstractValue& destination, AbstractValue& source, Node* destinationNode, Node* sourceNode)
-{
-    if (!destinationNode)
-        return false;
-    
-    ASSERT_UNUSED(sourceNode, sourceNode);
-    
-    // FIXME: We could do some sparse conditional propagation here!
-    
-    return destination.merge(source);
 }
 
 } } // namespace JSC::DFG

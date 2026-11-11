@@ -202,7 +202,6 @@ public:
 
     static CodePath characterRangeCodePath(std::span<const Latin1Character>) { return CodePath::Simple; }
     WEBCORE_EXPORT static CodePath characterRangeCodePath(std::span<const char16_t>);
-    static CodePath characterRangeCodePathCxx(std::span<const char16_t>);
 
     bool primaryFontIsSystemFont() const;
 

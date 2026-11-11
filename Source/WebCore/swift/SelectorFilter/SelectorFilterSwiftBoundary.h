@@ -25,9 +25,9 @@
 
 #pragma once
 
-// C boundary of the SelectorFilter Swift kernels (Source/WebCore/swift/SelectorFilter): the per-hash loops of
+// C boundary of the SelectorFilter Swift kernel (Source/WebCore/swift/SelectorFilter): the per-hash loops of
 // SelectorFilter::pushParent and SelectorFilter::popParent (css/SelectorFilter.cpp) on the ancestor filter, a
-// WTF::CountingBloomFilter<12>. The symbols are internal to WebCore (hidden); only WebCore .cpp files may call them,
+// WTF::CountingBloomFilter<12>. The symbol is internal to WebCore (hidden); only WebCore .cpp files may call it,
 // never header-inline code.
 //
 // `buckets` is the filter's whole bucket array (asMutableByteSpan of the CountingBloomFilter<12>, bucketCount = 4096,
@@ -46,14 +46,14 @@
 extern "C" {
 #endif
 
-// for (auto hash : hashes) filter.add(hash);
-WEBCORE_SWIFT_SELECTOR_FILTER_NODELETE void WebCoreSwift_SelectorFilter_addHashes(uint8_t* buckets, size_t bucketCount, const uint32_t* hashes, size_t hashCount);
+enum {
+    WebCoreSwift_SelectorFilter_Add = 0, // for (auto hash : hashes) filter.add(hash);
+    WebCoreSwift_SelectorFilter_Remove = 1, // for (auto hash : hashes) filter.remove(hash);
+    WebCoreSwift_SelectorFilter_RemoveAndClear = 2, // The same, then ASSERT(filter.likelyEmpty()); filter.clear();
+};
 
-// for (auto hash : hashes) filter.remove(hash);
-WEBCORE_SWIFT_SELECTOR_FILTER_NODELETE void WebCoreSwift_SelectorFilter_removeHashes(uint8_t* buckets, size_t bucketCount, const uint32_t* hashes, size_t hashCount);
-
-// filter.clear();
-WEBCORE_SWIFT_SELECTOR_FILTER_NODELETE void WebCoreSwift_SelectorFilter_clear(uint8_t* buckets, size_t bucketCount);
+// Applies `operation` (one of the values above; anything else traps) to the filter.
+WEBCORE_SWIFT_SELECTOR_FILTER_NODELETE void WebCoreSwift_SelectorFilter_update(uint8_t* buckets, size_t bucketCount, const uint32_t* hashes, size_t hashCount, uint8_t operation);
 
 #ifdef __cplusplus
 }

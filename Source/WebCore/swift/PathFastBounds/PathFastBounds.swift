@@ -26,9 +26,9 @@
 // point. extend(bySegment:) below is each segment type's extendFastBoundingRect() followed by its calculateEndPoint()
 // from PathSegmentData.cpp, with FloatRect's extend()/uniteEvenIfEmpty() (FloatRect.cpp) spelled out. Swift has no libm,
 // so for the segment types whose end point needs trigonometry (PathArcTo, PathArc, PathClosedArc, PathEllipse,
-// PathDataArc) Swift extends the rect and the endPoint callback runs the original C++ calculateEndPoint() for that
-// segment, and only once a later segment needs that end point (see walk()). A rotated PathEllipse (whose rect extension
-// needs trigonometry too) and unknown indices also extend the rect in C++, through the extendRect callback (the original
+// PathDataArc) Swift extends the rect and the cxxWork callback runs the C++ calculateEndPoint() for that segment, and
+// only once a later segment needs that end point (see walk()). A rotated PathEllipse (whose rect extension needs
+// trigonometry too) and unknown indices also extend the rect in C++, through the same callback (the C++
 // segment.extendFastBoundingRect()).
 //
 // Float semantics follow the C++ exactly: std::min(a, b) is `b < a ? b : a` and std::max(a, b) is `a < b ? b : a`
@@ -93,18 +93,16 @@ enum PathFastBounds {
 
     // Runs the segment walk on *state (WebCoreSwiftPathFastBoundsState: on entry both points (0, 0) and the rect
     // FloatRect::smallestRect(); on return the final rect in x, y, width and height; the points are then unspecified).
-    // endPoint(i, currentPoint, lastMoveToPoint) runs `currentPoint = segment.calculateEndPoint(currentPoint,
-    // lastMoveToPoint)` in C++ for segment i; points are FloatPoint bit patterns (see State.pack) and it returns the new
-    // current point and last move-to point. extendRect(i, &state) runs `segment.extendFastBoundingRect(currentPoint,
-    // lastMoveToPoint, boundingRect)` in C++ for segment i (it updates the rect of the state).
+    // cxxWork(i, false, &state) runs `currentPoint = segment.calculateEndPoint(currentPoint, lastMoveToPoint)` in C++ for
+    // segment i (it updates the points of the state); cxxWork(i, true, &state) runs
+    // `segment.extendFastBoundingRect(currentPoint, lastMoveToPoint, boundingRect)` (it updates the rect).
     @inline(__always)
     static func computeFastBoundingRect(segments: Span<UInt32>, segmentSizeInWords: Int, tagOffset: Int, state stateFields: inout MutableSpan<Float>,
-        endPoint: (_ segmentIndex: Int, _ currentPoint: UInt64, _ lastMoveToPoint: UInt64) -> (UInt64, UInt64),
-        extendRect: (_ segmentIndex: Int, _ state: inout State) -> Void)
+        cxxWork: (_ segmentIndex: Int, _ extendRect: Bool, _ state: inout State) -> Void)
     {
         precondition(segmentSizeInWords == Self.segmentSizeInWords && tagOffset == Self.tagOffset, "PathSegment layout mismatch")
         precondition(segments.count % Self.segmentSizeInWords == 0)
-        walk(segments: segments, state: &stateFields, endPoint: endPoint, extendRect: extendRect)
+        walk(segments: segments, state: &stateFields, cxxWork: cxxWork)
     }
 
     // The loop of computeFastBoundingRect().
@@ -120,8 +118,7 @@ enum PathFastBounds {
     // (scalar fcmp/fcsel instead of fcmgt/bsl on arm64, measured 1.2-1.6x slower).
     @inline(never)
     static func walk(segments: Span<UInt32>, state stateFields: inout MutableSpan<Float>,
-        endPoint: (_ segmentIndex: Int, _ currentPoint: UInt64, _ lastMoveToPoint: UInt64) -> (UInt64, UInt64),
-        extendRect: (_ segmentIndex: Int, _ state: inout State) -> Void)
+        cxxWork: (_ segmentIndex: Int, _ extendRect: Bool, _ state: inout State) -> Void)
     {
         let initialState = State(stateFields.span)
         var state = initialState
@@ -131,7 +128,7 @@ enum PathFastBounds {
             let words = segments.extracting((segmentIndex * Self.segmentSizeInWords)..<((segmentIndex + 1) * Self.segmentSizeInWords))
             let tag = State.tag(words)
             if pendingEndPoint >= 0 && State.readsPoints(tag: tag, pendingTag: pendingTag) {
-                state.computeEndPoint(of: &pendingEndPoint, endPoint)
+                state.computeEndPoint(of: &pendingEndPoint, cxxWork)
             }
             switch state.extend(bySegment: words) {
             case .none:
@@ -141,7 +138,7 @@ enum PathFastBounds {
                 pendingEndPoint = segmentIndex
                 pendingTag = tag
             case .extendRectAndEndPoint:
-                extendRect(segmentIndex, &state)
+                cxxWork(segmentIndex, true, &state)
                 pendingEndPoint = segmentIndex
                 pendingTag = tag
             }
@@ -149,7 +146,7 @@ enum PathFastBounds {
 
         // `if (boundingRect.isSmallest()) boundingRect.extend(currentPoint)`.
         if state.hasSameRect(as: initialState) {
-            state.computeEndPoint(of: &pendingEndPoint, endPoint)
+            state.computeEndPoint(of: &pendingEndPoint, cxxWork)
             state.extend(state.currentPointX, state.currentPointY)
         }
         state.store(into: &stateFields)
@@ -256,10 +253,10 @@ extension PathFastBounds.State {
         return .none
     }
 
-    // Runs the endPoint callback for segment `pending` if it is not -1, then sets it to -1.
-    @inline(__always) mutating func computeEndPoint(of pending: inout Int, _ endPoint: (_ segmentIndex: Int, _ currentPoint: UInt64, _ lastMoveToPoint: UInt64) -> (UInt64, UInt64)) {
+    // Runs the C++ end point for segment `pending` if it is not -1, then sets it to -1.
+    @inline(__always) mutating func computeEndPoint(of pending: inout Int, _ cxxWork: (_ segmentIndex: Int, _ extendRect: Bool, _ state: inout Self) -> Void) {
         if pending >= 0 {
-            (packedCurrentPoint, packedLastMoveToPoint) = endPoint(pending, packedCurrentPoint, packedLastMoveToPoint)
+            cxxWork(pending, false, &self)
             pending = -1
         }
     }

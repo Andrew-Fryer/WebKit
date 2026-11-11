@@ -42,10 +42,11 @@ extern "C" {
 
 // The loops of MarkedBlock::Handle::specializedSweep after setBits() and the unlock, for a sweep that destroys
 // cells: destroy (JSString or JSRopeString destructor, then zap(Destruction)) every dead cell that is not zapped
-// yet, and with SweepToFreeList thread the runs of dead cells into a free list.
+// yet, and with SweepToFreeList thread the runs of dead cells into a free list, scribbling over them first (see
+// heap/Scribble.h) in Scribble mode.
 //   liveWords: the live-cell bitmap (marks, or marks | newlyAllocated) as BitSet<atomsPerBlock> words, indexed
 //     by absolute atom number; null for the all-dead (IsEmpty) path.
-//   flags: bit 0 SweepToFreeList; bits 2-3 the destructor: 1 JSString, 2 JSRopeString.
+//   flags: bit 0 SweepToFreeList; bit 1 Scribble; bits 2-3 the destructor: 1 JSString, 2 JSRopeString.
 //   derefs: exactly 1024 entries (one per atom of a block; Swift traps on any other capacity). Receives, in cell
 //     order, the StringImpl* of every ~String run on a non-null string; the caller derefs them.
 //   *outHeadOffset: payload byte offset of the free list's head FreeCell, or -1 for none (always -1 for SweepOnly).

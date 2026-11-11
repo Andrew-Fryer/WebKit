@@ -26,7 +26,7 @@
 // (IPCStreamMessageSwiftBoundary.h), locateArguments() does what IPC::Decoder::decode<Message::Arguments>() does for
 // those argument types, except building the C++ objects, which the glue
 // (GPUProcess/graphics/RemoteGraphicsContextSwiftArgumentDecoders.cpp) does. The stream message decoder
-// (IPCStreamMessage.swift) calls it right after the header.
+// (IPCStreamMessage.swift) calls it right after the header, and locateIPCArguments() for a message sent out of stream.
 //
 // The wire format is that of the C++ coders:
 // - Decoder::decodeSpan<T>(count) reads count * sizeof(T) bytes at roundUpToMultipleOf<alignof(T)>(the current
@@ -44,7 +44,8 @@
 // The C++ coders decode all arguments before checking, but once a read fails the decoder is invalid and every later
 // read fails, so stopping at the first failure has the same outcome.
 
-/// The failures of a decoder. The raw values are part of the C boundary of the Path decoder (IPCPathDecodeSwiftBoundary.h).
+/// The failures of a decoder. `invalid` is also the failure result of WebKitSwift_IPCStreamMessage_decodePath()
+/// (IPCStreamMessageSwiftBoundary.h).
 enum IPCArgumentDecodeFailure: Int {
     /// A value didn't fit in the span or failed validation. The C++ glue marks the decoder invalid.
     case invalid = -1
@@ -72,6 +73,23 @@ struct IPCStreamArguments {
     @inline(__always)
     static func failed(_ failure: IPCArgumentDecodeFailure) -> IPCStreamArguments {
         IPCStreamArguments(status: failure == .invalid ? .invalid : .invalidIdentifier)
+    }
+
+    /// The size of WebKitSwift_IPCStreamMessage_Arguments.
+    @inline(__always)
+    static var byteCount: Int { 32 }
+
+    /// Stores all of WebKitSwift_IPCStreamMessage_Arguments into its `byteCount` bytes: uint64_t identifier, size_t
+    /// valuesOffset, size_t endOffset, uint8_t status and uint8_t flag. Each field is stored at its own size, which is
+    /// what the C++ reads it at: a narrower load from part of a wider store would wait for the store instead of
+    /// forwarding from it.
+    @inline(__always)
+    func store(into bytes: inout MutableRawSpan) {
+        bytes.storeBytes(of: identifier, toByteOffset: 0, as: UInt64.self)
+        bytes.storeBytes(of: valuesOffset, toByteOffset: 8, as: Int.self)
+        bytes.storeBytes(of: endOffset, toByteOffset: 16, as: Int.self)
+        bytes.storeBytes(of: status.rawValue, toByteOffset: 24, as: UInt8.self)
+        bytes.storeBytes(of: flag, toByteOffset: 25, as: UInt8.self)
     }
 }
 

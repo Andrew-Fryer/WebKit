@@ -85,8 +85,6 @@
 #include <wtf/text/StringView.h>
 
 #include "CSSKeywordsSwiftBoundary.h"
-#include <mutex>
-#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
@@ -158,48 +156,25 @@ CSSPropertyID cssPropertyID(StringView string)
 
 // MARK: - CSSValueID parsing
 
-// CSS value keyword lookup in Swift (CSSKeywordsSwiftBoundary.h): instead of the gperf table, a keyword table that
-// Swift builds once from the lowercase keyword names. C++ owns the storage.
-namespace {
-struct CSSValueKeywordSwiftTable {
-    Vector<uint8_t> pool; // The names of all ids, back to back.
-    std::array<uint32_t, numCSSValueKeywords + 1> offsets; // The name of id i is pool[offsets[i] ..< offsets[i + 1]].
-    std::array<uint16_t, WEBCORE_SWIFT_CSS_KEYWORDS_SLOT_COUNT> slots;
-};
-}
-
+// CSS value keyword lookup in Swift (CSSKeywordsSwiftBoundary.h): an open-addressing table over the generated
+// lowercase keyword names, which Swift builds once into storage that C++ owns.
 static_assert(numCSSValueKeywords <= WEBCORE_SWIFT_CSS_KEYWORDS_SLOT_COUNT / 2);
 static_assert(maxCSSValueKeywordLength <= WEBCORE_SWIFT_CSS_KEYWORDS_MAXIMUM_LENGTH);
 
-static uint16_t lookUpCSSValueKeywordWithSwift(const CSSValueKeywordSwiftTable& table, StringView string)
+static std::span<const uint8_t> cssValueKeywordNamesForSwift()
 {
-    if (string.is8Bit()) {
-        auto characters = byteCast<uint8_t>(string.span8());
-        return WebCoreSwift_CSSKeywords_lookup8(characters.data(), characters.size(), table.pool.span().data(), table.pool.size(), table.offsets.data(), table.offsets.size(), table.slots.data(), table.slots.size());
-    }
-    auto characters = string.span16();
-    return WebCoreSwift_CSSKeywords_lookup16(characters.data(), characters.size(), table.pool.span().data(), table.pool.size(), table.offsets.data(), table.offsets.size(), table.slots.data(), table.slots.size());
+    return byteCast<uint8_t>(std::span { cssValueKeywordLowercaseNames }.first(cssValueKeywordLowercaseNamesLength));
 }
 
-static const CSSValueKeywordSwiftTable& cssValueKeywordSwiftTable()
+static const std::array<uint16_t, WEBCORE_SWIFT_CSS_KEYWORDS_SLOT_COUNT>& cssValueKeywordSlotsForSwift()
 {
-    static LazyNeverDestroyed<CSSValueKeywordSwiftTable> table;
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-        table.construct();
-        auto& keywords = table.get();
-        size_t poolSize = 0;
-        for (uint16_t id = 0; id < numCSSValueKeywords; ++id)
-            poolSize += nameLiteralForSerialization(static_cast<CSSValueID>(id)).length();
-        keywords.pool.reserveInitialCapacity(poolSize);
-        for (uint16_t id = 0; id < numCSSValueKeywords; ++id) {
-            keywords.offsets[id] = keywords.pool.size();
-            keywords.pool.append(byteCast<uint8_t>(nameLiteralForSerialization(static_cast<CSSValueID>(id)).span()));
-        }
-        keywords.offsets[numCSSValueKeywords] = keywords.pool.size();
-        WebCoreSwift_CSSKeywords_buildTable(keywords.pool.span().data(), keywords.pool.size(), keywords.offsets.data(), keywords.offsets.size(), keywords.slots.data(), keywords.slots.size());
-    });
-    return table.get();
+    static const auto slots = [] {
+        std::array<uint16_t, WEBCORE_SWIFT_CSS_KEYWORDS_SLOT_COUNT> slots;
+        auto names = cssValueKeywordNamesForSwift();
+        WebCoreSwift_CSSKeywords_buildTable(names.data(), names.size(), cssValueKeywordLowercaseNameOffsets.data(), cssValueKeywordLowercaseNameOffsets.size(), slots.data(), slots.size());
+        return slots;
+    }();
+    return slots;
 }
 
 CSSValueID cssValueKeywordID(StringView string)
@@ -209,7 +184,10 @@ CSSValueID cssValueKeywordID(StringView string)
         return CSSValueID::Invalid;
     if (length > maxCSSValueKeywordLength)
         return CSSValueID::Invalid;
-    return static_cast<CSSValueID>(lookUpCSSValueKeywordWithSwift(cssValueKeywordSwiftTable(), string));
+    auto& slots = cssValueKeywordSlotsForSwift();
+    auto names = cssValueKeywordNamesForSwift();
+    return static_cast<CSSValueID>(WebCoreSwift_CSSKeywords_lookup(string.rawCharacters(), length, string.is8Bit(), names.data(), names.size(),
+        cssValueKeywordLowercaseNameOffsets.data(), cssValueKeywordLowercaseNameOffsets.size(), slots.data(), slots.size()));
 }
 
 // MARK: - Custom property name validation

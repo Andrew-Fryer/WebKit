@@ -25,8 +25,8 @@
 
 #pragma once
 
-// C boundary of the CSSColor Swift kernels (Source/WebCore/swift/CSSColor). The symbols are internal to
-// WebCore (hidden); only WebCore .cpp files may call them, never header-inline code.
+// C boundary of the CSSColor Swift kernel (Source/WebCore/swift/CSSColor). The symbol is internal to
+// WebCore (hidden); only WebCore .cpp files may call it, never header-inline code.
 
 #include <stddef.h>
 #include <stdint.h>
@@ -39,15 +39,16 @@
 extern "C" {
 #endif
 
-// Parses the `length` characters at `offset` within the characters described by `context` with
-// WTF::charactersToDouble() semantics. Sets *ok as charactersToDouble() does.
-typedef double (*WebCoreSwift_CSSColor_ParseNumber)(const void* context, size_t offset, size_t length, bool* ok);
+enum {
+    WebCoreSwift_CSSColor_Numeric = 0, // parseNumericColor: #hex, rgb()/rgba() and hsl()/hsla().
+    WebCoreSwift_CSSColor_NumericQuirks = 1, // The same, plus bare hex (isQuirksModeBehavior(mode)).
+    WebCoreSwift_CSSColor_Hex = 2, // CSSParserFastPaths::parseHexColor: 3, 4, 6 or 8 hex digits, no '#'.
+};
 
-// parseNumericColor<Latin1Character>: #hex, quirks-mode bare hex (quirksMode = isQuirksModeBehavior(mode)),
-// rgb()/rgba() and hsl()/hsla(). Returns 0 for std::nullopt, otherwise (1ull << 32) | PackedColor::RGBA,
-// i.e. r << 24 | g << 16 | b << 8 | a in the low 32 bits. Hue numbers are parsed by calling
-// parseNumber(context, offset, length, &ok) with offset + length <= `length` of the characters.
-uint64_t WebCoreSwift_CSSColor_parseNumericColor8(const uint8_t* characters, size_t length, bool quirksMode, const void* context, WebCoreSwift_CSSColor_ParseNumber parseNumber);
+// Parses `length` Latin-1 characters (is8Bit) or UTF-16 code units in any alignment as `mode` (one of the values
+// above; anything else traps). Returns 0 for std::nullopt, otherwise (1ull << 32) | PackedColor::RGBA, i.e.
+// r << 24 | g << 16 | b << 8 | a in the low 32 bits.
+uint64_t WebCoreSwift_CSSColor_parseColor(const void* characters, size_t length, bool is8Bit, uint8_t mode);
 
 #ifdef __cplusplus
 }

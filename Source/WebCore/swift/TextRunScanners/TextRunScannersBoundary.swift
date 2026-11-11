@@ -23,28 +23,33 @@
 
 // C entry points of TextRunScanners.swift, declared to C++ in TextRunScannersSwiftBoundary.h and called only from
 // platform/graphics/FontCascade.cpp. The only unsafe operations are wrapping the C++-owned characters and cache words
-// in spans. A pointer may be null only when its count is 0; UTF-16 pointers are 2-byte aligned (the glue checks).
+// in spans. A pointer may be null only when its count is 0. UTF-16 may be odd-aligned: it is then read as raw bytes.
 
 #if compiler(>=6.4) || WTF_PLATFORM_MAC
 
 @_cdecl("WebCoreSwift_TextRunScanners_characterRangeCodePath")
-func WebCoreSwift_TextRunScanners_characterRangeCodePath(_ characters: UnsafePointer<UInt16>?, _ length: Int) -> UInt8 {
-    let buffer = unsafe UnsafeBufferPointer(start: characters, count: length)
-    return unsafe TextRunScanners.characterRangeCodePath(buffer.span)
+func WebCoreSwift_TextRunScanners_characterRangeCodePath(_ characters: UnsafeRawPointer?, _ length: Int) -> UInt8 {
+    if Int(bitPattern: characters) & 1 == 0 {
+        let units = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt16.self), count: length).span
+        return TextRunScanners.characterRangeCodePath(TextRunUTF16Units(units))
+    }
+    let bytes = unsafe UnsafeRawBufferPointer(start: characters, count: length * 2).bytes
+    return TextRunScanners.characterRangeCodePath(TextRunUnalignedUTF16Units(bytes))
 }
 
-@_cdecl("WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring8")
-func WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring8(_ characters: UnsafePointer<UInt8>?, _ length: Int, _ cache: UnsafePointer<UInt64>?, _ cacheWordCount: Int, _ whitespaceIsCollapsed: Bool) -> Int {
-    let buffer = unsafe UnsafeBufferPointer(start: characters, count: length)
-    let cacheBuffer = unsafe UnsafeBufferPointer(start: cache, count: cacheWordCount)
-    return unsafe TextRunScanners.scanSimplifiedMeasuring(buffer.span, cache: cacheBuffer.span, whitespaceIsCollapsed: whitespaceIsCollapsed)
-}
-
-@_cdecl("WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring16")
-func WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring16(_ characters: UnsafePointer<UInt16>?, _ length: Int, _ cache: UnsafePointer<UInt64>?, _ cacheWordCount: Int, _ whitespaceIsCollapsed: Bool) -> Int {
-    let buffer = unsafe UnsafeBufferPointer(start: characters, count: length)
-    let cacheBuffer = unsafe UnsafeBufferPointer(start: cache, count: cacheWordCount)
-    return unsafe TextRunScanners.scanSimplifiedMeasuring(buffer.span, cache: cacheBuffer.span, whitespaceIsCollapsed: whitespaceIsCollapsed)
+@_cdecl("WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring")
+func WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring(_ characters: UnsafeRawPointer?, _ length: Int, _ is16Bit: Bool, _ cache: UnsafePointer<UInt64>?, _ cacheWordCount: Int, _ whitespaceIsCollapsed: Bool) -> Int {
+    let cacheWords = unsafe UnsafeBufferPointer(start: cache, count: cacheWordCount).span
+    if !is16Bit {
+        let units = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt8.self), count: length).span
+        return TextRunScanners.scanSimplifiedMeasuring(TextRunLatin1Units(units), cache: cacheWords, whitespaceIsCollapsed: whitespaceIsCollapsed)
+    }
+    if Int(bitPattern: characters) & 1 == 0 {
+        let units = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt16.self), count: length).span
+        return TextRunScanners.scanSimplifiedMeasuring(TextRunUTF16Units(units), cache: cacheWords, whitespaceIsCollapsed: whitespaceIsCollapsed)
+    }
+    let bytes = unsafe UnsafeRawBufferPointer(start: characters, count: length * 2).bytes
+    return TextRunScanners.scanSimplifiedMeasuring(TextRunUnalignedUTF16Units(bytes), cache: cacheWords, whitespaceIsCollapsed: whitespaceIsCollapsed)
 }
 
 #endif // compiler(>=6.4) || WTF_PLATFORM_MAC

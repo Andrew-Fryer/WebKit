@@ -21,30 +21,25 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// C entry points for AvailabilityLocals.swift, declared to C++ in AvailabilityLocalsSwiftBoundary.h and called
-// only from dfg/DFGAvailabilityMap.cpp. Each takes an Operands<Availability> as a pointer to its first element
-// (null only when empty) and an element count; an element is two 64-bit words. The only unsafe operations turn
-// those pairs into spans. The C++ glue never passes overlapping target and source arrays.
+// C entry point for AvailabilityLocals.swift, declared to C++ in AvailabilityLocalsSwiftBoundary.h and called only
+// from dfg/DFGAvailabilityMap.cpp. It takes Operands<Availability> arrays as a pointer to the first element (null
+// only when empty) and an element count; an element is two 64-bit words. The only unsafe operations turn those
+// pairs into spans; the equality test views the target as a
+// read-only Span, since the C++ passes a const map's storage. The C++ glue never passes overlapping target and
+// source arrays to a merge.
 
-@_cdecl("JSCSwift_AvailabilityLocals_equal")
+@_cdecl("JSCSwift_AvailabilityLocals_apply")
 @inline(__always)
-func JSCSwift_AvailabilityLocals_equal(_ a: UnsafePointer<UInt64>?, _ b: UnsafePointer<UInt64>?, _ count: Int) -> Bool {
-    let aWords = unsafe UnsafeBufferPointer(start: a, count: 2 &* count).span
-    let bWords = unsafe UnsafeBufferPointer(start: b, count: 2 &* count).span
-    return AvailabilityLocals.equal(aWords, bWords)
-}
-
-@_cdecl("JSCSwift_AvailabilityLocals_merge")
-@inline(__always)
-func JSCSwift_AvailabilityLocals_merge(_ target: UnsafeMutablePointer<UInt64>?, _ targetCount: Int, _ other: UnsafePointer<UInt64>?, _ otherCount: Int) {
+func JSCSwift_AvailabilityLocals_apply(_ operation: UInt32, _ target: UnsafeMutablePointer<UInt64>?, _ targetCount: Int, _ source: UnsafePointer<UInt64>?, _ sourceCount: Int) -> Bool {
+    // The element-to-word conversions trap on overflow (a precondition and then `&*`, which, unlike a checked `*`,
+    // leaves fillWithDead's loop vectorizable).
+    precondition(UInt(bitPattern: targetCount) <= UInt(Int.max / 2) && UInt(bitPattern: sourceCount) <= UInt(Int.max / 2))
+    let sourceWords = unsafe UnsafeBufferPointer(start: source, count: 2 &* sourceCount).span
+    if operation == AvailabilityLocals.equalOperation {
+        let targetWords = unsafe UnsafeBufferPointer(start: UnsafePointer(target), count: 2 &* targetCount).span
+        return AvailabilityLocals.equal(targetWords, sourceWords)
+    }
     var targetWords = unsafe UnsafeMutableBufferPointer(start: target, count: 2 &* targetCount).mutableSpan
-    let otherWords = unsafe UnsafeBufferPointer(start: other, count: 2 &* otherCount).span
-    AvailabilityLocals.merge(&targetWords, otherWords)
-}
-
-@_cdecl("JSCSwift_AvailabilityLocals_fillWithDead")
-@inline(__always)
-func JSCSwift_AvailabilityLocals_fillWithDead(_ target: UnsafeMutablePointer<UInt64>?, _ count: Int) {
-    var targetWords = unsafe UnsafeMutableBufferPointer(start: target, count: 2 &* count).mutableSpan
-    AvailabilityLocals.fillWithDead(&targetWords)
+    AvailabilityLocals.update(operation, &targetWords, sourceWords)
+    return false
 }

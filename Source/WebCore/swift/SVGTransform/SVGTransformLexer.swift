@@ -21,19 +21,77 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// The lexing half of WebCore::SVGTransformList::parseGeneric for Latin-1 input. An item is: leading
-// whitespace, transform keyword, parenthesized parameter list, then the whitespace / ',' / whitespace
-// that separates it from the next item; one call lexes consecutive items (up to the caller's capacity,
-// stopping after the first that fails). It mirrors, statement by statement and including where the
-// cursor stops on failure:
+// The lexing half of WebCore::SVGTransformList::parseGeneric and parseTransformType, for Latin-1 and UTF-16 input. An
+// item is: leading whitespace, transform keyword, parenthesized parameter list, then the whitespace / ',' / whitespace
+// that separates it from the next item; one call lexes consecutive items (up to the caller's capacity, stopping after
+// the first that fails). It mirrors, statement by statement and including where the cursor stops on failure, the
+// original C++ (which this replaces; both character types ran the same templates):
 //   - skipOptionalSVGSpaces, skipOptionalSVGSpacesOrDelimiter(',')   (svg/SVGParserUtilities.h)
-//   - genericParseNumber<Latin1Character, float>(.., DontSkip)        (svg/SVGParserUtilities.cpp)
+//   - genericParseNumber<CharacterType, float>(.., DontSkip)          (svg/SVGParserUtilities.cpp)
 //   - parseTransformTypeGeneric                                       (svg/SVGTransformList.cpp)
-//   - parseTransformParamList + required/optionalValuesForType        (svg/SVGTransformListInlines.h)
+//   - parseTransformParamList + required/optionalValuesForType        (formerly svg/SVGTransformListInlines.h)
 // The C++ glue in SVGTransformList.cpp applies the result to the list.
 //
 // Result layout (SVGTransformSwiftBoundary.h): bits 0-7 status, bits 8-15 SVGTransformType,
 // bits 16-23 number of values, bit 24 set if a ',' followed the item.
+
+// The characters being lexed, as code units zero-extended to 32 bits.
+protocol SVGTransformCharacters: ~Escapable {
+    var count: Int { get }
+    subscript(_ index: Int) -> UInt32 { get }
+}
+
+struct SVGTransformLatin1Characters: SVGTransformCharacters, ~Escapable {
+    let units: Span<UInt8>
+
+    @_lifetime(copy units)
+    init(_ units: Span<UInt8>) {
+        self.units = units
+    }
+
+    var count: Int {
+        @inline(__always) get { units.count }
+    }
+
+    subscript(_ index: Int) -> UInt32 {
+        @inline(__always) get { UInt32(units[index]) }
+    }
+}
+
+struct SVGTransformUTF16Characters: SVGTransformCharacters, ~Escapable {
+    let units: Span<UInt16>
+
+    @_lifetime(copy units)
+    init(_ units: Span<UInt16>) {
+        self.units = units
+    }
+
+    var count: Int {
+        @inline(__always) get { units.count }
+    }
+
+    subscript(_ index: Int) -> UInt32 {
+        @inline(__always) get { UInt32(units[index]) }
+    }
+}
+
+// UTF-16 code units at an odd address (C++ strings can be odd-aligned), 2 bytes each.
+struct SVGTransformUnalignedUTF16Characters: SVGTransformCharacters, ~Escapable {
+    let bytes: RawSpan
+
+    @_lifetime(copy bytes)
+    init(_ bytes: RawSpan) {
+        self.bytes = bytes
+    }
+
+    var count: Int {
+        @inline(__always) get { bytes.byteCount &>> 1 }
+    }
+
+    subscript(_ index: Int) -> UInt32 {
+        @inline(__always) get { UInt32(bytes.load(fromByteOffset: index &<< 1, as: UInt16.self)) }
+    }
+}
 
 enum SVGTransformLexer {
     // Status values; keep in sync with SVGTransformSwiftBoundary.h.
@@ -52,13 +110,21 @@ enum SVGTransformLexer {
 
     static var maximumValueCount: Int { 6 }
 
+    // lexItems, packed for the C entry point: the cursor advance << 8 | the number of items (results.count <= 255).
+    @inline(__always)
+    static func lex<Characters: SVGTransformCharacters & ~Escapable>(_ characters: Characters, _ results: inout MutableSpan<UInt32>, _ values: inout MutableSpan<Float>) -> UInt64 {
+        precondition(results.count <= 0xFF)
+        let lexed = lexItems(characters, &results, &values)
+        return UInt64(truncatingIfNeeded: lexed.end) &<< 8 | UInt64(truncatingIfNeeded: lexed.count)
+    }
+
     // Lexes consecutive items from the start of `characters` until one is not `statusParsed`, the input
     // ends, or `results` is full. Item k's result goes to results[k] and its values to
-    // values[6 * k ..< 6 * k + count]. `end` is how far the C++ lexer would have advanced its
+    // values[6 * k ..< 6 * k + count] (`values` must have room for them). `end` is how far the C++ lexer would have advanced its
     // StringParsingBuffer after the last lexed item, also when that item failed (SVGViewSpec keeps
     // parsing from there). At least one item is lexed if `characters` and `results` are not empty.
     @inline(__always)
-    static func lexItems(_ characters: Span<UInt8>, _ results: inout MutableSpan<UInt32>, _ values: inout MutableSpan<Float>) -> (count: Int, end: Int) {
+    static func lexItems<Characters: SVGTransformCharacters & ~Escapable>(_ characters: Characters, _ results: inout MutableSpan<UInt32>, _ values: inout MutableSpan<Float>) -> (count: Int, end: Int) {
         var index = 0
         var count = 0
         while count < results.count {
@@ -75,7 +141,7 @@ enum SVGTransformLexer {
 
     // Lexes one item at `start`; its values go to values[valueBase...].
     @inline(__always)
-    static func lexItem(_ characters: Span<UInt8>, _ start: Int, _ values: inout MutableSpan<Float>, valueBase: Int) -> (result: UInt32, end: Int) {
+    static func lexItem<Characters: SVGTransformCharacters & ~Escapable>(_ characters: Characters, _ start: Int, _ values: inout MutableSpan<Float>, valueBase: Int) -> (result: UInt32, end: Int) {
         var index = start
 
         // parseGeneric skips whitespace before the first item; between items its trailing skip has
@@ -124,27 +190,27 @@ enum SVGTransformLexer {
 
     // MARK: - Characters
 
-    private static var comma: UInt8 { 0x2C } // ','
-    private static var plus: UInt8 { 0x2B } // '+'
-    private static var minus: UInt8 { 0x2D } // '-'
-    private static var period: UInt8 { 0x2E } // '.'
-    private static var leftParenthesis: UInt8 { 0x28 } // '('
-    private static var rightParenthesis: UInt8 { 0x29 } // ')'
+    private static var comma: UInt32 { 0x2C } // ','
+    private static var plus: UInt32 { 0x2B } // '+'
+    private static var minus: UInt32 { 0x2D } // '-'
+    private static var period: UInt32 { 0x2E } // '.'
+    private static var leftParenthesis: UInt32 { 0x28 } // '('
+    private static var rightParenthesis: UInt32 { 0x29 } // ')'
 
     // isASCIIWhitespace: ' ', '\n', '\t', '\r', '\f' (not '\v').
     @inline(__always)
-    private static func isSpace(_ character: UInt8) -> Bool {
+    private static func isSpace(_ character: UInt32) -> Bool {
         character == 0x20 || character == 0x0A || character == 0x09 || character == 0x0D || character == 0x0C
     }
 
     @inline(__always)
-    private static func isDigit(_ character: UInt8) -> Bool {
+    private static func isDigit(_ character: UInt32) -> Bool {
         character &- 0x30 < 10
     }
 
     // skipOptionalSVGSpaces: returns whether characters remain.
     @inline(__always)
-    private static func skipSpaces(_ characters: Span<UInt8>, _ index: inout Int) -> Bool {
+    private static func skipSpaces<Characters: SVGTransformCharacters & ~Escapable>(_ characters: Characters, _ index: inout Int) -> Bool {
         while index < characters.count && isSpace(characters[index]) {
             index &+= 1
         }
@@ -153,7 +219,7 @@ enum SVGTransformLexer {
 
     // skipOptionalSVGSpacesOrDelimiter(buffer, ',').
     @inline(__always)
-    private static func skipSpacesOrComma(_ characters: Span<UInt8>, _ index: inout Int) -> Bool {
+    private static func skipSpacesOrComma<Characters: SVGTransformCharacters & ~Escapable>(_ characters: Characters, _ index: inout Int) -> Bool {
         if index >= characters.count {
             return false
         }
@@ -175,13 +241,12 @@ enum SVGTransformLexer {
 
     // skipCharactersExactly: advances only on a full match.
     @inline(__always)
-    private static func skipKeyword<let length: Int>(_ characters: Span<UInt8>, _ index: inout Int, _ keyword: InlineArray<length, UInt8>) -> Bool {
+    private static func skipKeyword<Characters: SVGTransformCharacters & ~Escapable, let length: Int>(_ characters: Characters, _ index: inout Int, _ keyword: InlineArray<length, UInt8>) -> Bool {
         if characters.count &- index < length {
             return false
         }
-        let candidate = characters.extracting(index ..< index &+ length)
         for offset in 0..<length {
-            if candidate[offset] != keyword[offset] {
+            if characters[index &+ offset] != UInt32(keyword[offset]) {
                 return false
             }
         }
@@ -192,7 +257,7 @@ enum SVGTransformLexer {
     // MARK: - parseTransformTypeGeneric
 
     @inline(__always)
-    private static func parseTransformType(_ characters: Span<UInt8>, _ index: inout Int) -> UInt32? {
+    private static func parseTransformType<Characters: SVGTransformCharacters & ~Escapable>(_ characters: Characters, _ index: inout Int) -> UInt32? {
         if index >= characters.count {
             return nil
         }
@@ -228,7 +293,7 @@ enum SVGTransformLexer {
     // the optional ones, each followed by the same whitespace/delimiter handling; this runs that code
     // twice with the second pass only reached when an optional value follows (one inlined number parser).
     @inline(__always)
-    private static func parseParameterList(_ characters: Span<UInt8>, _ index: inout Int, _ values: inout MutableSpan<Float>, valueBase: Int, required: Int, optional: Int) -> Int {
+    private static func parseParameterList<Characters: SVGTransformCharacters & ~Escapable>(_ characters: Characters, _ index: inout Int, _ values: inout MutableSpan<Float>, valueBase: Int, required: Int, optional: Int) -> Int {
         if !skipSpaces(characters, &index) || characters[index] != leftParenthesis {
             return -1
         }
@@ -287,7 +352,7 @@ enum SVGTransformLexer {
         }
     }
 
-    // MARK: - genericParseNumber<Latin1Character, float>, SuffixSkippingPolicy::DontSkip
+    // MARK: - genericParseNumber<CharacterType, float>, SuffixSkippingPolicy::DontSkip
 
     // isValidRange: rejects infinities and NaN.
     @inline(__always)
@@ -307,7 +372,7 @@ enum SVGTransformLexer {
     }
 
     @inline(__always)
-    private static func parseNumber(_ characters: Span<UInt8>, _ index: inout Int) -> Float? {
+    private static func parseNumber<Characters: SVGTransformCharacters & ~Escapable>(_ characters: Characters, _ index: inout Int) -> Float? {
         let count = characters.count
 
         // read the sign

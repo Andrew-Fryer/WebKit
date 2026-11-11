@@ -94,18 +94,7 @@ public:
         std::span<const Span> spans() const LIFETIME_BOUND { return m_spans.span(); }
         NODELETE std::span<const int> segments(std::span<const Span>) const LIFETIME_BOUND;
 
-        static Shape unionShapes(const Shape& shape1, const Shape& shape2);
-        static Shape intersectShapes(const Shape& shape1, const Shape& shape2);
-        static Shape subtractShapes(const Shape& shape1, const Shape& shape2);
-
         NODELETE WEBCORE_EXPORT void translate(const IntSize&);
-
-        // Tags that select the Swift comparison (swift/RegionShape) in compareShapes.
-        struct CompareContainsOperation;
-        struct CompareIntersectsOperation;
-
-        template<typename CompareOperation>
-        NODELETE static bool compareShapes(const Shape& shape1, const Shape& shape2);
 
         NODELETE WEBCORE_EXPORT static bool isValidShape(std::span<const int> segments, std::span<const Span> spans);
 
@@ -113,6 +102,12 @@ public:
         std::pair<Vector<int, 32>, Vector<Span, 16>> dataForTesting() const { return { m_segments, m_spans }; }
     private:
         WEBCORE_EXPORT Shape(Vector<int, 32>&&, Vector<Span, 16>&&);
+
+        // The shape algebra, in Swift (swift/RegionShape); operation is a WebCoreSwift_RegionShape_query /
+        // WebCoreSwift_RegionShape_combine operation code. combine returns the result and its bounds.
+        NODELETE static bool query(size_t operation, const Shape& shape1, const Shape& shape2);
+        static std::pair<Shape, IntRect> combine(size_t operation, const Shape& shape1, const Shape& shape2);
+        friend class Region;
 
         Vector<int, 32> m_segments;
         Vector<Span, 16> m_spans;
@@ -129,6 +124,7 @@ private:
 
     std::unique_ptr<Shape> copyShape() const { return m_shape ? makeUnique<Shape>(*m_shape) : nullptr; }
     WEBCORE_EXPORT void setShape(Shape&&);
+    void setShape(Shape&&, const IntRect& bounds);
 
     IntRect m_bounds;
     std::unique_ptr<Shape> m_shape;

@@ -99,4 +99,23 @@ enum AvailabilityLocals {
             i &+= 2
         }
     }
+
+    // The operation numbers of AvailabilityLocalsSwiftBoundary.h.
+    @inline(__always) static var equalOperation: UInt32 { 0 }
+    @inline(__always) static var mergeOperation: UInt32 { 1 }
+    @inline(__always) static var fillWithDeadOperation: UInt32 { 2 }
+
+    // The operations that write the target: merge (from source) and fillWithDead (source empty).
+    @inline(__always)
+    static func update(_ operation: UInt32, _ target: inout MutableSpan<UInt64>, _ source: Span<UInt64>) {
+        switch operation {
+        case mergeOperation:
+            merge(&target, source)
+        case fillWithDeadOperation:
+            precondition(source.isEmpty)
+            fillWithDead(&target)
+        default:
+            preconditionFailure("unknown AvailabilityLocals operation")
+        }
+    }
 }

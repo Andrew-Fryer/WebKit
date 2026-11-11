@@ -76,7 +76,7 @@ static_assert(WTF::VariantSizeV<PathSegment::Data> == WebCoreSwiftPathFastBounds
 // The fields Swift reads: FloatPoint is { x, y } and FloatRect is { x, y, width, height }.
 static_assert(std::bit_cast<std::array<float, 2>>(FloatPoint(1, 2)) == std::array<float, 2> { 1, 2 });
 static_assert(std::bit_cast<std::array<float, 4>>(FloatRect(1, 2, 3, 4)) == std::array<float, 4> { 1, 2, 3, 4 });
-static_assert(sizeof(FloatPoint) == sizeof(uint64_t) && std::is_trivially_copyable_v<FloatPoint>); // The endPoint callback's encoding.
+static_assert(sizeof(FloatPoint) == sizeof(uint64_t) && std::is_trivially_copyable_v<FloatPoint>); // The cxxWork callback's point encoding.
 static_assert(!offsetof(PathMoveTo, point));
 static_assert(!offsetof(PathLineTo, point));
 static_assert(!offsetof(PathQuadCurveTo, controlPoint) && offsetof(PathQuadCurveTo, endPoint) == 2 * sizeof(float));
@@ -316,34 +316,29 @@ FloatPoint PathStream::currentPoint() const
     return currentPoint;
 }
 
-// The end point part of the loop body of the original computeFastBoundingRect(), for the segment types whose end point needs
-// trigonometry (Swift extends the rect). context points to the std::span<const PathSegment>.
-static uint64_t computeFastBoundingRectEndPoint(const void* context, size_t segmentIndex, uint64_t currentPoint, uint64_t* lastMoveToPointBits)
+// The parts of the loop body of computeFastBoundingRect() that need trigonometry, which the Swift walk leaves to C++ (see
+// PathFastBoundsSwiftBoundary.h): the end point of an arc or ellipse, or the rect extension of a rotated PathEllipse.
+// context points to the std::span<const PathSegment>.
+static uint64_t computeFastBoundingRectCxxWork(const void* context, size_t segmentIndex, uint64_t currentPointBits, uint64_t* lastMoveToPointBits, WebCoreSwiftPathFastBoundsState* stateForRectExtension)
 {
     auto& segment = (*static_cast<const std::span<const PathSegment>*>(context))[segmentIndex];
+
+    if (auto* state = stateForRectExtension) {
+        FloatPoint lastMoveToPoint { state->lastMoveToPointX, state->lastMoveToPointY };
+        FloatPoint currentPoint { state->currentPointX, state->currentPointY };
+        FloatRect boundingRect { state->x, state->y, state->width, state->height };
+        segment.extendFastBoundingRect(currentPoint, lastMoveToPoint, boundingRect);
+        state->x = boundingRect.x();
+        state->y = boundingRect.y();
+        state->width = boundingRect.width();
+        state->height = boundingRect.height();
+        return 0;
+    }
+
     auto lastMoveToPoint = std::bit_cast<FloatPoint>(*lastMoveToPointBits);
-
-    auto endPoint = segment.calculateEndPoint(std::bit_cast<FloatPoint>(currentPoint), lastMoveToPoint);
-
+    auto endPoint = segment.calculateEndPoint(std::bit_cast<FloatPoint>(currentPointBits), lastMoveToPoint);
     *lastMoveToPointBits = std::bit_cast<uint64_t>(lastMoveToPoint);
     return std::bit_cast<uint64_t>(endPoint);
-}
-
-// The rect part of the loop body of the original computeFastBoundingRect(), for the segments whose rect extension the Swift code
-// leaves to C++ (a rotated PathEllipse). context points to the std::span<const PathSegment>.
-static void computeFastBoundingRectExtendRect(const void* context, size_t segmentIndex, WebCoreSwiftPathFastBoundsState* state)
-{
-    auto& segment = (*static_cast<const std::span<const PathSegment>*>(context))[segmentIndex];
-    FloatPoint lastMoveToPoint { state->lastMoveToPointX, state->lastMoveToPointY };
-    FloatPoint currentPoint { state->currentPointX, state->currentPointY };
-    FloatRect boundingRect { state->x, state->y, state->width, state->height };
-
-    segment.extendFastBoundingRect(currentPoint, lastMoveToPoint, boundingRect);
-
-    state->x = boundingRect.x();
-    state->y = boundingRect.y();
-    state->width = boundingRect.width();
-    state->height = boundingRect.height();
 }
 
 FloatRect PathStream::computeFastBoundingRect(std::span<const PathSegment> segments)
@@ -351,7 +346,7 @@ FloatRect PathStream::computeFastBoundingRect(std::span<const PathSegment> segme
     auto words = spanReinterpretCast<const uint32_t>(segments);
     auto smallestRect = FloatRect::smallestRect();
     WebCoreSwiftPathFastBoundsState state { 0, 0, 0, 0, smallestRect.x(), smallestRect.y(), smallestRect.width(), smallestRect.height() };
-    WebCoreSwift_PathFastBounds_computeFastBoundingRect(words.data(), words.size(), sizeof(PathSegment) / sizeof(uint32_t), WebCoreSwiftPathFastBoundsTagOffset, &segments, computeFastBoundingRectEndPoint, computeFastBoundingRectExtendRect, &state);
+    WebCoreSwift_PathFastBounds_computeFastBoundingRect(words.data(), words.size(), sizeof(PathSegment) / sizeof(uint32_t), WebCoreSwiftPathFastBoundsTagOffset, &segments, computeFastBoundingRectCxxWork, &state, sizeof(state) / sizeof(float));
     return { state.x, state.y, state.width, state.height };
 }
 

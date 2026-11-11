@@ -61,17 +61,10 @@
 #include <wtf/Vector.h>
 #include <wtf/WeakRef.h>
 #include <wtf/text/AtomString.h>
-#include <wtf/text/FastCharacterComparison.h>
 #include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringParsingBuffer.h>
 
-#if USE(SWIFT_KERNELS)
 #include "HTMLScanSwiftBoundary.h"
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "HTMLDocument.h"
-#include "SwiftKernelsValidation.h"
-#endif
-#endif
 
 class NewlineThenWhitespaceStringsTable {
 public:
@@ -237,34 +230,6 @@ template<typename CharacterType> NODELETE static inline bool isQuoteCharacter(Ch
     return character == '"' || character == '\'';
 }
 
-template<typename CharacterType> NODELETE static inline bool isValidUnquotedAttributeValueChar(CharacterType character)
-{
-    return isASCIIAlphanumeric(character) || character == '_' || character == '-';
-}
-
-// https://html.spec.whatwg.org/#syntax-attribute-name
-template<typename CharacterType> NODELETE static inline bool isValidAttributeNameChar(CharacterType character)
-{
-    if (character == '=') // Early return for the most common way to end an attribute.
-        return false;
-    return isASCIIAlphanumeric(character) || character == '-' || character == '_';
-}
-
-template<typename CharacterType> NODELETE static inline bool isNonUppercaseAttributeNameChar(CharacterType character)
-{
-    return isASCIILower(character) || isASCIIDigit(character) || character == '-' || character == '_';
-}
-
-template<typename CharacterType> NODELETE static inline bool isCharAfterTagNameOrAttribute(CharacterType character)
-{
-    return character == ' ' || character == '>' || isASCIIWhitespace(character) || character == '/';
-}
-
-template<typename CharacterType> NODELETE static inline bool isCharAfterUnquotedAttribute(CharacterType character)
-{
-    return character == ' ' || character == '>' || isASCIIWhitespace(character);
-}
-
 #define FOR_EACH_SUPPORTED_TAG(APPLY) \
     APPLY(a, A)                       \
     APPLY(b, B)                       \
@@ -285,7 +250,6 @@ template<typename CharacterType> NODELETE static inline bool isCharAfterUnquoted
     APPLY(strong, Strong)             \
     APPLY(ul, Ul)
 
-#if USE(SWIFT_KERNELS)
 // The scanners of HTMLFastPathParser run in Swift (Source/WebCore/swift/HTMLScan): scanText(), and scanTagName()
 // together with the scanning of parseAttributes() in one call per start tag. The Swift scan classifies the tag name
 // into the supported tags (FOR_EACH_SUPPORTED_TAG order), any other name, or a failure.
@@ -295,26 +259,16 @@ static constexpr std::array<ElementName, WebCoreSwiftHTMLScanTagClassOther + 1> 
 #undef SWIFT_TAG_CLASS_ELEMENT_NAME
     ElementName::Unknown
 };
-static_assert(sizeof(WebCoreSwiftHTMLScanAttribute) == 16);
 
 template<typename CharacterType> static uint64_t swiftFastPathScanText(std::span<const CharacterType> input)
 {
     return WebCoreSwift_HTMLScan_fastPathScanText(input.data(), input.size(), sizeof(CharacterType) == 1, Text::defaultLengthLimit);
 }
 
-template<typename CharacterType> static uint64_t swiftFastPathScanStartTag(std::span<const CharacterType> input, bool scanTagName, std::span<WebCoreSwiftHTMLScanAttribute, WebCoreSwiftHTMLScanAttributeCapacity> attributes, size_t& consumed)
+template<typename CharacterType> static uint64_t swiftFastPathScanStartTag(std::span<const CharacterType> input, bool scanTagName, WebCoreSwiftHTMLScanStartTag& startTag)
 {
-    return WebCoreSwift_HTMLScan_fastPathScanStartTag(input.data(), input.size(), sizeof(CharacterType) == 1, scanTagName, attributes.data(), attributes.size(), &consumed);
+    return WebCoreSwift_HTMLScan_fastPathScanStartTag(input.data(), input.size(), sizeof(CharacterType) == 1, scanTagName, &startTag);
 }
-
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-static unsigned swiftTagClass(ElementName name)
-{
-    auto index = std::ranges::find(swiftTagClassElementNames, name) - swiftTagClassElementNames.begin();
-    return std::min<unsigned>(index, WebCoreSwiftHTMLScanTagClassOther);
-}
-#endif
-#endif
 
 // This HTML parser is used as a fast-path for setting innerHTML.
 // It is faster than the general parser by only supporting a subset of valid
@@ -409,19 +363,13 @@ private:
     // The inline capacity matches HTMLToken::AttributeList.
     Vector<Attribute, 10> m_attributeBuffer;
     Vector<AtomStringImpl*> m_attributeNames;
-#if USE(SWIFT_KERNELS)
     // The Swift scan of the current start tag: scanTagName() runs it, parseAttributes() (always next) uses it.
     struct SwiftStartTag {
-        CharacterSpan input; // From the tag name.
+        CharacterSpan input; // From the tag name, or the attribute the last scan started at.
         uint64_t result { 0 };
-        size_t consumed { 0 };
-        std::array<WebCoreSwiftHTMLScanAttribute, WebCoreSwiftHTMLScanAttributeCapacity> attributes;
+        WebCoreSwiftHTMLScanStartTag output;
     };
     SwiftStartTag m_swiftStartTag;
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    RefPtr<Document> m_validationDocument;
-#endif
-#endif
 
     struct ScanTextResult {
         std::span<const CharacterType> text;
@@ -668,155 +616,29 @@ private:
             didFail(HTMLFastPathResult::FailedDidntReachEndOfInput);
     }
 
-    // Shared SIMD helper: given a low-nibble lookup table (as a vectorEquals8Bit
-    // callable) and a scalar fallback, find the first special character in |span|.
-    // https://lemire.me/blog/2024/06/08/scan-html-faster-with-simd-instructions-chrome-edition/
-    template<typename VectorEquals8BitFunction, typename ScalarMatchFunction>
-    ALWAYS_INLINE static std::span<const CharacterType> findSpecialCharacter(std::span<const CharacterType> span, NOESCAPE const VectorEquals8BitFunction& vectorEquals8Bit, NOESCAPE const ScalarMatchFunction& scalarMatch)
-    {
-        if constexpr (sizeof(CharacterType) == 1) {
-            auto vectorMatch = [&](auto input) ALWAYS_INLINE_LAMBDA {
-                return SIMD::findFirstNonZeroIndex(vectorEquals8Bit(input));
-            };
-            auto* it = SIMD::find(span, vectorMatch, scalarMatch);
-            return span.subspan(it - span.data());
-        } else {
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-            auto vectorMatch = [&](auto input) ALWAYS_INLINE_LAMBDA {
-                constexpr simde_uint8x16_t zeros = SIMD::splat8(0);
-                return SIMD::findFirstNonZeroIndex(SIMD::bitAnd(vectorEquals8Bit(input.val[0]), SIMD::equal(input.val[1], zeros)));
-            };
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
-            auto* it = SIMD::findInterleaved(span, vectorMatch, scalarMatch);
-            return span.subspan(it - span.data());
-        }
-    }
-
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    // Saved parser state for re-running a C++ original in the validation mode.
-    struct SwiftValidationState {
-        CharacterSpan position;
-        HTMLFastPathResult parseResult;
-    };
-
-    void restoreForValidation(const SwiftValidationState& state)
-    {
-        m_parsingBuffer.setPosition(state.position);
-        m_parseResult = state.parseResult;
-    }
-#endif
-
-    // With the scanning in Swift, the glue is small and inlined into its callers; the escaped slow path stays out of
-    // line.
-#if USE(SWIFT_KERNELS)
-    ALWAYS_INLINE ScanTextResult scanText()
-#else
-    ScanTextResult scanText()
-#endif
-    {
-#if USE(SWIFT_KERNELS)
-        auto start = m_parsingBuffer.span();
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-        SwiftValidationState validationState { start, m_parseResult };
-#endif
-        auto result = [&] ALWAYS_INLINE_LAMBDA -> ScanTextResult {
-            uint64_t scan = swiftFastPathScanText(start);
-            auto kind = static_cast<uint8_t>(scan);
-            auto end = start.subspan(scan >> 8);
-            if (kind == WebCoreSwiftHTMLScanTextEscaped) [[unlikely]]
-                return { std::span<const CharacterType>(), scanEscapedTextOutOfLine() };
-            m_parsingBuffer.setPosition(end);
-            if (kind == WebCoreSwiftHTMLScanTextPlain) [[likely]]
-                return { start.first(start.size() - end.size()), String() };
-            if (kind == WebCoreSwiftHTMLScanTextWhitespacePattern)
-                return { start.first(start.size() - end.size()), String(), true };
-            didFail(kind == WebCoreSwiftHTMLScanTextFailedContainsNull ? HTMLFastPathResult::FailedContainsNull : HTMLFastPathResult::FailedBigText);
-            return { };
-        }();
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-        if (swiftKernelsValidationEnabled()) [[unlikely]] {
-            SwiftValidationState end { m_parsingBuffer.span(), m_parseResult };
-            restoreForValidation(validationState);
-            auto expected = scanTextCxx();
-            RELEASE_ASSERT(expected.text.data() == result.text.data() && expected.text.size() == result.text.size());
-            RELEASE_ASSERT(expected.isWhitespacePattern == result.isWhitespacePattern && expected.escapedText == result.escapedText);
-            RELEASE_ASSERT(m_parsingBuffer.position() == end.position.data() && m_parseResult == end.parseResult);
-        }
-#endif
-        return result;
-#else
-        return scanTextCxx();
-#endif
-    }
-
-    // We first try to scan text as an unmodified subsequence of the input.
-    // However, if there are escape sequences, we have to copy the text to a
-    // separate buffer and we might go outside of `Char` range if we are in an
+    // We first try to scan text as an unmodified subsequence of the input (in Swift). However, if there are escape
+    // sequences, we have to copy the text to a separate buffer and we might go outside of `Char` range if we are in an
     // `Latin1Character` parser.
-    ScanTextResult scanTextCxx()
+    ALWAYS_INLINE ScanTextResult scanText()
     {
         auto start = m_parsingBuffer.span();
-        // Check if the text is a cached whitespace string.
-        if (m_parsingBuffer.hasCharactersRemaining() && *m_parsingBuffer == '\n') {
-            m_parsingBuffer.advance();
-            while (m_parsingBuffer.hasCharactersRemaining() && *m_parsingBuffer == ' ')
-                m_parsingBuffer.advance();
-
-            if (!m_parsingBuffer.hasCharactersRemaining() || *m_parsingBuffer == '<') {
-                unsigned length = m_parsingBuffer.position() - start.data();
-                return { start.first(length), String(), true };
-            }
-            // SIMD scan does not rely on the current m_parsingBuffer's position. No need to reset position here.
-        }
-
-        auto scalarMatch = [&](auto character) ALWAYS_INLINE_LAMBDA {
-            return character == '<' || character == '&' || character == '\r' || character == '\0';
-        };
-
-        auto vectorEquals8Bit = [&](auto input) ALWAYS_INLINE_LAMBDA {
-            // By looking up the table via lower 4bit, we can identify the category.
-            // '\0' => 0000 0000
-            // '&'  => 0010 0110
-            // '<'  => 0011 1100
-            // '\r' => 0000 1101
-            constexpr simde_uint8x16_t lowNibbleMask { '\0', 0, 0, 0, 0, 0, '&', 0, 0, 0, 0, 0, '<', '\r', 0, 0 };
-            constexpr simde_uint8x16_t v0f = SIMD::splat8(0x0f);
-            return SIMD::equal(simde_vqtbl1q_u8(lowNibbleMask, SIMD::bitAnd(input, v0f)), input);
-        };
-
-        auto cursor = findSpecialCharacter(start, vectorEquals8Bit, scalarMatch);
-        m_parsingBuffer.setPosition(cursor);
-
-        if (!cursor.empty()) {
-            if (cursor[0] == '\0') [[unlikely]] {
-                didFail(HTMLFastPathResult::FailedContainsNull);
-                return { std::span<const CharacterType>(), String() };
-            }
-            if (cursor[0] == '&' || cursor[0] == '\r') {
-                m_parsingBuffer.setPosition(start);
-                return { std::span<const CharacterType>(), scanEscapedText() };
-            }
-        }
-
-        unsigned length = cursor.data() - start.data();
-        if (length >= Text::defaultLengthLimit) [[unlikely]] {
-            didFail(HTMLFastPathResult::FailedBigText);
-            return { std::span<const CharacterType>(), String() };
-        }
-
-        return { start.first(length), String() };
+        uint64_t scan = swiftFastPathScanText(start);
+        auto kind = static_cast<uint8_t>(scan);
+        if (kind == WebCoreSwiftHTMLScanTextEscaped) [[unlikely]]
+            return { std::span<const CharacterType>(), scanEscapedText() };
+        auto length = scan >> 8;
+        m_parsingBuffer.setPosition(start.subspan(length));
+        if (kind == WebCoreSwiftHTMLScanTextPlain) [[likely]]
+            return { start.first(length), String() };
+        if (kind == WebCoreSwiftHTMLScanTextWhitespacePattern)
+            return { start.first(length), String(), true };
+        didFail(kind == WebCoreSwiftHTMLScanTextFailedContainsNull ? HTMLFastPathResult::FailedContainsNull : HTMLFastPathResult::FailedBigText);
+        return { };
     }
-
-#if USE(SWIFT_KERNELS)
-    NEVER_INLINE String scanEscapedTextOutOfLine()
-    {
-        return scanEscapedText();
-    }
-#endif
 
     // Slow-path of `scanText()`, which supports escape sequences by copying to a
     // separate buffer.
-    String scanEscapedText()
+    NEVER_INLINE String scanEscapedText()
     {
         m_ucharBuffer.shrink(0);
         while (m_parsingBuffer.hasCharactersRemaining() && *m_parsingBuffer != '<') {
@@ -840,160 +662,18 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         return m_ucharBuffer.isEmpty() ? String() : String(m_ucharBuffer.span());
     }
 
-    // Also scans the attributes for the parseAttributes() call that follows (on success).
-#if USE(SWIFT_KERNELS)
+    // Scan a tagName and convert to lowercase if necessary (in Swift, which also scans the attributes for the
+    // parseAttributes() call that follows on success).
     ALWAYS_INLINE ElementName scanTagName()
-#else
-    ElementName scanTagName()
-#endif
     {
-#if USE(SWIFT_KERNELS)
         auto& scan = m_swiftStartTag;
         scan.input = m_parsingBuffer.span();
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-        SwiftValidationState validationState { scan.input, m_parseResult };
-#endif
-        scan.result = swiftFastPathScanStartTag(scan.input, true, std::span { scan.attributes }, scan.consumed);
-        auto tagClass = static_cast<uint8_t>(scan.result);
+        scan.result = swiftFastPathScanStartTag(scan.input, true, scan.output);
         m_parsingBuffer.setPosition(scan.input.subspan(scan.result >> 32));
-        ElementName tagName = ElementName::Unknown;
+        auto tagClass = static_cast<uint8_t>(scan.result);
         if (tagClass == WebCoreSwiftHTMLScanTagClassFailed) [[unlikely]]
-            didFail(HTMLFastPathResult::FailedParsingTagName);
-        else
-            tagName = swiftTagClassElementNames[std::min<size_t>(tagClass, WebCoreSwiftHTMLScanTagClassOther)];
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-        if (swiftKernelsValidationEnabled()) [[unlikely]] {
-            SwiftValidationState end { m_parsingBuffer.span(), m_parseResult };
-            restoreForValidation(validationState);
-            RELEASE_ASSERT(swiftTagClass(scanTagNameCxx()) == swiftTagClass(tagName));
-            RELEASE_ASSERT(m_parsingBuffer.position() == end.position.data() && m_parseResult == end.parseResult);
-        }
-#endif
-        return tagName;
-#else
-        return scanTagNameCxx();
-#endif
-    }
-
-    // Scan a tagName and convert to lowercase if necessary.
-    ElementName scanTagNameCxx()
-    {
-        auto start = m_parsingBuffer.span();
-        skipWhile<isASCIILower>(m_parsingBuffer);
-
-        if (m_parsingBuffer.atEnd() || !isCharAfterTagNameOrAttribute(*m_parsingBuffer)) {
-            // Try parsing a case-insensitive tagName.
-            m_charBuffer.shrink(0);
-            m_parsingBuffer.setPosition(start);
-            while (m_parsingBuffer.hasCharactersRemaining()) {
-                auto c = *m_parsingBuffer;
-                if (isASCIIUpper(c))
-                    c = toASCIILowerUnchecked(c);
-                else if (!isASCIILower(c))
-                    break;
-                m_parsingBuffer.advance();
-                m_charBuffer.append(c);
-            }
-            if (m_parsingBuffer.atEnd() || !isCharAfterTagNameOrAttribute(*m_parsingBuffer)) [[unlikely]]
-                return didFail(HTMLFastPathResult::FailedParsingTagName, ElementName::Unknown);
-            skipWhile<isASCIIWhitespace>(m_parsingBuffer);
-            return findHTMLElementName(m_charBuffer.span());
-        }
-        auto tagName = findHTMLElementName(start.first(m_parsingBuffer.position() - start.data()));
-        skipWhile<isASCIIWhitespace>(m_parsingBuffer);
-        return tagName;
-    }
-
-    QualifiedName scanAttributeName()
-    {
-        // First look for a name without upper case. This path doesn't require any mapping of input.
-        auto start = m_parsingBuffer.span();
-        skipWhile<isNonUppercaseAttributeNameChar>(m_parsingBuffer);
-        if (m_parsingBuffer.atEnd()) [[unlikely]]
-            return didFail(HTMLFastPathResult::FailedEndOfInputReached, nullQName());
-
-        CharacterSpan attributeName;
-        if (isASCIIUpper(*m_parsingBuffer)) [[unlikely]] {
-            m_parsingBuffer.setPosition(start);
-            m_charBuffer.shrink(0);
-            // isValidAttributeNameChar() returns false if end of input is reached.
-            do {
-                auto c = m_parsingBuffer.consume();
-                if (isASCIIUpper(c))
-                    c = toASCIILowerUnchecked(c);
-                m_charBuffer.append(c);
-            } while (m_parsingBuffer.hasCharactersRemaining() && isValidAttributeNameChar(*m_parsingBuffer));
-            attributeName = m_charBuffer.span();
-        } else
-            attributeName = start.first(m_parsingBuffer.position() - start.data());
-
-        if (attributeName.empty())
-            return nullQName();
-        if (attributeName.size() > 2 && compareCharacters(attributeName.data(), 'o', 'n')) {
-            // These attributes likely contain script that may be executed at random
-            // points, which could cause problems if parsing via the fast path
-            // fails. For example, an image's onload event.
-            return nullQName();
-        }
-        return HTMLNameCache::makeAttributeQualifiedName(attributeName);
-    }
-
-    AtomString scanAttributeValue()
-    {
-        skipWhile<isASCIIWhitespace>(m_parsingBuffer);
-        auto start = m_parsingBuffer.span();
-        size_t length = 0;
-        if (m_parsingBuffer.hasCharactersRemaining() && isQuoteCharacter(*m_parsingBuffer)) {
-            auto quoteStart = start;
-            auto quoteChar = m_parsingBuffer.consume();
-
-            auto find = [&]<CharacterType quoteChar>(std::span<const CharacterType> span) ALWAYS_INLINE_LAMBDA {
-                auto scalarMatch = [&](auto character) ALWAYS_INLINE_LAMBDA {
-                    return character == quoteChar || character == '&' || character == '\r' || character == '\0';
-                };
-
-                auto vectorEquals8Bit = [&](auto input) ALWAYS_INLINE_LAMBDA {
-                    // By looking up the table via lower 4bit, we can identify the category.
-                    // '\0' => 0000 0000
-                    // '&'  => 0010 0110
-                    // '\'' => 0010 0111
-                    // '\r' => 0000 1101
-                    //
-                    // OR
-                    //
-                    // '\0' => 0000 0000
-                    // '"'  => 0010 0010
-                    // '&'  => 0010 0110
-                    // '\r' => 0000 1101
-                    constexpr auto lowNibbleMask  = quoteChar == '\'' ? simde_uint8x16_t { '\0', 0, 0, 0, 0, 0, '&', '\'', 0, 0, 0, 0, 0, '\r', 0, 0 } : simde_uint8x16_t { '\0', 0, '"', 0, 0, 0, '&', 0, 0, 0, 0, 0, 0, '\r', 0, 0 };
-                    constexpr auto v0f = SIMD::splat8(0x0f);
-                    return SIMD::equal(simde_vqtbl1q_u8(lowNibbleMask, SIMD::bitAnd(input, v0f)), input);
-                };
-
-                return findSpecialCharacter(span, vectorEquals8Bit, scalarMatch);
-            };
-
-            start = m_parsingBuffer.span();
-            const auto cursor = quoteChar == '\'' ? find.template operator()<'\''>(start) : find.template operator()<'"'>(start);
-            if (cursor.empty()) [[unlikely]]
-                return didFail(HTMLFastPathResult::FailedParsingQuotedAttributeValue, emptyAtom());
-
-            length = cursor.data() - start.data();
-            if (cursor[0] != quoteChar) [[unlikely]] {
-                if (cursor[0] == '&' || cursor[0] == '\r') [[likely]] {
-                    m_parsingBuffer.setPosition(quoteStart);
-                    return scanEscapedAttributeValue();
-                }
-                return didFail(HTMLFastPathResult::FailedParsingQuotedAttributeValue, emptyAtom());
-            }
-            m_parsingBuffer.setPosition(cursor.subspan(1));
-        } else {
-            skipWhile<isValidUnquotedAttributeValueChar>(m_parsingBuffer);
-            length = m_parsingBuffer.position() - start.data();
-            if (m_parsingBuffer.atEnd() || !isCharAfterUnquotedAttribute(*m_parsingBuffer)) [[unlikely]]
-                return didFail(HTMLFastPathResult::FailedParsingUnquotedAttributeValue, emptyAtom());
-        }
-        return HTMLNameCache::makeAttributeValue(start.first(length));
+            return didFail(HTMLFastPathResult::FailedParsingTagName, ElementName::Unknown);
+        return swiftTagClassElementNames[std::min<size_t>(tagClass, WebCoreSwiftHTMLScanTagClassOther)];
     }
 
     // Slow path for scanning an attribute value. Used for special cases such
@@ -1098,34 +778,21 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     void parseAttributes(HTMLElement& parent)
     {
-#if USE(SWIFT_KERNELS)
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-        SwiftValidationState validationState { m_parsingBuffer.span(), m_parseResult };
-#endif
         m_attributeBuffer.shrink(0);
         m_attributeNames.shrink(0);
 
         bool hasDuplicateAttributes = false;
-        bool reachedEndOfTag = parseAttributesWithSwift(hasDuplicateAttributes);
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-        if (swiftKernelsValidationEnabled()) [[unlikely]]
-            validateParseAttributes(parent, validationState, reachedEndOfTag, hasDuplicateAttributes);
-#endif
-        if (!reachedEndOfTag)
+        if (!appendScannedAttributes(hasDuplicateAttributes))
             return;
         parent.parserSetAttributes(m_attributeBuffer, Element::AttributeModificationReason::ParserFastPath);
         if (hasDuplicateAttributes) [[unlikely]]
             parent.setHasDuplicateAttribute(true);
-#else
-        parseAttributesCxx(parent);
-#endif
     }
 
-#if USE(SWIFT_KERNELS)
-    // The loop of parseAttributesCxx() on the attributes scanned by scanTagName() (and, after an escaped value or
-    // a full record buffer, by further Swift calls): fills m_attributeBuffer and m_attributeNames the same way and
-    // leaves the position where it does. Returns false where that loop returns didFail() before parserSetAttributes().
-    ALWAYS_INLINE bool parseAttributesWithSwift(bool& hasDuplicateAttributes)
+    // The attribute loop of parseAttributes() on the attributes scanned with the tag name (and, after an escaped
+    // value or a full record buffer, by further Swift scans): fills m_attributeBuffer and m_attributeNames and leaves
+    // the position after the tag. Returns false where the loop fails before parserSetAttributes().
+    ALWAYS_INLINE bool appendScannedAttributes(bool& hasDuplicateAttributes)
     {
         auto& scan = m_swiftStartTag;
         auto input = scan.input;
@@ -1143,7 +810,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
                 didFail(failures[failure]);
             }
             auto status = static_cast<uint8_t>((result >> 8) & 0xF);
-            auto attributes = std::span { scan.attributes }.first(static_cast<uint8_t>(result >> 16));
+            auto attributes = std::span { scan.output.attributes }.first(static_cast<uint8_t>(result >> 16));
             for (auto& attribute : attributes) {
                 auto attributeName = [&] ALWAYS_INLINE_LAMBDA {
                     auto name = input.subspan(attribute.nameOffset, attribute.nameLength & ~WebCoreSwiftHTMLScanAttributeNameNeedsLowering);
@@ -1171,86 +838,21 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
                 m_attributeBuffer.append(Attribute { WTF::move(attributeName), WTF::move(attributeValue) });
             }
             if (status == WebCoreSwiftHTMLScanAttributesDone) [[likely]] {
-                m_parsingBuffer.setPosition(input.subspan(scan.consumed));
+                m_parsingBuffer.setPosition(input.subspan(scan.output.consumed));
                 return true;
             }
             if (status == WebCoreSwiftHTMLScanAttributesFailed) {
-                m_parsingBuffer.setPosition(input.subspan(scan.consumed));
+                m_parsingBuffer.setPosition(input.subspan(scan.output.consumed));
                 return false;
             }
             // More attributes: after an escaped value, scanEscapedAttributeValue() and the whitespace skip above set
             // the position; otherwise the next attribute starts at consumed.
             if (status != WebCoreSwiftHTMLScanAttributesEscapedValue)
-                m_parsingBuffer.setPosition(input.subspan(scan.consumed));
+                m_parsingBuffer.setPosition(input.subspan(scan.output.consumed));
             input = m_parsingBuffer.span();
-            scan.result = swiftFastPathScanStartTag(input, false, std::span { scan.attributes }, scan.consumed);
+            scan.input = input;
+            scan.result = swiftFastPathScanStartTag(input, false, scan.output);
         }
-    }
-#endif
-
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    // Re-runs parseAttributesCxx() from the saved state and compares. parseAttributesCxx() ends with
-    // parserSetAttributes(), so it gets a detached element of the same tag in a separate document (no CSP, no frame).
-    void validateParseAttributes(HTMLElement& parent, const SwiftValidationState& validationState, bool reachedEndOfTag, bool hasDuplicateAttributes)
-    {
-        SwiftValidationState end { m_parsingBuffer.span(), m_parseResult };
-        auto attributes = m_attributeBuffer;
-        auto attributeNames = m_attributeNames;
-        restoreForValidation(validationState);
-        if (!m_validationDocument)
-            m_validationDocument = HTMLDocument::create(nullptr, m_document->settings(), URL(), { });
-        Ref validationDocument = *m_validationDocument;
-        Ref scratchElement = HTMLElement::create(parent.tagQName(), validationDocument);
-        parseAttributesCxx(scratchElement);
-        RELEASE_ASSERT(m_parsingBuffer.position() == end.position.data() && m_parseResult == end.parseResult);
-        RELEASE_ASSERT(m_attributeBuffer.size() == attributes.size() && m_attributeNames == attributeNames);
-        for (size_t i = 0; i < attributes.size(); ++i)
-            RELEASE_ASSERT(m_attributeBuffer[i].name() == attributes[i].name() && m_attributeBuffer[i].value() == attributes[i].value());
-        RELEASE_ASSERT(scratchElement->attributeCount() == (reachedEndOfTag ? attributes.size() : 0));
-        RELEASE_ASSERT(scratchElement->hasDuplicateAttribute() == (reachedEndOfTag && hasDuplicateAttributes));
-    }
-#endif
-
-    void parseAttributesCxx(HTMLElement& parent)
-    {
-        m_attributeBuffer.shrink(0);
-        m_attributeNames.shrink(0);
-
-        bool hasDuplicateAttributes = false;
-        while (true) {
-            auto attributeName = scanAttributeName();
-            if (attributeName == nullQName()) {
-                if (m_parsingBuffer.hasCharactersRemaining()) [[likely]] {
-                    if (*m_parsingBuffer == '>') {
-                        m_parsingBuffer.advance();
-                        break;
-                    }
-                    if (*m_parsingBuffer == '/') {
-                        m_parsingBuffer.advance();
-                        skipWhile<isASCIIWhitespace>(m_parsingBuffer);
-                        if (m_parsingBuffer.atEnd() || m_parsingBuffer.consume() != '>') [[unlikely]]
-                            return didFail(HTMLFastPathResult::FailedParsingAttributes);
-                        break;
-                    }
-                }
-                return didFail(HTMLFastPathResult::FailedParsingAttributes);
-            }
-            skipWhile<isASCIIWhitespace>(m_parsingBuffer);
-            AtomString attributeValue;
-            if (skipExactly(m_parsingBuffer, '=')) {
-                attributeValue = scanAttributeValue();
-                skipWhile<isASCIIWhitespace>(m_parsingBuffer);
-            } else
-                attributeValue = emptyAtom();
-            if (!insertInUniquedSortedVector(m_attributeNames, attributeName.localName().impl())) [[unlikely]] {
-                hasDuplicateAttributes = true;
-                continue;
-            }
-            m_attributeBuffer.append(Attribute { WTF::move(attributeName), WTF::move(attributeValue) });
-        }
-        parent.parserSetAttributes(m_attributeBuffer, Element::AttributeModificationReason::ParserFastPath);
-        if (hasDuplicateAttributes) [[unlikely]]
-            parent.setHasDuplicateAttribute(true);
     }
 
     template<typename... Tags> RefPtr<HTMLElement> parseSpecificElements(ContainerNode& parent)

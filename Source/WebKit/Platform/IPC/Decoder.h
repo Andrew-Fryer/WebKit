@@ -132,11 +132,9 @@ public:
     // Source/WebKit/swift/IPCStreamMessage/IPCStreamMessageSwiftBoundary.h documents the fields). The glue that builds
     // them, decodeArgumentsInSwift(), reads them from here and span(). They are only for a decoder that is still where
     // the arguments start, as in IPC::handleMessage(), which decodes them first (the glue doesn't use the decoder's
-    // position). The status is None for a decoder that isn't a stream message's.
+    // position). The status is None for a decoder that isn't a stream message's, whose glue has Swift locate them then.
     // The stream message constructor has Swift store all the fields (zero, for status None); the others value-initialize
-    // them (the members have no initializers, so as not to store them twice in the hot constructor). Declared whether or
-    // not USE(SWIFT_KERNELS), which only the WebKit and WebKitPlatform targets define, so that every target that includes
-    // this header sees the same Decoder.
+    // them (the members have no initializers, so as not to store them twice in the hot constructor).
     struct SwiftStreamArguments {
         enum class Status : uint8_t { None, Valid, Invalid, InvalidIdentifier };
         uint64_t identifier;
@@ -152,13 +150,6 @@ public:
     }
     // Whether nothing has been decoded since the header (or since rewindToArguments()).
     bool isAtArguments() const { return currentBufferOffset() == m_argumentsOffset; }
-
-    // For validating the Swift decoders (only defined with ENABLE(SWIFT_KERNELS_VALIDATION)): a stream message decoder
-    // that decodes the header in C++ only (the original constructor), or the header and arguments in Swift only.
-    enum class StreamHeaderCxxTag : bool { };
-    Decoder(std::span<const uint8_t> stream, uint64_t destinationID, StreamHeaderCxxTag);
-    enum class StreamMessageSwiftTag : bool { };
-    Decoder(std::span<const uint8_t> stream, uint64_t destinationID, StreamMessageSwiftTag);
 
     [[nodiscard]] bool isValid() const { return !!m_buffer.data(); }
     void markInvalid()
@@ -203,15 +194,6 @@ public:
 
 private:
     Decoder(std::span<const uint8_t> buffer, BufferDeallocator&&, Vector<Attachment>&&);
-
-    // The original C++ body of Decoder(std::span<const uint8_t> stream, uint64_t destinationID), which decodes the
-    // stream message header, and locates the arguments, in Swift (decodeStreamMessage()) when USE(SWIFT_KERNELS). With
-    // ENABLE(SWIFT_KERNELS_VALIDATION), decodeStreamHeaderAndValidate() compares the header to that of the
-    // StreamHeaderCxxTag constructor, which always uses the C++ (the glue validates the arguments). Each is only
-    // defined in the builds that use it.
-    void decodeStreamHeaderCxx(uint64_t destinationID);
-    void decodeStreamMessage(std::span<const uint8_t> message, uint64_t destinationID);
-    void decodeStreamHeaderAndValidate(uint64_t destinationID);
 
     std::span<const uint8_t> m_buffer;
     std::span<const uint8_t>::iterator m_bufferPosition;

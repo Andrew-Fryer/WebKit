@@ -256,7 +256,6 @@ private:
     static constexpr unsigned polymorphismLimit = 10;
     static constexpr unsigned clobberedSupremacyThreshold = 2;
 
-#if USE(SWIFT_KERNELS)
     // DFGCFAMerge.swift (called by DFGInPlaceAbstractState.cpp) reads and writes a StructureAbstractValue as its m_set
     // word: bit 0 = TinyPtrSet's fat flag, bit 1 = clobberedFlag, topValue = 4, else a thin set's only structure (0 when
     // empty) in the bits above the flags.
@@ -266,7 +265,6 @@ private:
         static_assert(RegisteredStructureSet::fatFlag == 1 && clobberedFlag == 2 && topValue == 4);
         static_assert(RegisteredStructureSet::flags == (RegisteredStructureSet::fatFlag | clobberedFlag));
     }
-#endif
     
     void filterSlow(SpeculatedType type);
     void filterClassInfoSlow(const ClassInfo*);

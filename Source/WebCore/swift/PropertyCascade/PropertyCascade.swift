@@ -48,7 +48,7 @@ protocol PropertyCascadeMatchStorage {
 }
 
 enum PropertyCascade {
-    // Indices into the `config` span.
+    // Indices into the in/out `state` span: the configuration, then the cascade's logical-group scalars (in/out).
     @inline(__always) static var configUserAgentCount: Int { 0 }
     @inline(__always) static var configUserCount: Int { 1 }
     @inline(__always) static var configAuthorCount: Int { 2 }
@@ -56,14 +56,11 @@ enum PropertyCascade {
     @inline(__always) static var configFirstLogicalGroupProperty: Int { 4 }
     @inline(__always) static var configPackedPointerSize: Int { 5 }
     @inline(__always) static var configScratchCount: Int { 6 }
-    @inline(__always) static var configCount: Int { 7 }
-
-    // Indices into the in/out `scalars` span.
-    @inline(__always) static var scalarLastIndexForLogicalGroup: Int { 0 }
-    @inline(__always) static var scalarSeenLogicalGroupPropertyCount: Int { 1 }
-    @inline(__always) static var scalarLowestSeenLogicalGroupProperty: Int { 2 }
-    @inline(__always) static var scalarHighestSeenLogicalGroupProperty: Int { 3 }
-    @inline(__always) static var scalarCount: Int { 4 }
+    @inline(__always) static var scalarLastIndexForLogicalGroup: Int { 7 }
+    @inline(__always) static var scalarSeenLogicalGroupPropertyCount: Int { 8 }
+    @inline(__always) static var scalarLowestSeenLogicalGroupProperty: Int { 9 }
+    @inline(__always) static var scalarHighestSeenLogicalGroupProperty: Int { 10 }
+    @inline(__always) static var stateCount: Int { 11 }
 
     // PropertyCascade::PropertyType.
     @inline(__always) static var typeNonInherited: UInt32 { 1 << 0 }
@@ -100,35 +97,35 @@ enum PropertyCascade {
     @inline(__always) static var bail: Int { -1 }
 
     /// Builds the cascade. Returns the number of custom-property sets recorded at the start of `work` +
-    /// config[configScratchCount] (each `match << 32 | propertyIndex`), or `bail` (-1) when the glue must run
+    /// state[configScratchCount] (each `match << 32 | propertyIndex`), or `bail` (-1) when the glue must run
     /// the C++ instead; in that case the presence words and logical-group indices have been zeroed again
     /// (their state on entry) and nothing else C++ reads was changed.
     static func build<Storage: PropertyCascadeMatchStorage>(
         storage: Storage,
         matches: Span<UInt64>,
-        config: Span<UInt32>,
+        state: inout MutableSpan<UInt32>,
         includedIDs: Span<UInt16>,
         table: Span<UInt16>,
         records: consuming MutableRawSpan,
         present: consuming MutableSpan<UInt64>,
         logicalIndices: consuming MutableSpan<UInt32>,
         logicalIDs: inout MutableSpan<UInt16>,
-        scalars: inout MutableSpan<UInt32>,
         work: consuming MutableSpan<UInt64>) -> Int
     {
+        precondition(state.count == stateCount)
         // The glue routes these to the C++ (AfterAnimation needs shouldApplyAfterAnimation(), and
         // ExplicitlyInherited without both normal types needs explicitlyInheritsFromParent()).
-        let includedTypes = config[configIncludedTypes]
+        let includedTypes = state[configIncludedTypes]
         let includesAllNormal = includedTypes & (typeNonInherited | typeInherited) == typeNonInherited | typeInherited
         if includedTypes & typeAfterAnimation != 0 || (includedTypes & typeExplicitlyInherited != 0 && !includesAllNormal) {
             return bail
         }
 
-        let userAgentCount = Int(config[configUserAgentCount])
-        let userCount = Int(config[configUserCount])
-        let authorCount = Int(config[configAuthorCount])
+        let userAgentCount = Int(state[configUserAgentCount])
+        let userCount = Int(state[configUserCount])
+        let authorCount = Int(state[configAuthorCount])
         precondition(matchWordCount * (userAgentCount + userCount + authorCount) <= matches.count)
-        let scratchCount = Int(config[configScratchCount])
+        let scratchCount = Int(state[configScratchCount])
         precondition(scratchCount <= work.count && logicalIndices.count <= scratchCount && logicalIDs.count == logicalIndices.count)
         let userAgentRange = 0..<userAgentCount
         let userRange = userAgentCount..<(userAgentCount + userCount)
@@ -137,11 +134,11 @@ enum PropertyCascade {
         var cascade = PropertyCascadeState(
             storage: storage, matches: matches, includedIDs: includedIDs, table: table,
             records: records, present: present, logicalIndices: logicalIndices, work: work,
-            includedTypes: includedTypes, firstLogicalGroupProperty: Int(config[configFirstLogicalGroupProperty]),
-            packedPointerSize: Int(config[configPackedPointerSize]), scratchCount: scratchCount,
-            lastIndexForLogicalGroup: scalars[scalarLastIndexForLogicalGroup],
-            lowestSeenLogicalGroupProperty: Int(scalars[scalarLowestSeenLogicalGroupProperty]),
-            highestSeenLogicalGroupProperty: Int(scalars[scalarHighestSeenLogicalGroupProperty]))
+            includedTypes: includedTypes, firstLogicalGroupProperty: Int(state[configFirstLogicalGroupProperty]),
+            packedPointerSize: Int(state[configPackedPointerSize]), scratchCount: scratchCount,
+            lastIndexForLogicalGroup: state[scalarLastIndexForLogicalGroup],
+            lowestSeenLogicalGroupProperty: Int(state[scalarLowestSeenLogicalGroupProperty]),
+            highestSeenLogicalGroupProperty: Int(state[scalarHighestSeenLogicalGroupProperty]))
 
         // buildCascade: normal matches for UserAgent, User, Author; then important ones for Author, User, UserAgent.
         guard let userAgentHasImportant = cascade.addNormalMatches(userAgentRange, origin: 0) else { return cascade.bail() }
@@ -159,10 +156,10 @@ enum PropertyCascade {
 
         let seenCount = cascade.sortLogicalGroupPropertyIDs(&logicalIDs)
 
-        scalars[scalarLastIndexForLogicalGroup] = cascade.lastIndexForLogicalGroup
-        scalars[scalarSeenLogicalGroupPropertyCount] = UInt32(seenCount)
-        scalars[scalarLowestSeenLogicalGroupProperty] = UInt32(cascade.lowestSeenLogicalGroupProperty)
-        scalars[scalarHighestSeenLogicalGroupProperty] = UInt32(cascade.highestSeenLogicalGroupProperty)
+        state[scalarLastIndexForLogicalGroup] = cascade.lastIndexForLogicalGroup
+        state[scalarSeenLogicalGroupPropertyCount] = UInt32(seenCount)
+        state[scalarLowestSeenLogicalGroupProperty] = UInt32(cascade.lowestSeenLogicalGroupProperty)
+        state[scalarHighestSeenLogicalGroupProperty] = UInt32(cascade.highestSeenLogicalGroupProperty)
         return cascade.deferredCount
     }
 }

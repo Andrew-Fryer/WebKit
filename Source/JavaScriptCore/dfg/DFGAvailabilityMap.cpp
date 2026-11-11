@@ -97,14 +97,15 @@ bool operator==(const AvailabilityMap& a, const AvailabilityMap& b)
     ASSERT(a.m_locals.numberOfArguments() == b.m_locals.numberOfArguments());
     ASSERT(a.m_locals.numberOfLocals() == b.m_locals.numberOfLocals());
     ASSERT(a.m_locals.numberOfTmps() == b.m_locals.numberOfTmps());
+    // Swift only reads the first map's locals (hence the const_cast).
     return a.m_locals.size() == b.m_locals.size()
-        && JSCSwift_AvailabilityLocals_equal(availabilityWords(a.m_locals), availabilityWords(b.m_locals), a.m_locals.size())
+        && JSCSwift_AvailabilityLocals_apply(JSCSwift_AvailabilityLocals_Equal, const_cast<uint64_t*>(availabilityWords(a.m_locals)), a.m_locals.size(), availabilityWords(b.m_locals), b.m_locals.size())
         && a.m_heap == b.m_heap;
 }
 
 void AvailabilityMap::clear()
 {
-    JSCSwift_AvailabilityLocals_fillWithDead(availabilityWords(m_locals), m_locals.size());
+    JSCSwift_AvailabilityLocals_apply(JSCSwift_AvailabilityLocals_FillWithDead, availabilityWords(m_locals), m_locals.size(), nullptr, 0);
     m_heap.clear();
 }
 
@@ -118,7 +119,7 @@ void AvailabilityMap::merge(const AvailabilityMap& other)
     // Merging an Availability with itself leaves it unchanged, so a self-merge skips the locals (which keeps
     // Swift's target and source from overlapping).
     if (&other != this)
-        JSCSwift_AvailabilityLocals_merge(availabilityWords(m_locals), m_locals.size(), availabilityWords(other.m_locals), other.m_locals.size());
+        JSCSwift_AvailabilityLocals_apply(JSCSwift_AvailabilityLocals_Merge, availabilityWords(m_locals), m_locals.size(), availabilityWords(other.m_locals), other.m_locals.size());
 
     for (auto pair : other.m_heap) {
         auto result = m_heap.add(pair.key, Availability());

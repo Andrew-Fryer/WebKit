@@ -526,55 +526,47 @@ bool FontCascade::canUseSimplifiedTextMeasuring(char32_t character, FontVariant 
 
 // canUseSimplifiedTextMeasuring(character, FontVariant::Auto, whitespaceIsCollapsed, primaryFont) for every character of
 // a run (the loop of Layout::TextUtil::canUseSimplifiedTextMeasuring). Swift answers the characters the per-font cache
-// knows (TextRunScanners.swift); each character it cannot answer goes through the function above, which looks up the
-// glyph and fills the cache, and the scan resumes after it.
-bool FontCascade::canUseSimplifiedTextMeasuring(std::span<const Latin1Character> characters, bool whitespaceIsCollapsed, const Font& primaryFont) const
+// knows (TextRunScanners.swift); each character it cannot answer goes through canUseSimplifiedTextMeasuring(character),
+// which looks up the glyph and fills the cache, and the scan resumes after it. From the first character beyond Latin-1
+// (which the cache never holds) on, the rest of the run is checked one character at a time, so text that is mostly
+// beyond Latin-1 does not cross into Swift for every character.
+template<typename CharacterType>
+static bool canUseSimplifiedTextMeasuringForRun(std::span<const CharacterType> characters, std::span<const uint64_t> cache, bool whitespaceIsCollapsed, NOESCAPE const Invocable<bool(char32_t)> auto& canUseSimplifiedTextMeasuring)
 {
-    auto cache = m_canUseSimplifiedTextMeasuringForAutoVariantCache.storage();
-    static_assert(sizeof(cache[0]) == sizeof(uint64_t));
     while (true) {
-        auto bytes = byteCast<uint8_t>(characters);
-        size_t scan = WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring8(bytes.data(), bytes.size(), reinterpret_cast<const uint64_t*>(cache.data()), cache.size(), whitespaceIsCollapsed);
+        size_t scan = WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring(characters.data(), characters.size(), sizeof(CharacterType) == sizeof(char16_t), cache.data(), cache.size(), whitespaceIsCollapsed);
         if (scan & 1)
             return false;
         size_t index = scan >> 1;
         if (index == characters.size())
             return true;
-        if (!canUseSimplifiedTextMeasuring(characters[index], FontVariant::Auto, whitespaceIsCollapsed, primaryFont))
+        if (!isLatin1(characters[index])) {
+            for (auto character : characters.subspan(index)) {
+                if (!canUseSimplifiedTextMeasuring(character))
+                    return false;
+            }
+            return true;
+        }
+        if (!canUseSimplifiedTextMeasuring(characters[index]))
             return false;
         characters = characters.subspan(index + 1);
     }
 }
 
-// The 16-bit run: as above while the characters are Latin-1 (the only cacheable ones). From the first other character
-// on, the rest of the run is checked one character at a time, so text that is mostly beyond Latin-1 does not cross
-// into Swift for every character.
+bool FontCascade::canUseSimplifiedTextMeasuring(std::span<const Latin1Character> characters, bool whitespaceIsCollapsed, const Font& primaryFont) const
+{
+    auto cache = spanReinterpretCast<const uint64_t>(m_canUseSimplifiedTextMeasuringForAutoVariantCache.storage());
+    return canUseSimplifiedTextMeasuringForRun(characters, cache, whitespaceIsCollapsed, [&](char32_t character) {
+        return canUseSimplifiedTextMeasuring(character, FontVariant::Auto, whitespaceIsCollapsed, primaryFont);
+    });
+}
+
 bool FontCascade::canUseSimplifiedTextMeasuring(std::span<const char16_t> characters, bool whitespaceIsCollapsed, const Font& primaryFont) const
 {
-    auto cache = m_canUseSimplifiedTextMeasuringForAutoVariantCache.storage();
-    static_assert(sizeof(cache[0]) == sizeof(uint64_t));
-    if (!(reinterpret_cast<uintptr_t>(characters.data()) & 1)) [[likely]] {
-        while (true) {
-            size_t scan = WebCoreSwift_TextRunScanners_scanSimplifiedMeasuring16(characters.data(), characters.size(), reinterpret_cast<const uint64_t*>(cache.data()), cache.size(), whitespaceIsCollapsed);
-            if (scan & 1)
-                return false;
-            size_t index = scan >> 1;
-            if (index == characters.size())
-                return true;
-            if (!isLatin1(characters[index])) {
-                characters = characters.subspan(index);
-                break;
-            }
-            if (!canUseSimplifiedTextMeasuring(characters[index], FontVariant::Auto, whitespaceIsCollapsed, primaryFont))
-                return false;
-            characters = characters.subspan(index + 1);
-        }
-    }
-    for (auto character : characters) {
-        if (!canUseSimplifiedTextMeasuring(character, FontVariant::Auto, whitespaceIsCollapsed, primaryFont))
-            return false;
-    }
-    return true;
+    auto cache = spanReinterpretCast<const uint64_t>(m_canUseSimplifiedTextMeasuringForAutoVariantCache.storage());
+    return canUseSimplifiedTextMeasuringForRun(characters, cache, whitespaceIsCollapsed, [&](char32_t character) {
+        return canUseSimplifiedTextMeasuring(character, FontVariant::Auto, whitespaceIsCollapsed, primaryFont);
+    });
 }
 
 // For font families where any of the fonts don't have a valid entry in the OS/2 table
@@ -798,254 +790,10 @@ FontCascade::CodePath FontCascade::codePath(const TextRun& run, std::optional<un
     return characterRangeCodePath(run.span16());
 }
 
-// The scan runs in Swift (TextRunScanners.swift). characterRangeCodePathCxx, the original, handles odd-aligned UTF-16,
-// which the Swift kernel cannot take as a span of char16_t.
+// The scan runs in Swift (TextRunScanners.swift), for any alignment of the characters.
 FontCascade::CodePath FontCascade::characterRangeCodePath(std::span<const char16_t> span)
 {
-    if (reinterpret_cast<uintptr_t>(span.data()) & 1) [[unlikely]]
-        return characterRangeCodePathCxx(span);
     return static_cast<CodePath>(WebCoreSwift_TextRunScanners_characterRangeCodePath(span.data(), span.size()));
-}
-
-FontCascade::CodePath FontCascade::characterRangeCodePathCxx(std::span<const char16_t> span)
-{
-    // FIXME: Should use a UnicodeSet in ports where ICU is used. Note that we 
-    // can't simply use UnicodeCharacter Property/class because some characters
-    // are not 'combining', but still need to go to the complex path.
-    // Alternatively, we may as well consider binary search over a sorted
-    // list of ranges.
-    CodePath result = CodePath::Simple;
-    bool previousCharacterIsEmojiGroupCandidate = false;
-    size_t size = span.size();
-    for (size_t i = 0; i < size; ++i) {
-        auto c = span[i];
-        if (c == zeroWidthJoiner && previousCharacterIsEmojiGroupCandidate)
-            return CodePath::Complex;
-        
-        previousCharacterIsEmojiGroupCandidate = false;
-        if (c < 0x2E5) // U+02E5 through U+02E9 (Modifier Letters : Tone letters)  
-            continue;
-        if (c <= 0x2E9) 
-            return CodePath::Complex;
-
-        if (c < 0x300) // U+0300 through U+036F Combining diacritical marks
-            continue;
-        if (c <= 0x36F)
-            return CodePath::Complex;
-
-        if (c < 0x0591 || c == 0x05BE) // U+0591 through U+05CF excluding U+05BE Hebrew combining marks, Hebrew punctuation Paseq, Sof Pasuq and Nun Hafukha
-            continue;
-        if (c <= 0x05CF)
-            return CodePath::Complex;
-
-        // U+0600 through U+109F Arabic, Syriac, Thaana, NKo, Samaritan, Mandaic,
-        // Devanagari, Bengali, Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada, 
-        // Malayalam, Sinhala, Thai, Lao, Tibetan, Myanmar
-        if (c < 0x0600) 
-            continue;
-        if (c <= 0x109F)
-            return CodePath::Complex;
-
-        // U+1100 through U+11FF Hangul Jamo (only Ancient Korean should be left here if you precompose;
-        // Modern Korean will be precomposed as a result of step A)
-        if (c < 0x1100)
-            continue;
-        if (c <= 0x11FF)
-            return CodePath::Complex;
-
-        if (c < 0x135D) // U+135D through U+135F Ethiopic combining marks
-            continue;
-        if (c <= 0x135F)
-            return CodePath::Complex;
-
-        if (c < 0x1700) // U+1780 through U+18AF Tagalog, Hanunoo, Buhid, Taghanwa,Khmer, Mongolian
-            continue;
-        if (c <= 0x18AF)
-            return CodePath::Complex;
-
-        if (c < 0x1900) // U+1900 through U+194F Limbu (Unicode 4.0)
-            continue;
-        if (c <= 0x194F)
-            return CodePath::Complex;
-
-        if (c < 0x1980) // U+1980 through U+19DF New Tai Lue
-            continue;
-        if (c <= 0x19DF)
-            return CodePath::Complex;
-
-        if (c < 0x1A00) // U+1A00 through U+1CFF Buginese, Tai Tham, Balinese, Batak, Lepcha, Vedic
-            continue;
-        if (c <= 0x1CFF)
-            return CodePath::Complex;
-
-        if (c < 0x1DC0) // U+1DC0 through U+1DFF Comining diacritical mark supplement
-            continue;
-        if (c <= 0x1DFF)
-            return CodePath::Complex;
-
-        // U+1E00 through U+2000 characters with diacritics and stacked diacritics
-        if (c <= 0x2000) {
-            result = CodePath::SimpleWithGlyphOverflow;
-            continue;
-        }
-
-        if (c < 0x20D0) // U+20D0 through U+20FF Combining marks for symbols
-            continue;
-        if (c <= 0x20FF)
-            return CodePath::Complex;
-
-        if (c < 0x26F9)
-            continue;
-        if (c < 0x26FA)
-            return CodePath::Complex;
-
-        if (c < 0x2CEF) // U+2CEF through U+2CF1 Combining marks for Coptic
-            continue;
-        if (c <= 0x2CF1)
-            return CodePath::Complex;
-
-        if (c < 0x302A) // U+302A through U+302F Ideographic and Hangul Tone marks
-            continue;
-        if (c <= 0x302F)
-            return CodePath::Complex;
-
-        if (c < 0x3099)
-            continue;
-        if (c < 0x309D)
-            return CodePath::Complex; // KATAKANA-HIRAGANA (SEMI-)VOICED SOUND MARKS require character composition
-
-        if (c < 0xA67C) // U+A67C through U+A67D Combining marks for old Cyrillic
-            continue;
-        if (c <= 0xA67D)
-            return CodePath::Complex;
-
-        if (c < 0xA6F0) // U+A6F0 through U+A6F1 Combining mark for Bamum
-            continue;
-        if (c <= 0xA6F1)
-            return CodePath::Complex;
-
-        // U+A800 through U+ABFF Nagri, Phags-pa, Saurashtra, Devanagari Extended,
-        // Hangul Jamo Ext. A, Javanese, Myanmar Extended A, Tai Viet, Meetei Mayek,
-        if (c < 0xA800) 
-            continue;
-        if (c <= 0xABFF)
-            return CodePath::Complex;
-
-        if (c < 0xD7B0) // U+D7B0 through U+D7FF Hangul Jamo Ext. B
-            continue;
-        if (c <= 0xD7FF)
-            return CodePath::Complex;
-
-        if (c <= 0xDBFF) {
-            // High surrogate
-
-            if (i + 1 == size)
-                continue;
-
-            char16_t next = span[++i];
-            if (!U16_IS_TRAIL(next))
-                continue;
-
-            char32_t supplementaryCharacter = U16_GET_SUPPLEMENTARY(c, next);
-
-            if (supplementaryCharacter < 0x10A00)
-                continue;
-            if (supplementaryCharacter < 0x10A60) // Kharoshthi
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x11000)
-                continue;
-            if (supplementaryCharacter < 0x11080) // Brahmi
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x110D0) // Kaithi
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x11100)
-                continue;
-            if (supplementaryCharacter < 0x11150) // Chakma
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x11180) // Mahajani
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x111E0) // Sharada
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x11200)
-                continue;
-            if (supplementaryCharacter < 0x11250) // Khojki
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x112B0)
-                continue;
-            if (supplementaryCharacter < 0x11300) // Khudawadi
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x11380) // Grantha
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x11400)
-                continue;
-            if (supplementaryCharacter < 0x11480) // Newa
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x114E0) // Tirhuta
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x11580)
-                continue;
-            if (supplementaryCharacter < 0x11600) // Siddham
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x11660) // Modi
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x11680)
-                continue;
-            if (supplementaryCharacter < 0x116D0) // Takri
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x11700)
-                continue;
-            if (supplementaryCharacter < 0x11C00) // Ahom, Dogra, Dives Akuru, Nandinagari, Zanabazar Square, Soyombo, Warang Citi, Pau Cin Hau
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x11C70) // Bhaiksuki
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x11CC0) // Marchen
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x16B00)
-                continue;
-            if (supplementaryCharacter < 0x16B90) // Pahawh Hmong
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x1E900)
-                continue;
-            if (supplementaryCharacter < 0x1E960) // Adlam
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0x1F1E6) // U+1F1E6 through U+1F1FF Regional Indicator Symbols
-                continue;
-            if (supplementaryCharacter <= 0x1F1FF)
-                return CodePath::Complex;
-
-            if (isEmojiFitzpatrickModifier(supplementaryCharacter))
-                return CodePath::Complex;
-            if (isEmojiGroupCandidate(supplementaryCharacter)) {
-                previousCharacterIsEmojiGroupCandidate = true;
-                continue;
-            }
-
-            if (supplementaryCharacter < 0xE0000)
-                continue;
-            if (supplementaryCharacter < 0xE0080) // Tags
-                return CodePath::Complex;
-            if (supplementaryCharacter < 0xE0100) // U+E0100 through U+E01EF Unicode variation selectors.
-                continue;
-            if (supplementaryCharacter <= 0xE01EF)
-                return CodePath::Complex;
-
-            // FIXME: Check for Brahmi (U+11000 block), Kaithi (U+11080 block) and other complex scripts
-            // in plane 1 or higher.
-
-            continue;
-        }
-
-        if (c < 0xFE00) // U+FE00 through U+FE0F Unicode variation selectors
-            continue;
-        if (c <= 0xFE0F)
-            return CodePath::Complex;
-
-        if (c < 0xFE20) // U+FE20 through U+FE2F Combining half marks
-            continue;
-        if (c <= 0xFE2F)
-            return CodePath::Complex;
-    }
-    return result;
 }
 
 bool FontCascade::isCJKIdeograph(char32_t c)

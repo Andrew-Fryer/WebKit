@@ -33,14 +33,15 @@ namespace JSC {
 // Not CPU(ARM64)-only: AssemblerCommon.h declares these on every CPU, and Air (Arg::isValidBitImmForm)
 // references them behind a non-constexpr isARM64() check.
 
+// A 32-bit pattern has the same encoding as the 64-bit value made of two copies of it (immN = 0, element width <= 32).
 ARM64LogicalImmediate ARM64LogicalImmediate::create32(uint32_t value)
 {
-    return ARM64LogicalImmediate(JSCSwift_ARM64LogicalImmediate_create32(value));
+    return ARM64LogicalImmediate(JSCSwift_ARM64LogicalImmediate_create(static_cast<uint64_t>(value) << 32 | value));
 }
 
 ARM64LogicalImmediate ARM64LogicalImmediate::create64(uint64_t value)
 {
-    return ARM64LogicalImmediate(JSCSwift_ARM64LogicalImmediate_create64(value));
+    return ARM64LogicalImmediate(JSCSwift_ARM64LogicalImmediate_create(value));
 }
 
 } // namespace JSC

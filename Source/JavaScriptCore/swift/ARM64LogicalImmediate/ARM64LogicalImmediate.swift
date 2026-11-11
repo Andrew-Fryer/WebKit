@@ -23,7 +23,8 @@
 
 // Swift implementation of JSC::ARM64LogicalImmediate::create32/create64 (assembler/AssemblerCommon.h):
 // encode a 32- or 64-bit value as the immN:immr:imms field of an ARM64 logical (AND/ORR/EOR/TST)
-// immediate, or report that it has no such encoding.
+// immediate, or report that it has no such encoding. The C++ calls create64 for both: create32(v) passes v in
+// both halves, which create64 encodes exactly as create32(v) (see create64).
 //
 // This is the C++ algorithm step for step (same width cascade 64, 32, 16, 8, 4, 2, same two/three-range
 // search, same packing), so each function here mirrors one C++ function of the same name. The one change
@@ -174,16 +175,15 @@ enum ARM64LogicalImmediateEncoder {
             return invalid
         }
 
-        // A contiguous 64-bit range.
-        if let result = tryWidth(64, value) {
-            return result
-        }
-
-        // If the two 32-bit halves are equal, try a 32-bit (or narrower) pattern.
+        // If the two 32-bit halves are equal, try a 32-bit (or narrower) pattern. The C++ tries a contiguous
+        // 64-bit range first, but that always fails here: equal halves make the value invariant under rotation by
+        // 32, and a run of ones (rotated) of a 64-bit element is that only when it is empty or all ones.
         let low = UInt32(truncatingIfNeeded: value)
         if low == UInt32(truncatingIfNeeded: value &>> 32) {
             return create32(low)
         }
-        return invalid
+
+        // A contiguous 64-bit range.
+        return tryWidth(64, value) ?? invalid
     }
 }

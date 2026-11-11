@@ -138,8 +138,6 @@ private:
     ParsedUnicodeEscapeValue parseUnicodeEscape();
     void shiftLineTerminator();
 
-    JSTokenType scanRegExpCxx(JSToken*, char16_t patternPrefix);
-
     ALWAYS_INLINE int offsetFromSourcePtr(const T* ptr) const { return ptr - m_codeStart; }
     ALWAYS_INLINE const T* sourcePtrFromOffset(int offset) const { return m_codeStart + offset; }
 
@@ -169,13 +167,7 @@ private:
     };
     template <bool shouldBuildStrings> ALWAYS_INLINE StringParseResult parseString(JSTokenData*, bool strictMode);
     template <bool shouldBuildStrings> NEVER_INLINE StringParseResult parseStringSlowCase(JSTokenData*, bool strictMode);
-    template <bool shouldBuildStrings> StringParseResult parseStringSlowCaseCxx(JSTokenData*, bool strictMode);
-    JSTokenType scanTemplateStringCxx(JSToken*, RawStringsBuildMode);
 
-
-    template <bool shouldBuildStrings> ALWAYS_INLINE StringParseResult parseComplexEscape(bool strictMode);
-    ALWAYS_INLINE StringParseResult parseTemplateLiteral(JSTokenData*, RawStringsBuildMode);
-    
     using NumberParseResult = Variant<double, const Identifier*>;
     ALWAYS_INLINE std::optional<NumberParseResult> parseHex();
     ALWAYS_INLINE std::optional<NumberParseResult> parseBinary();
@@ -225,7 +217,7 @@ private:
     unsigned m_sourceOffset;
     const T* m_codeStartPlusOffset;
 
-    // Scratch buffers of the Swift string and template literal scans (Lexer.cpp), kept at size == capacity.
+    // Scratch buffers of the Swift string and template literal scans (swift/Lexer), kept at size == capacity.
     Vector<char16_t> m_literalCooked16;
     Vector<char16_t> m_literalRaw16;
 

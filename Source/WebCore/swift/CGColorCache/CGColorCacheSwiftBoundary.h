@@ -41,23 +41,21 @@ enum {
     WebCoreSwiftCGColorCacheSlotMask = 0x7f, // The entry's slot in the C++ storage.
     WebCoreSwiftCGColorCacheOutOfLine = 0x80, // order[i] only: the entry's Color is out of line.
     WebCoreSwiftCGColorCacheMiss = 0x100, // Result only: the key was not found; C++ must store it in that slot.
+    WebCoreSwiftCGColorCacheSizeShift = 16, // Result only: the number of live entries after the lookup, in bits 16-23.
 };
-
-// keys and order have capacity (<= 128) elements, of which the first *size (in/out) are live, least recently used
-// first: keys[i] is the bits of an entry's Color, order[i] its slot | WebCoreSwiftCGColorCacheOutOfLine if it is out
-// of line. A lookup finds the entry equal to the key (keyBits are its bits) and makes it the most recently used one,
-// or makes room for the key as the most recently used entry: a new slot (++*size) or the least recently used entry's
-// slot. It returns that slot, | WebCoreSwiftCGColorCacheMiss on a miss.
-
-// For an inline key (equal exactly to the entry with the same bits).
-uint32_t WebCoreSwift_CGColorCache_lookup(uint64_t* keys, uint8_t* order, size_t capacity, size_t* size, uint64_t keyBits);
 
 // Returns whether the Color in the given slot equals the out-of-line key described by context (Color::operator==).
 typedef bool (*WebCoreSwiftCGColorCacheEqualsFunction)(const void* context, uint8_t slot);
 
-// For an out-of-line key: outOfLineEntryEquals(context, slot) decides equality for each out-of-line entry scanned.
-uint32_t WebCoreSwift_CGColorCache_lookupOutOfLine(uint64_t* keys, uint8_t* order, size_t capacity, size_t* size,
-    uint64_t keyBits, const void* context, WebCoreSwiftCGColorCacheEqualsFunction outOfLineEntryEquals);
+// keys has keyCount and order orderCount (== keyCount, <= 128) elements, of which the first `size` are live, least
+// recently used first: keys[i] is the bits of an entry's Color, order[i] its slot | WebCoreSwiftCGColorCacheOutOfLine
+// if it is out of line. A lookup finds the entry equal to the key (keyBits are its bits) and makes it the most recently
+// used one, or makes room for the key as the most recently used entry: a new slot or the least recently used entry's
+// slot. It returns that slot, | WebCoreSwiftCGColorCacheMiss on a miss, | the new size << WebCoreSwiftCGColorCacheSizeShift.
+// For an inline key, outOfLineKey is null and the key equals exactly the entry with the same bits. For an out-of-line
+// key, outOfLineEntryEquals(outOfLineKey, slot) decides equality for each out-of-line entry scanned.
+uint32_t WebCoreSwift_CGColorCache_lookup(uint64_t* keys, size_t keyCount, uint8_t* order, size_t orderCount, size_t size,
+    uint64_t keyBits, const void* outOfLineKey, WebCoreSwiftCGColorCacheEqualsFunction outOfLineEntryEquals);
 
 #ifdef __cplusplus
 }

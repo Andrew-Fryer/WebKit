@@ -27,6 +27,7 @@
 #include "Decoder.h"
 
 #include "ArgumentCoders.h"
+#include "IPCStreamMessageSwiftBoundary.h"
 #include "Logging.h"
 #include "MessageFlags.h"
 #include <stdio.h>
@@ -34,14 +35,6 @@
 #include <wtf/ObjectIdentifier.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
-
-#if USE(SWIFT_KERNELS)
-#include "IPCStreamMessageSwiftBoundary.h"
-#endif
-
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-#include "SwiftKernelsValidation.h"
-#endif
 
 namespace IPC {
 
@@ -124,38 +117,8 @@ Decoder::Decoder(std::span<const uint8_t> buffer, BufferDeallocator&& bufferDeal
     m_argumentsOffset = currentBufferOffset();
 }
 
-#if !USE(SWIFT_KERNELS) || ENABLE(SWIFT_KERNELS_VALIDATION)
-ALWAYS_INLINE void Decoder::decodeStreamHeaderCxx(uint64_t destinationID)
-{
-    // 0 is a valid destinationID but we can at least reject -1 which is the HashTable deleted value.
-    if (destinationID && !WTF::ObjectIdentifierGenericBase::isValidIdentifier(destinationID)) {
-        markInvalid();
-        return;
-    }
-
-    auto messageName = decode<MessageName>();
-    if (!messageName) [[unlikely]]
-        return;
-    m_messageName = WTF::move(*messageName);
-    if (messageIsAsyncWithReply(m_messageName)) {
-        auto asyncReplyID = decode<AsyncReplyID>();
-        if (!asyncReplyID) [[unlikely]]
-            return;
-        m_replyID = asyncReplyID->toUInt64();
-    } else if (messageIsSync(m_messageName)) {
-        auto syncRequestID = decode<SyncRequestID>();
-        if (!syncRequestID) [[unlikely]]
-            return;
-        m_replyID = syncRequestID->toUInt64();
-    }
-    m_argumentsOffset = currentBufferOffset();
-}
-#endif
-
-#if USE(SWIFT_KERNELS)
 // Swift stores the arguments straight into m_swiftStreamArguments (all the fields, so the stream constructor doesn't
-// initialize them), which C++ reads only as a SwiftStreamArguments: a copy would read them right after Swift's narrower
-// stores, which the CPU can't forward to wider loads.
+// initialize them), which C++ reads only as a SwiftStreamArguments: a copy would read them right after Swift's stores.
 static_assert(sizeof(Decoder::SwiftStreamArguments) == sizeof(WebKitSwift_IPCStreamMessage_Arguments));
 static_assert(alignof(Decoder::SwiftStreamArguments) == alignof(WebKitSwift_IPCStreamMessage_Arguments));
 static_assert(std::is_standard_layout_v<Decoder::SwiftStreamArguments> && std::is_trivially_copyable_v<Decoder::SwiftStreamArguments>);
@@ -168,6 +131,10 @@ static_assert(std::to_underlying(Decoder::SwiftStreamArguments::Status::None) ==
 static_assert(std::to_underlying(Decoder::SwiftStreamArguments::Status::Valid) == WebKitSwift_IPCStreamMessage_ArgumentsValid);
 static_assert(std::to_underlying(Decoder::SwiftStreamArguments::Status::Invalid) == WebKitSwift_IPCStreamMessage_ArgumentsInvalid);
 static_assert(std::to_underlying(Decoder::SwiftStreamArguments::Status::InvalidIdentifier) == WebKitSwift_IPCStreamMessage_ArgumentsInvalidIdentifier);
+// Swift stores the fields at these offsets (IPCStreamArguments.store(into:) in IPCArgDecoders.swift).
+static_assert(sizeof(WebKitSwift_IPCStreamMessage_Arguments) == 32 && offsetof(WebKitSwift_IPCStreamMessage_Arguments, valuesOffset) == 8
+    && offsetof(WebKitSwift_IPCStreamMessage_Arguments, endOffset) == 16 && offsetof(WebKitSwift_IPCStreamMessage_Arguments, status) == 24
+    && offsetof(WebKitSwift_IPCStreamMessage_Arguments, flag) == 25);
 
 // The argument layout of each message name, for the Swift decoder: a name is valid iff it indexes the table.
 static constexpr auto swiftArgumentLayouts = [] {
@@ -178,15 +145,18 @@ static constexpr auto swiftArgumentLayouts = [] {
 }();
 
 // The header is decoded, and the arguments of a message with a layout are located, in Swift
-// (Source/WebKit/swift/IPCStreamMessage); decodeStreamHeaderCxx() is the original of the header part, and the glue of
-// each message's decodeArgumentsInSwift() keeps its original, decode<Arguments>(), for the validation.
-// message is m_buffer, or a private snapshot of its start (decodeStreamHeaderAndValidate()).
-ALWAYS_INLINE void Decoder::decodeStreamMessage(std::span<const uint8_t> message, uint64_t destinationID)
+// (Source/WebKit/swift/IPCStreamMessage), which IPC::handleMessage() then builds through the message's
+// decodeArgumentsInSwift() glue.
+Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID)
+    : m_buffer { stream }
+    , m_bufferPosition { m_buffer.begin() }
+    , m_bufferDeallocator { nullptr }
+    , m_destinationID { destinationID }
 {
     // messageIsAsyncWithReply() and messageIsSync() hold for exactly the names >= firstMessageNameWithReplyID, and
     // AsyncReplyID and SyncRequestID have the same wire format and validator.
     static constexpr auto firstMessageNameWithReplyID = std::min(MessageName::FirstAsyncWithReply, MessageName::FirstSynchronous);
-    uint64_t result = WebKitSwift_IPCStreamMessage_decode(message.data(), message.size(), destinationID,
+    uint64_t result = WebKitSwift_IPCStreamMessage_decode(m_buffer.data(), m_buffer.size(), destinationID,
         std::to_underlying(firstMessageNameWithReplyID), swiftArgumentLayouts.data(), swiftArgumentLayouts.size(), &m_replyID,
         reinterpret_cast<WebKitSwift_IPCStreamMessage_Arguments*>(&m_swiftStreamArguments));
     auto status = static_cast<uint8_t>(result >> 16);
@@ -194,85 +164,16 @@ ALWAYS_INLINE void Decoder::decodeStreamMessage(std::span<const uint8_t> message
         m_messageName = static_cast<MessageName>(static_cast<uint16_t>(result));
         m_argumentsOffset = static_cast<size_t>(result >> 24);
         m_bufferPosition = m_buffer.begin() + m_argumentsOffset;
-    } else {
-        // The C++ stores the message name before decoding the reply ID, and reports it for an invalid message.
-        if (status == WebKitSwift_IPCStreamMessage_TruncatedReplyID || status == WebKitSwift_IPCStreamMessage_InvalidReplyID)
-            m_messageName = static_cast<MessageName>(static_cast<uint16_t>(result));
-#if ENABLE(IPC_TESTING_API)
-        if (status == WebKitSwift_IPCStreamMessage_InvalidReplyID)
-            setErrorString("Validation failed: WTF::ObjectIdentifierGenericBase::isValidIdentifier(*toUInt64)"_s);
-#endif
-        markInvalid();
-    }
-}
-#endif
-
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-// The stream is shared memory that the sending process can rewrite at any time, so a second read could see other bytes
-// than the Swift read did. Both decoders read one private snapshot of the header instead. It keeps the stream's address
-// modulo 8 (values are aligned in memory, not in the span) and at most 24 bytes (a header ends by offset 17, so every
-// larger size decodes the same), so decoding it is decoding the stream at the time of the copy. The arguments that Swift
-// locates in the snapshot are dropped: the glue of each message validates them against decode<Arguments>() on a
-// snapshot of its own (RemoteGraphicsContextSwiftArgumentDecoders.cpp), with the StreamMessageSwiftTag constructor.
-NEVER_INLINE void Decoder::decodeStreamHeaderAndValidate(uint64_t destinationID)
-{
-    auto stream = m_buffer;
-    alignas(8) std::array<uint8_t, 8 + 24> snapshotStorage;
-    auto snapshot = std::span { snapshotStorage }.subspan(reinterpret_cast<uintptr_t>(stream.data()) % 8, std::min<size_t>(stream.size(), 24));
-    memcpySpan(snapshot, stream.first(snapshot.size()));
-    decodeStreamMessage(snapshot, destinationID);
-    m_swiftStreamArguments = { };
-
-    Decoder cxx { snapshot, destinationID, StreamHeaderCxxTag { } };
-    RELEASE_ASSERT(isValid() == cxx.isValid());
-    RELEASE_ASSERT(!isValid() || (m_buffer.data() == stream.data() && m_buffer.size() == stream.size()));
-    RELEASE_ASSERT(currentBufferOffset() == cxx.currentBufferOffset());
-    RELEASE_ASSERT(m_messageName == cxx.m_messageName);
-    RELEASE_ASSERT(m_replyID == cxx.m_replyID);
-    RELEASE_ASSERT(m_argumentsOffset == cxx.m_argumentsOffset);
-#if ENABLE(IPC_TESTING_API)
-    RELEASE_ASSERT(m_errorString == cxx.m_errorString);
-#endif
-}
-
-Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID, StreamMessageSwiftTag)
-    : m_buffer { stream }
-    , m_bufferPosition { m_buffer.begin() }
-    , m_bufferDeallocator { nullptr }
-    , m_destinationID { destinationID }
-{
-    decodeStreamMessage(m_buffer, destinationID);
-}
-
-Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID, StreamHeaderCxxTag)
-    : m_buffer { stream }
-    , m_bufferPosition { m_buffer.begin() }
-    , m_swiftStreamArguments { }
-    , m_bufferDeallocator { nullptr }
-    , m_destinationID { destinationID }
-{
-    decodeStreamHeaderCxx(destinationID);
-}
-#endif
-
-Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID)
-    : m_buffer { stream }
-    , m_bufferPosition { m_buffer.begin() }
-    , m_bufferDeallocator { nullptr }
-    , m_destinationID { destinationID }
-{
-#if USE(SWIFT_KERNELS)
-#if ENABLE(SWIFT_KERNELS_VALIDATION)
-    if (WebKit::swiftKernelsValidationEnabled()) [[unlikely]] {
-        decodeStreamHeaderAndValidate(destinationID);
         return;
     }
+    // The message name is stored before decoding the reply ID, and reported for an invalid message.
+    if (status == WebKitSwift_IPCStreamMessage_TruncatedReplyID || status == WebKitSwift_IPCStreamMessage_InvalidReplyID)
+        m_messageName = static_cast<MessageName>(static_cast<uint16_t>(result));
+#if ENABLE(IPC_TESTING_API)
+    if (status == WebKitSwift_IPCStreamMessage_InvalidReplyID)
+        setErrorString("Validation failed: WTF::ObjectIdentifierGenericBase::isValidIdentifier(*toUInt64)"_s);
 #endif
-    decodeStreamMessage(m_buffer, destinationID);
-#else
-    m_swiftStreamArguments = { };
-    decodeStreamHeaderCxx(destinationID);
-#endif
+    markInvalid();
 }
 
 Decoder::~Decoder()

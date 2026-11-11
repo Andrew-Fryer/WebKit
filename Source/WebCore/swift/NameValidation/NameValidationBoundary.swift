@@ -21,29 +21,31 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// C entry points of NameValidation (declared to C++ in NameValidationSwiftBoundary.h). This is the only file of the
+// The C entry point of NameValidation (declared to C++ in NameValidationSwiftBoundary.h). This is the only file of the
 // unit with `unsafe`: it wraps the StringView's characters (Latin-1 bytes, or UTF-16 code units read as raw bytes
-// because they may be odd-aligned) in a span and calls the safe core in NameValidation.swift. `characters` may be
-// null only when `length` is 0.
+// because they may be odd-aligned) in a span and calls the safe core in NameValidation.swift. `characters` may be null
+// only when `length` is 0.
 
-@_cdecl("WebCoreSwift_NameValidation_isValidAttributeName")
-@inline(__always) // Lets the C entry point contain the whole Latin-1 path (no frame, no further call).
-func WebCoreSwift_NameValidation_isValidAttributeName(_ characters: UnsafeRawPointer?, _ length: Int, _ is8Bit: Bool) -> Bool {
+@_cdecl("WebCoreSwift_NameValidation_isValidName")
+@inline(__always) // The Latin-1 attribute and element name checks run in the C entry point itself, with no frame.
+func WebCoreSwift_NameValidation_isValidName(_ characters: UnsafeRawPointer?, _ length: Int, _ is8Bit: Bool, _ kind: UInt8) -> Bool {
     if is8Bit {
-        let buffer = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt8.self), count: length)
-        return unsafe NameValidation.isValidAttributeName(buffer.span)
+        let name = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt8.self), count: length)
+        if kind == NameValidation.attributeName {
+            return unsafe NameValidation.isValidAttributeName(name.span)
+        }
+        if kind == NameValidation.elementName {
+            return unsafe NameValidation.isValidElementName(NameValidationLatin1(name.span))
+        }
     }
-    let buffer = unsafe UnsafeRawBufferPointer(start: characters, count: length &* 2)
-    return unsafe NameValidation.isValidAttributeName(utf16: buffer.bytes)
+    // One out-of-line call for the rest, so that only its path sets up a frame.
+    return unsafe nameValidationIsValidName(characters, length, is8Bit, kind)
 }
 
-@_cdecl("WebCoreSwift_NameValidation_isValidElementName")
-@inline(__always)
-func WebCoreSwift_NameValidation_isValidElementName(_ characters: UnsafeRawPointer?, _ length: Int, _ is8Bit: Bool) -> Bool {
+@inline(never)
+func nameValidationIsValidName(_ characters: UnsafeRawPointer?, _ length: Int, _ is8Bit: Bool, _ kind: UInt8) -> Bool {
     if is8Bit {
-        let buffer = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt8.self), count: length)
-        return unsafe NameValidation.isValidElementName(buffer.span)
+        return unsafe NameValidation.isValidName(NameValidationLatin1(UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt8.self), count: length).span), kind: kind)
     }
-    let buffer = unsafe UnsafeRawBufferPointer(start: characters, count: length &* 2)
-    return unsafe NameValidation.isValidElementName(utf16: buffer.bytes)
+    return unsafe NameValidation.isValidName(NameValidationUTF16(UnsafeRawBufferPointer(start: characters, count: length &* 2).bytes), kind: kind)
 }

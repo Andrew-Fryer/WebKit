@@ -22,8 +22,9 @@
 
 // The per-cell loops of MarkedBlock::Handle::specializedSweep (heap/MarkedBlockInlines.h) for JSString and
 // JSRopeString blocks: run the destructor of every dead cell that is not zapped yet, then zap it, and thread the
-// runs of dead cells into a free list. specializedSweep calls this only for a sweep that destroys cells (the
-// block was unswept); every other sweep, and every other DestroyFunc, keeps the C++ loops.
+// runs of dead cells into a free list (scribbling over them first in Scribble mode). specializedSweep calls this for
+// every sweep of such a block that destroys cells (the block was unswept); the sweeps that destroy nothing, and
+// every other DestroyFunc, keep the C++ loops.
 //
 // Swift sees the block's payload, from the handle's first cell (m_startAtom) to the end of the block, as a span
 // of 16-byte atoms. It never sees the header (marks, newly-allocated bits, lock). Atom indices below are relative
@@ -76,6 +77,50 @@ struct MarkedBlockSweepResult {
 @inline(__always)
 func scrambleFreeCell(offsetToNext: Int, lengthInBytes: UInt32, secret: UInt64) -> UInt64 {
     ((UInt64(lengthInBytes) &<< 32) | UInt64(bitPattern: Int64(offsetToNext))) ^ secret
+}
+
+/// scribble(cell, bytes) (heap/Scribble.h): every 8-byte word of the dead cells becomes
+/// JSValue::encode(bit_cast<JSCell*>(SCRIBBLE_WORD)).
+@inline(__always)
+var scribbleWord: UInt64 { 0xbadbeef0 }
+
+/// scribble() over the free interval begin ..< end, which the C++ does before writing the interval's FreeCell: so
+/// every word but the first cell's scrambledBits (already written by the sweep, kept here) becomes scribbleWord.
+@inline(__always)
+func scribbleInterval(_ atoms: inout MutableSpan<MarkedBlockAtom>, from begin: Int, to end: Int) {
+    let scrambledBits = atoms[begin][1]
+    for a in begin ..< end {
+        atoms[a] = MarkedBlockAtom(repeating: scribbleWord)
+    }
+    atoms[begin][1] = scrambledBits
+}
+
+/// Scribble mode, after a SweepToFreeList sweep: scribbleInterval over each interval of the free list, found by the
+/// same walk of the live bits as the sweep's (or the whole payload when allDead). Kept out of the sweep's loops,
+/// since only debug builds and Options::scribbleFreeCells scribble.
+@inline(never)
+func scribbleFreeIntervals(_ atoms: inout MutableSpan<MarkedBlockAtom>, live: Span<UInt64>, allDead: Bool, startAtom: Int, atomsPerCell: Int) {
+    let count = atoms.count
+    if allDead {
+        scribbleInterval(&atoms, from: 0, to: count)
+        return
+    }
+    var potentiallyFreeAtom = 0
+    for w in live.indices {
+        var word = live[w]
+        let base = w &* 64 &- startAtom
+        while word != 0 {
+            let index = base &+ word.trailingZeroBitCount
+            word &= word &- 1
+            if index != potentiallyFreeAtom {
+                scribbleInterval(&atoms, from: potentiallyFreeAtom, to: index)
+            }
+            potentiallyFreeAtom = index &+ atomsPerCell
+        }
+    }
+    if count != potentiallyFreeAtom {
+        scribbleInterval(&atoms, from: potentiallyFreeAtom, to: count)
+    }
 }
 
 /// The deref list: one slot per atom of a block (MarkedBlock::atomsPerBlock), so that no sweep can fill it, as a
@@ -154,7 +199,7 @@ enum SweepRopeOnly: MarkedBlockSweepVariant {
 @inline(never)
 func sweepMarkedBlockSpecialized<Variant: MarkedBlockSweepVariant>(_ variant: Variant.Type, _ atoms: consuming MutableSpan<MarkedBlockAtom>,
                                                                    live: Span<UInt64>, allDead: Bool, startAtom: UInt32, atomsPerCell: UInt32,
-                                                                   secret: UInt64, derefs: consuming MutableSpan<MarkedBlockDerefs>) -> MarkedBlockSweepResult {
+                                                                   secret: UInt64, scribble: Bool, derefs: consuming MutableSpan<MarkedBlockDerefs>) -> MarkedBlockSweepResult {
     // (The spans are owned here, not inout, so that the compiler keeps their base addresses in registers.)
     let rope = Variant.destroyKind == .rope
     let toFreeList = Variant.toFreeList
@@ -177,6 +222,9 @@ func sweepMarkedBlockSpecialized<Variant: MarkedBlockSweepVariant>(_ variant: Va
         }
         // FreeCell::makeLast(payloadEnd - payloadBegin, secret) on the first cell.
         atoms[0][1] = scrambleFreeCell(offsetToNext: 1, lengthInBytes: UInt32(truncatingIfNeeded: count &* 16), secret: secret)
+        if scribble {
+            scribbleFreeIntervals(&atoms, live: live, allDead: true, startAtom: startAtom, atomsPerCell: atomsPerCell)
+        }
         return MarkedBlockSweepResult(headOffset: 0, freedBytes: count &* 16, derefCount: derefCount)
     }
 
@@ -262,24 +310,27 @@ func sweepMarkedBlockSpecialized<Variant: MarkedBlockSweepVariant>(_ variant: Va
         // cursor->makeLast(cursorIntervalBytes, secret).
         atoms[cursor][1] = scrambleFreeCell(offsetToNext: 1, lengthInBytes: UInt32(truncatingIfNeeded: cursorBytes), secret: secret)
     }
+    if toFreeList && scribble {
+        scribbleFreeIntervals(&atoms, live: live, allDead: false, startAtom: startAtom, atomsPerCell: atomsPerCell)
+    }
     return MarkedBlockSweepResult(headOffset: head < 0 ? -1 : head &* 16, freedBytes: freedBytes, derefCount: derefCount)
 }
 
 /// Sweeps the payload `atoms` (atoms m_startAtom ..< endAtom of the block). `live` is the live-cell bitmap
 /// (marks, or marks | newlyAllocated) as BitSet<atomsPerBlock> words, ignored when `allDead` (the IsEmpty path).
-/// With `toFreeList`, builds the free list in the dead cells and returns its head and size, as passed to
-/// FreeList::initialize. `derefs` is one MarkedBlockDerefs.
+/// With `toFreeList`, builds the free list in the dead cells (scribbled over first if `scribble`) and returns its
+/// head and size, as passed to FreeList::initialize. `derefs` is one MarkedBlockDerefs.
 func sweepMarkedBlock(_ atoms: consuming MutableSpan<MarkedBlockAtom>, live: Span<UInt64>, allDead: Bool,
-                      startAtom: UInt32, atomsPerCell: UInt32, secret: UInt64, toFreeList: Bool,
+                      startAtom: UInt32, atomsPerCell: UInt32, secret: UInt64, toFreeList: Bool, scribble: Bool,
                       destroyKind: MarkedBlockSweepDestroyKind, derefs: consuming MutableSpan<MarkedBlockDerefs>) -> MarkedBlockSweepResult {
     switch (destroyKind, toFreeList) {
     case (.string, true):
-        return sweepMarkedBlockSpecialized(SweepStringToFreeList.self, atoms, live: live, allDead: allDead, startAtom: startAtom, atomsPerCell: atomsPerCell, secret: secret, derefs: derefs)
+        return sweepMarkedBlockSpecialized(SweepStringToFreeList.self, atoms, live: live, allDead: allDead, startAtom: startAtom, atomsPerCell: atomsPerCell, secret: secret, scribble: scribble, derefs: derefs)
     case (.string, false):
-        return sweepMarkedBlockSpecialized(SweepStringOnly.self, atoms, live: live, allDead: allDead, startAtom: startAtom, atomsPerCell: atomsPerCell, secret: secret, derefs: derefs)
+        return sweepMarkedBlockSpecialized(SweepStringOnly.self, atoms, live: live, allDead: allDead, startAtom: startAtom, atomsPerCell: atomsPerCell, secret: secret, scribble: scribble, derefs: derefs)
     case (.rope, true):
-        return sweepMarkedBlockSpecialized(SweepRopeToFreeList.self, atoms, live: live, allDead: allDead, startAtom: startAtom, atomsPerCell: atomsPerCell, secret: secret, derefs: derefs)
+        return sweepMarkedBlockSpecialized(SweepRopeToFreeList.self, atoms, live: live, allDead: allDead, startAtom: startAtom, atomsPerCell: atomsPerCell, secret: secret, scribble: scribble, derefs: derefs)
     case (.rope, false):
-        return sweepMarkedBlockSpecialized(SweepRopeOnly.self, atoms, live: live, allDead: allDead, startAtom: startAtom, atomsPerCell: atomsPerCell, secret: secret, derefs: derefs)
+        return sweepMarkedBlockSpecialized(SweepRopeOnly.self, atoms, live: live, allDead: allDead, startAtom: startAtom, atomsPerCell: atomsPerCell, secret: secret, scribble: scribble, derefs: derefs)
     }
 }

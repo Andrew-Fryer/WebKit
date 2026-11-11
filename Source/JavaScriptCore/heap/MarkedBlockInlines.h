@@ -31,9 +31,6 @@
 #include <JavaScriptCore/Scribble.h>
 #include <JavaScriptCore/SuperSampler.h>
 #include <JavaScriptCore/VM.h>
-#if USE(SWIFT_KERNELS)
-#include <wtf/ScopedLambda.h>
-#endif
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -296,20 +293,15 @@ void MarkedBlock::Handle::specializedSweep(FreeList* freeList, MarkedBlock::Hand
         return wasUnswept;
     };
 
-#if USE(SWIFT_KERNELS)
-    // The cell loops (sweepCellsCxx below) run in Swift when they destroy cells of a type whose destructor Swift
-    // implements (JSString, JSRopeString). Sweeps that destroy nothing (blocks without destructors, cells already
-    // swept) and Scribble mode keep the C++ loops.
+    // The cell loops run in Swift (sweepWithSwiftKernel) when they destroy cells of a type whose destructor Swift
+    // implements (JSString, JSRopeString), so the C++ loops below never destroy such cells. Sweeps that destroy
+    // nothing (blocks without destructors, cells already swept) keep the C++ loops.
     constexpr SwiftSweepDestroyKind swiftDestroyKind = [] {
         if constexpr (requires { DestroyFunc::swiftSweepDestroyKind; })
             return DestroyFunc::swiftSweepDestroyKind;
         else
             return SwiftSweepDestroyKind::Unsupported;
     }();
-    auto sweepCellsInSwift = [&](const WTF::BitSet<atomsPerBlock>* live, NOESCAPE const auto& sweepCellsCxx) ALWAYS_INLINE_LAMBDA {
-        sweepWithSwiftKernel(freeList, live, sweepMode, swiftDestroyKind, secret, sweepCellsCxx);
-    };
-#endif
 
     if (emptyMode == IsEmpty || (marksMode != MarksNotStale && newlyAllocatedMode != HasNewlyAllocated)) {
         // This is an incredibly powerful assertion that checks the sanity of our block bits.
@@ -332,30 +324,24 @@ void MarkedBlock::Handle::specializedSweep(FreeList* freeList, MarkedBlock::Hand
         bool wasUnswept = setBits(true);
         if (isMarking)
             header.m_lock.unlock();
-        auto sweepCellsCxx = [&]() ALWAYS_INLINE_LAMBDA {
-            if (destructionMode == BlockHasDestructors) {
-                if (wasUnswept) {
-                    for (char* cell = payloadBegin; cell < payloadEnd; cell += cellSize)
-                        destroy(cell);
-                }
-            }
-            if (sweepMode == SweepToFreeList) {
-                if (scribbleMode == Scribble) [[unlikely]]
-                    scribble(payloadBegin, payloadEnd - payloadBegin);
-                FreeCell* interval = reinterpret_cast_ptr<FreeCell*>(payloadBegin);
-                interval->makeLast(payloadEnd - payloadBegin, secret);
-                freeList->initialize(interval, secret, payloadEnd - payloadBegin);
-            }
-        };
-#if USE(SWIFT_KERNELS)
         if constexpr (swiftDestroyKind != SwiftSweepDestroyKind::Unsupported) {
-            if (scribbleMode == DontScribble && destructionMode == BlockHasDestructors && wasUnswept) [[likely]] {
-                sweepCellsInSwift(nullptr, sweepCellsCxx);
+            if (destructionMode == BlockHasDestructors && wasUnswept) [[likely]] {
+                sweepWithSwiftKernel(freeList, nullptr, sweepMode, scribbleMode, swiftDestroyKind, secret);
                 return;
             }
+        } else if (destructionMode == BlockHasDestructors) {
+            if (wasUnswept) {
+                for (char* cell = payloadBegin; cell < payloadEnd; cell += cellSize)
+                    destroy(cell);
+            }
         }
-#endif
-        sweepCellsCxx();
+        if (sweepMode == SweepToFreeList) {
+            if (scribbleMode == Scribble) [[unlikely]]
+                scribble(payloadBegin, payloadEnd - payloadBegin);
+            FreeCell* interval = reinterpret_cast_ptr<FreeCell*>(payloadBegin);
+            interval->makeLast(payloadEnd - payloadBegin, secret);
+            freeList->initialize(interval, secret, payloadEnd - payloadBegin);
+        }
         dataLogLnIf(verbose, "Quickly swept block ", RawPointer(this), " with cell size ", cellSize, " and attributes ", m_attributes, ": ", pointerDump(freeList), " isMarking: ", isMarking, " sweepMode: ", sweepMode);
         return;
     }
@@ -429,21 +415,16 @@ void MarkedBlock::Handle::specializedSweep(FreeList* freeList, MarkedBlock::Hand
         }
     };
 
-    auto sweepCellsCxx = [&]() ALWAYS_INLINE_LAMBDA {
-        if (destructionMode == BlockHasNoDestructors || !wasUnswept)
-            sweepBlock.template operator()</* needsDestruction */ false>();
-        else
-            sweepBlock.template operator()</* needsDestruction */ true>();
-    };
-#if USE(SWIFT_KERNELS)
     if constexpr (swiftDestroyKind != SwiftSweepDestroyKind::Unsupported) {
-        if (scribbleMode == DontScribble && destructionMode == BlockHasDestructors && wasUnswept) [[likely]] {
-            sweepCellsInSwift(&live, sweepCellsCxx);
+        if (destructionMode == BlockHasDestructors && wasUnswept) [[likely]] {
+            sweepWithSwiftKernel(freeList, &live, sweepMode, scribbleMode, swiftDestroyKind, secret);
             return;
         }
-    }
-#endif
-    sweepCellsCxx();
+        sweepBlock.template operator()</* needsDestruction */ false>();
+    } else if (destructionMode == BlockHasNoDestructors || !wasUnswept)
+        sweepBlock.template operator()</* needsDestruction */ false>();
+    else
+        sweepBlock.template operator()</* needsDestruction */ true>();
 
     dataLogLnIf(verbose, "Slowly swept block ", RawPointer(&block), " with cell size ", cellSize, " and attributes ", m_attributes, ": ", pointerDump(freeList), " isMarking: ", isMarking, " sweepMode: ", sweepMode);
 }

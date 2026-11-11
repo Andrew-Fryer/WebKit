@@ -143,4 +143,16 @@ enum ButterflyFill {
             i &+= 1
         }
     }
+
+    // The operation numbers of ButterflyFillSwiftBoundary.h.
+    @inline(__always)
+    static func apply(_ operation: UInt32, _ elements: inout MutableSpan<UInt64>) {
+        switch operation {
+        case 0: fillWithPureNaN(&elements)
+        case 1: fillWithEmptyValue(&elements)
+        case 2: int32ToDouble(&elements)
+        case 3: doubleToJSValue(&elements)
+        default: preconditionFailure("unknown ButterflyFill operation")
+        }
+    }
 }

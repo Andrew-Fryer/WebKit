@@ -21,19 +21,13 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// C entry points for ARM64LogicalImmediateSwiftBoundary.h, called only from assembler/AssemblerCommon.cpp.
-// Scalars in, scalar out: there is nothing unsafe here. Internal, so the symbols stay hidden inside
-// JavaScriptCore. @inline(__always) folds the safe core into the C entry point itself rather than leaving a
-// thunk that branches to a Swift-native copy.
+// C entry point for ARM64LogicalImmediateSwiftBoundary.h, called only from assembler/AssemblerCommon.cpp (both
+// ARM64LogicalImmediate::create32 and create64). Scalar in, scalar out: there is nothing unsafe here. Internal, so
+// the symbol stays hidden inside JavaScriptCore. @inline(__always) folds the safe core into the C entry point itself
+// rather than leaving a thunk that branches to a Swift-native copy.
 
-@_cdecl("JSCSwift_ARM64LogicalImmediate_create32")
+@_cdecl("JSCSwift_ARM64LogicalImmediate_create")
 @inline(__always)
-func JSCSwift_ARM64LogicalImmediate_create32(_ value: UInt32) -> Int32 {
-    ARM64LogicalImmediateEncoder.create32(value)
-}
-
-@_cdecl("JSCSwift_ARM64LogicalImmediate_create64")
-@inline(__always)
-func JSCSwift_ARM64LogicalImmediate_create64(_ value: UInt64) -> Int32 {
+func JSCSwift_ARM64LogicalImmediate_create(_ value: UInt64) -> Int32 {
     ARM64LogicalImmediateEncoder.create64(value)
 }

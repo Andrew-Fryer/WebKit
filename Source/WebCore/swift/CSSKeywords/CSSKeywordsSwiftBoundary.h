@@ -26,15 +26,20 @@
 #pragma once
 
 // C boundary of the CSSKeywords Swift kernels (Source/WebCore/swift/CSSKeywords): cssValueKeywordID(StringView) of
-// css/parser/CSSPropertyParser.cpp, including the lookup that the generated gperf code (findCSSValueKeyword) does in
-// C++. The symbols are internal to WebCore (hidden); only WebCore .cpp files may call them, never header-inline code.
+// css/parser/CSSPropertyParser.cpp. The symbols are internal to WebCore (hidden); only WebCore .cpp files may call them,
+// never header-inline code.
 //
-// The keyword table is owned by C++ and built once: `pool` holds the lowercase names of all CSSValueIDs back to back
-// (nameLiteralForSerialization), the name of id i is pool[offsets[i] ..< offsets[i + 1]] (offsetCount =
-// numCSSValueKeywords + 1, at most 2049), and `slots` is 4096 uint16_t slots that buildTable() fills.
+// The keyword table: `names` holds the lowercase names of all CSSValueIDs back to back (the generated
+// cssValueKeywordLowercaseNames), the name of id i is names[offsets[i] ..< offsets[i + 1]] (offsetCount =
+// numCSSValueKeywords + 1, at most 2049), and `slots` is 4096 uint16_t slots, owned by C++, that buildTable() fills
+// once.
 
 #include <stddef.h>
 #include <stdint.h>
+
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
 
 #if defined(__cplusplus) && defined(NODELETE)
 #define WEBCORE_SWIFT_CSS_KEYWORDS_NODELETE NODELETE
@@ -51,12 +56,12 @@ extern "C" {
 #define WEBCORE_SWIFT_CSS_KEYWORDS_MAXIMUM_LENGTH 63
 
 // Fills `slots` from the names.
-void WebCoreSwift_CSSKeywords_buildTable(const uint8_t* pool, size_t poolSize, const uint32_t* offsets, size_t offsetCount, uint16_t* slots, size_t slotCount);
+void WebCoreSwift_CSSKeywords_buildTable(const uint8_t* names, size_t namesLength, const uint32_t* offsets, size_t offsetCount, uint16_t* slots, size_t slotCount);
 
-// cssValueKeywordID(StringView) for 1 <= length characters: Latin-1 (lookup8) or UTF-16 code units, any alignment
-// (lookup16). Returns the CSSValueID, 0 (CSSValueID::Invalid) when there is no keyword.
-WEBCORE_SWIFT_CSS_KEYWORDS_NODELETE uint16_t WebCoreSwift_CSSKeywords_lookup8(const uint8_t* characters, size_t length, const uint8_t* pool, size_t poolSize, const uint32_t* offsets, size_t offsetCount, const uint16_t* slots, size_t slotCount);
-WEBCORE_SWIFT_CSS_KEYWORDS_NODELETE uint16_t WebCoreSwift_CSSKeywords_lookup16(const void* characters, size_t length, const uint8_t* pool, size_t poolSize, const uint32_t* offsets, size_t offsetCount, const uint16_t* slots, size_t slotCount);
+// cssValueKeywordID(StringView) for 1 <= length characters: Latin-1 when is8Bit, otherwise UTF-16 code units in any
+// alignment. Returns the CSSValueID, 0 (CSSValueID::Invalid) when there is no keyword.
+WEBCORE_SWIFT_CSS_KEYWORDS_NODELETE uint16_t WebCoreSwift_CSSKeywords_lookup(const void* characters, size_t length, bool is8Bit,
+    const uint8_t* names, size_t namesLength, const uint32_t* offsets, size_t offsetCount, const uint16_t* slots, size_t slotCount);
 
 #ifdef __cplusplus
 }

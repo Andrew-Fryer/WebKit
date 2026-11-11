@@ -21,19 +21,23 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// C entry point for SVGTransformLexer, declared in SVGTransformSwiftBoundary.h. The only unsafe code
-// in this unit: wrapping the C++ pointers into spans and storing the cursor advance.
+// C entry point for SVGTransformLexer, declared in SVGTransformSwiftBoundary.h. The only unsafe code in this unit:
+// wrapping the C++ pointers into spans. Pointers may be null only when their count is 0.
 
-// `characters`/`length`: the Latin-1 characters remaining in the C++ StringParsingBuffer.
-// `results`: `capacity` item results. `values`: 6 * `capacity` floats. `consumed`: receives the cursor advance.
-@_cdecl("WebCoreSwift_SVGTransform_lexItems8")
-func WebCoreSwift_SVGTransform_lexItems8(_ characters: UnsafePointer<UInt8>?, _ length: Int, _ results: UnsafeMutablePointer<UInt32>, _ values: UnsafeMutablePointer<Float>, _ capacity: Int, _ consumed: UnsafeMutablePointer<Int>) -> Int {
-    let input = unsafe UnsafeBufferPointer(start: characters, count: length)
-    let resultBuffer = unsafe UnsafeMutableBufferPointer(start: results, count: capacity)
-    let valueBuffer = unsafe UnsafeMutableBufferPointer(start: values, count: capacity * SVGTransformLexer.maximumValueCount)
-    var resultSpan = unsafe resultBuffer.mutableSpan
-    var valueSpan = unsafe valueBuffer.mutableSpan
-    let lexed = unsafe SVGTransformLexer.lexItems(input.span, &resultSpan, &valueSpan)
-    unsafe consumed.pointee = lexed.end
-    return lexed.count
+// `characters`/`length`: the code units (Latin-1, or UTF-16 at any alignment if `is16Bit`) remaining in the C++
+// StringParsingBuffer. `results`: `resultCapacity` item results. `values`: `valueCapacity` floats, 6 per result.
+@_cdecl("WebCoreSwift_SVGTransform_lexItems")
+func WebCoreSwift_SVGTransform_lexItems(_ characters: UnsafeRawPointer?, _ length: Int, _ is16Bit: Bool, _ results: UnsafeMutablePointer<UInt32>?, _ resultCapacity: Int, _ values: UnsafeMutablePointer<Float>?, _ valueCapacity: Int) -> UInt64 {
+    var resultSpan = unsafe UnsafeMutableBufferPointer(start: results, count: resultCapacity).mutableSpan
+    var valueSpan = unsafe UnsafeMutableBufferPointer(start: values, count: valueCapacity).mutableSpan
+    if !is16Bit {
+        let units = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt8.self), count: length).span
+        return SVGTransformLexer.lex(SVGTransformLatin1Characters(units), &resultSpan, &valueSpan)
+    }
+    if Int(bitPattern: characters) & 1 == 0 {
+        let units = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt16.self), count: length).span
+        return SVGTransformLexer.lex(SVGTransformUTF16Characters(units), &resultSpan, &valueSpan)
+    }
+    let bytes = unsafe UnsafeRawBufferPointer(start: characters, count: length * 2).bytes
+    return SVGTransformLexer.lex(SVGTransformUnalignedUTF16Characters(bytes), &resultSpan, &valueSpan)
 }

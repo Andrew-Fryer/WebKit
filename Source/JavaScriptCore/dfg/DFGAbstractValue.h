@@ -494,7 +494,6 @@ private:
     void filterValueByType();
     NODELETE void filterArrayModesByType();
 
-#if USE(SWIFT_KERNELS)
     // DFGCFAMerge.swift (called by DFGInPlaceAbstractState.cpp) reads and writes arrays of AbstractValue as four 64-bit
     // words: m_structure, m_type (SpecNone is 0), m_arrayModes in the low and m_effectEpoch in the high half, m_value.
     static void staticAssertLayoutForSwift()
@@ -506,7 +505,6 @@ private:
         static_assert(sizeof(StructureAbstractValue) == 8 && sizeof(SpeculatedType) == 8 && sizeof(ArrayModes) == 4);
         static_assert(sizeof(AbstractValueClobberEpoch) == 4 && sizeof(JSValue) == 8 && !SpecNone);
     }
-#endif
 
 #if !defined(NDEBUG)
     JS_EXPORT_PRIVATE void ensureCanInitializeWithZeros();

@@ -21,35 +21,14 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// C entry points for ButterflyFill.swift, declared to C++ in ButterflyFillSwiftBoundary.h and called only from
-// runtime/JSObject.cpp. Each takes a butterfly's indexed payload (or a sub-range of it) as a pointer and an
-// element count, and the only unsafe operation is turning that pair into a MutableSpan. The pointer may be null
-// only when the count is 0.
+// C entry point for ButterflyFill.swift, declared to C++ in ButterflyFillSwiftBoundary.h and called only from
+// runtime/JSObject.cpp. It takes a butterfly's indexed payload (or a sub-range of it) as a pointer and an element
+// count, and the only unsafe operation is turning that pair into a MutableSpan. The pointer may be null only when
+// the count is 0.
 
-@_cdecl("JSCSwift_ButterflyFill_fillWithPureNaN")
+@_cdecl("JSCSwift_ButterflyFill_apply")
 @inline(__always)
-func JSCSwift_ButterflyFill_fillWithPureNaN(_ data: UnsafeMutablePointer<UInt64>?, _ count: Int) {
+func JSCSwift_ButterflyFill_apply(_ data: UnsafeMutablePointer<UInt64>?, _ count: Int, _ operation: UInt32) {
     var elements = unsafe UnsafeMutableBufferPointer(start: data, count: count).mutableSpan
-    ButterflyFill.fillWithPureNaN(&elements)
-}
-
-@_cdecl("JSCSwift_ButterflyFill_fillWithEmptyValue")
-@inline(__always)
-func JSCSwift_ButterflyFill_fillWithEmptyValue(_ data: UnsafeMutablePointer<UInt64>?, _ count: Int) {
-    var elements = unsafe UnsafeMutableBufferPointer(start: data, count: count).mutableSpan
-    ButterflyFill.fillWithEmptyValue(&elements)
-}
-
-@_cdecl("JSCSwift_ButterflyFill_int32ToDouble")
-@inline(__always)
-func JSCSwift_ButterflyFill_int32ToDouble(_ data: UnsafeMutablePointer<UInt64>?, _ count: Int) {
-    var elements = unsafe UnsafeMutableBufferPointer(start: data, count: count).mutableSpan
-    ButterflyFill.int32ToDouble(&elements)
-}
-
-@_cdecl("JSCSwift_ButterflyFill_doubleToJSValue")
-@inline(__always)
-func JSCSwift_ButterflyFill_doubleToJSValue(_ data: UnsafeMutablePointer<UInt64>?, _ count: Int) {
-    var elements = unsafe UnsafeMutableBufferPointer(start: data, count: count).mutableSpan
-    ButterflyFill.doubleToJSValue(&elements)
+    ButterflyFill.apply(operation, &elements)
 }

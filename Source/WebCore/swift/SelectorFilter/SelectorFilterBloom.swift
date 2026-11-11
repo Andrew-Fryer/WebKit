@@ -51,6 +51,25 @@ enum SelectorFilterBloom {
         Int((hash &* goldenRatioHash) & keyMask)
     }
 
+    // SelectorFilterSwiftBoundary.h's operations: 0 = add, 1 = remove, 2 = remove then clear (popParent when the
+    // parent stack becomes empty). Removing before clearing keeps the original's debug-only likelyEmpty() check.
+    @inline(__always) // Lets the C entry point contain the whole loop (no frame, no further call).
+    static func update(_ buckets: inout MutableSpan<UInt8>, _ hashes: Span<UInt32>, operation: UInt8) {
+        precondition(buckets.count == tableSize)
+        switch operation {
+        case 0:
+            addHashes(&buckets, hashes)
+        case 1:
+            removeHashes(&buckets, hashes)
+        case 2:
+            removeHashes(&buckets, hashes)
+            assert(likelyEmpty(buckets))
+            clear(&buckets)
+        default:
+            preconditionFailure("unknown SelectorFilter operation")
+        }
+    }
+
     // CountingBloomFilter::add(unsigned) for every hash, in order.
     @inline(__always)
     static func addHashes(_ buckets: inout MutableSpan<UInt8>, _ hashes: Span<UInt32>) {
@@ -86,6 +105,14 @@ enum SelectorFilterBloom {
                 buckets[second] = secondCount &- 1
             }
         }
+    }
+
+    // CountingBloomFilter::likelyEmpty() (every bucket empty or saturated); only used by assert().
+    static func likelyEmpty(_ buckets: borrowing MutableSpan<UInt8>) -> Bool {
+        for index in buckets.indices where buckets[index] != 0 && buckets[index] != maximumCount {
+            return false
+        }
+        return true
     }
 
     // CountingBloomFilter::clear() (popParent, when the parent stack becomes empty).

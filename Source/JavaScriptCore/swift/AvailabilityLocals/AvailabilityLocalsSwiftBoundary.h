@@ -27,7 +27,7 @@
 // (AvailabilityLocals.swift). An Operands<Availability> is passed as a pointer to its first element (null only if
 // it is empty) and its element count; an Availability is read as two 64-bit words, m_node then m_flushedAt (the
 // layout is static_asserted in DFGAvailability.h and DFGFlushedAt.h). Node pointers are never dereferenced.
-// The symbols are hidden in JavaScriptCore: only dfg/DFGAvailabilityMap.cpp calls them.
+// The symbol is hidden in JavaScriptCore: only dfg/DFGAvailabilityMap.cpp calls it.
 
 #pragma once
 
@@ -38,15 +38,20 @@
 extern "C" {
 #endif
 
-// Whether a[i] == b[i] (Availability::operator==, which ignores FlushedAt's padding) for every i < count.
-__attribute__((pure, nothrow, warn_unused_result)) bool JSCSwift_AvailabilityLocals_equal(const uint64_t* a, const uint64_t* b, size_t count);
+enum {
+    // Returns whether target[i] == source[i] (Availability::operator==, which ignores FlushedAt's padding) for every
+    // i; target is only read. Traps unless targetCount == sourceCount.
+    JSCSwift_AvailabilityLocals_Equal = 0,
+    // target[i] = source[i].merge(target[i]) for every i < sourceCount. Traps unless sourceCount <= targetCount (C++
+    // would write out of bounds). target and source must not overlap. Returns false.
+    JSCSwift_AvailabilityLocals_Merge = 1,
+    // target[i] = Availability() (no node, FlushedAt(DeadFlush)) for every i < targetCount; source must be empty.
+    // Returns false.
+    JSCSwift_AvailabilityLocals_FillWithDead = 2,
+};
 
-// target[i] = other[i].merge(target[i]) for every i < otherCount. Traps unless otherCount <= targetCount (C++ would
-// write out of bounds). target and other must not overlap.
-__attribute__((nothrow)) void JSCSwift_AvailabilityLocals_merge(uint64_t* target, size_t targetCount, const uint64_t* other, size_t otherCount);
-
-// target[i] = Availability() (no node, FlushedAt(DeadFlush)) for every i < count.
-__attribute__((nothrow)) void JSCSwift_AvailabilityLocals_fillWithDead(uint64_t* target, size_t count);
+// Applies one of the operations above (traps on any other value).
+__attribute__((nothrow)) bool JSCSwift_AvailabilityLocals_apply(uint32_t operation, uint64_t* target, size_t targetCount, const uint64_t* source, size_t sourceCount);
 
 #ifdef __cplusplus
 }
