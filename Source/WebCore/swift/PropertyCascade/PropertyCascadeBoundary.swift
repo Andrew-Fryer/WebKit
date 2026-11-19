@@ -23,7 +23,8 @@
 
 // C entry point for PropertyCascade (declared to C++ in PropertyCascadeSwiftBoundary.h). This is the only
 // file of the unit with `unsafe`: it wraps the C++-owned buffers in spans and, per match, the storage
-// address and byte count the glue gathered (word 0 and the low half of word 2 of each match) in a RawSpan.
+// address the glue gathered (word 0 of each match) and the byte count the kernel derives from the match's
+// property count (word 2) in a RawSpan.
 
 #if compiler(>=6.4) || WTF_PLATFORM_MAC
 
@@ -32,12 +33,11 @@
     let matches: UnsafeBufferPointer<UInt64>
 
     @_lifetime(borrow self)
-    func bytes(_ match: Int) -> RawSpan {
+    func bytes(_ match: Int, byteCount: Int) -> RawSpan {
         let word = PropertyCascade.matchWordCount * match
         let count = unsafe matches.count
-        precondition(match >= 0 && word + 2 < count)
+        precondition(match >= 0 && word + 2 < count && byteCount >= 0)
         let start = unsafe UnsafeRawPointer(bitPattern: UInt(unsafe matches[word]))
-        let byteCount = Int(unsafe matches[word + 2] & 0xFFFF_FFFF)
         let buffer = unsafe UnsafeRawBufferPointer(start: start, count: byteCount)
         return unsafe _overrideLifetime(buffer.bytes, borrowing: self)
     }
@@ -45,7 +45,8 @@
 
 @_cdecl("WebCoreSwift_PropertyCascade_build")
 func WebCoreSwift_PropertyCascade_build(_ matches: UnsafePointer<UInt64>?, _ matchWordCount: Int, _ state: UnsafeMutablePointer<UInt32>?, _ stateCount: Int,
-    _ includedIDs: UnsafePointer<UInt16>?, _ includedIDCount: Int, _ table: UnsafePointer<UInt16>?, _ tableCount: Int,
+    _ includedIDs: UnsafePointer<UInt16>?, _ includedIDCount: Int, _ table: UnsafePointer<UInt32>?, _ tableCount: Int,
+    _ inputs: UnsafePointer<UInt64>?, _ inputCount: Int,
     _ properties: UnsafeMutableRawPointer?, _ propertyBytes: Int, _ propertyIsPresent: UnsafeMutablePointer<UInt64>?, _ propertyIsPresentWordCount: Int,
     _ logicalGroupIndices: UnsafeMutablePointer<UInt32>?, _ logicalGroupIDs: UnsafeMutablePointer<UInt16>?, _ logicalGroupCount: Int,
     _ work: UnsafeMutablePointer<UInt64>?, _ workCount: Int) -> Int
@@ -54,6 +55,7 @@ func WebCoreSwift_PropertyCascade_build(_ matches: UnsafePointer<UInt64>?, _ mat
     let storage = unsafe PropertyCascadeMatchStorageFromGlue(matches: matchBuffer)
     let includedIDBuffer = unsafe UnsafeBufferPointer(start: includedIDs, count: includedIDCount)
     let tableBuffer = unsafe UnsafeBufferPointer(start: table, count: tableCount)
+    let inputBuffer = unsafe UnsafeBufferPointer(start: inputs, count: inputCount)
     let propertyBuffer = unsafe UnsafeMutableRawBufferPointer(start: properties, count: propertyBytes)
     let presentBuffer = unsafe UnsafeMutableBufferPointer(start: propertyIsPresent, count: propertyIsPresentWordCount)
     let indexBuffer = unsafe UnsafeMutableBufferPointer(start: logicalGroupIndices, count: logicalGroupCount)
@@ -62,8 +64,8 @@ func WebCoreSwift_PropertyCascade_build(_ matches: UnsafePointer<UInt64>?, _ mat
     var logicalIDSpan = unsafe idBuffer.mutableSpan
     var stateSpan = unsafe UnsafeMutableBufferPointer(start: state, count: stateCount).mutableSpan
     return unsafe PropertyCascade.build(storage: storage, matches: matchBuffer.span, state: &stateSpan, includedIDs: includedIDBuffer.span,
-        table: tableBuffer.span, records: propertyBuffer.mutableBytes, present: presentBuffer.mutableSpan, logicalIndices: indexBuffer.mutableSpan,
-        logicalIDs: &logicalIDSpan, work: workBuffer.mutableSpan)
+        table: tableBuffer.span, inputs: inputBuffer.span, records: propertyBuffer.mutableBytes, present: presentBuffer.mutableSpan,
+        logicalIndices: indexBuffer.mutableSpan, logicalIDs: &logicalIDSpan, work: workBuffer.mutableSpan)
 }
 
 #endif // compiler(>=6.4) || WTF_PLATFORM_MAC

@@ -52,10 +52,6 @@ class Subspace;
 
 typedef uint32_t HeapVersion;
 
-// The destructors whose sweep loops MarkedBlock::Handle::specializedSweep runs in Swift (swift/MarkedBlockSweep),
-// which implements them inline; the values are the Swift entry point's destroy-kind flag. Unsupported: the C++.
-enum class SwiftSweepDestroyKind : uint8_t { Unsupported = 0, String = 1, Rope = 2 };
-
 // A marked block is a page-aligned container for heap-allocated objects.
 // Objects are allocated within cells of the marked block. For a given
 // marked block, all cells have the same size. Objects smaller than the
@@ -243,9 +239,6 @@ public:
         
         template<bool, EmptyMode, SweepMode, SweepDestructionMode, ScribbleMode, NewlyAllocatedMode, MarksMode, typename DestroyFunc>
         void specializedSweep(FreeList*, EmptyMode, SweepMode, SweepDestructionMode, ScribbleMode, NewlyAllocatedMode, MarksMode, NOESCAPE const DestroyFunc&);
-        // specializedSweep's cell loops in Swift, for a sweep that destroys cells. live is null on the all-dead
-        // (IsEmpty) path.
-        void sweepWithSwiftKernel(FreeList*, const WTF::BitSet<atomsPerBlock>* live, SweepMode, ScribbleMode, SwiftSweepDestroyKind, uint64_t secret);
         
         unsigned m_atomsPerCell { std::numeric_limits<unsigned>::max() };
         unsigned m_startAtom { std::numeric_limits<unsigned>::max() }; // Exact location of the first allocatable atom.

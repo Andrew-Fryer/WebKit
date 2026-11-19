@@ -124,6 +124,11 @@ void MarkedBlock::Handle::unsweepWithNoNewlyAllocated()
     m_directory->didFinishUsingBlock(bitLocker, this);
 }
 
+// MarkedBlockStopAllocating.swift sees the payload as 16-byte atoms of four 32-bit words: a cell's header word at
+// [0] and the low half of its second 8 bytes (FreeCell::scrambledBits) at [2], which HeapCell::zap writes.
+static_assert(MarkedBlock::atomSize == 16 && sizeof(FreeCell) == 16 && FreeCell::offsetOfScrambledBits() == 8);
+static_assert(HeapCell::StopAllocating == 2);
+
 void MarkedBlock::Handle::stopAllocating(const FreeList& freeList, StopAllocatingMode mode)
 {
     Locker locker { blockHeader().m_lock };
@@ -499,54 +504,6 @@ void MarkedBlock::Handle::dumpState(PrintStream& out)
 Subspace* MarkedBlock::Handle::subspace() const
 {
     return directory()->subspace();
-}
-
-// MarkedBlockSweep.swift sees the payload as 16-byte atoms: a cell's header word at offset 0 (0 once zapped), and
-// its second 8 bytes (JSString::m_fiber, FreeCell::scrambledBits) at offset 8.
-static_assert(MarkedBlock::atomSize == 16 && sizeof(FreeCell) == 16 && FreeCell::offsetOfScrambledBits() == 8);
-static_assert(JSString::offsetOfValue() == 8 && JSString::isRopeInPointer == 1);
-static_assert(HeapCell::Destruction == 1 && HeapCell::StopAllocating == 2);
-static_assert(sizeof(WTF::BitSet<MarkedBlock::atomsPerBlock>) == MarkedBlock::atomsPerBlock / 64 * sizeof(uint64_t));
-static_assert(MarkedBlock::atomsPerBlock == 1024); // The Swift kernel's deref list is 1024 entries, one per atom.
-static_assert(SCRIBBLE_WORD == 0xbadbeef0); // scribble() as MarkedBlockSweep.swift does it.
-
-void MarkedBlock::Handle::sweepWithSwiftKernel(FreeList* freeList, const WTF::BitSet<atomsPerBlock>* live, SweepMode sweepMode, ScribbleMode scribbleMode, SwiftSweepDestroyKind destroyKind, uint64_t secret)
-{
-    auto* payload = std::bit_cast<uint8_t*>(block().atoms() + m_startAtom);
-    size_t payloadAtoms = endAtom - m_startAtom;
-    std::span<const uint64_t> liveWords;
-    if (live)
-        liveWords = live->storage();
-    uint32_t flags = (sweepMode == SweepToFreeList ? 1 : 0) | (scribbleMode == Scribble ? 2 : 0) | (static_cast<uint32_t>(destroyKind) << 2);
-
-    // Swift sweeps, then this does what ~String did after nulling the m_fiber of each destroyed JSString, in the same
-    // order. The C++ loops overlapped those refcount updates (atomics, on cache lines the sweep does not touch) with
-    // the sweep itself; done afterwards, more of their misses would be exposed, so each StringImpl is prefetched for
-    // writing 32 derefs ahead (that distance is what brings a 64 MB cold working set back to the C++'s time).
-    // One slot per atom of a block, as the Swift kernel requires: more than there are cells.
-    std::array<uint64_t, MarkedBlock::atomsPerBlock> derefs;
-    int64_t headOffset = -1;
-    uint64_t freedBytes = 0;
-    size_t derefCount = JSCSwift_MarkedBlockSweep_sweep(payload, payloadAtoms, liveWords.data(), liveWords.size(), m_startAtom, m_atomsPerCell, secret, flags, derefs.data(), derefs.size(), &headOffset, &freedBytes);
-    RELEASE_ASSERT(derefCount <= derefs.size());
-    auto impls = std::span { derefs }.first(derefCount);
-    auto implAt = [&](size_t i) { return std::bit_cast<StringImpl*>(static_cast<uintptr_t>(impls[i])); };
-    constexpr size_t prefetchDistance = 32;
-    size_t i = 0;
-    for (; i < std::min(prefetchDistance, impls.size()); ++i)
-        __builtin_prefetch(implAt(i), 1);
-    for (i = 0; i + prefetchDistance < impls.size(); ++i) {
-        __builtin_prefetch(implAt(i + prefetchDistance), 1);
-        implAt(i)->deref();
-    }
-    for (; i < impls.size(); ++i)
-        implAt(i)->deref();
-
-    if (sweepMode == SweepToFreeList) {
-        RELEASE_ASSERT(headOffset == -1 || (headOffset >= 0 && static_cast<uint64_t>(headOffset) < payloadAtoms * atomSize && !(static_cast<uint64_t>(headOffset) % cellSize())));
-        RELEASE_ASSERT(freedBytes <= payloadAtoms * atomSize);
-        freeList->initialize(headOffset < 0 ? nullptr : std::bit_cast<FreeCell*>(payload + headOffset), secret, static_cast<unsigned>(freedBytes));
-    }
 }
 
 void MarkedBlock::Handle::sweep(FreeList* freeList)

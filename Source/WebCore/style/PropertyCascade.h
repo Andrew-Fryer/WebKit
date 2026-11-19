@@ -122,26 +122,11 @@ public:
 
 private:
     void buildCascade();
-    void buildCascadeCxx();
-    bool buildCascadeWithSwift();
     static IncludedProperties rollbackProperties(const PropertyCascade& parent);
-    bool addNormalMatches(Origin);
-    void addImportantMatches(Origin);
-    bool addMatch(const MatchedProperties&, Origin, IsImportant);
     bool shouldApplyAfterAnimation(const StyleProperties::PropertyReference&);
-    void addPositionTryFallbackProperties();
-
-    void set(CSSPropertyID, CSSValue&, const MatchedProperties&, Origin);
-    NODELETE void setLogicalGroupProperty(CSSPropertyID, CSSValue&, const MatchedProperties&, Origin);
     NODELETE static void setPropertyInternal(Property&, CSSPropertyID, CSSValue&, const MatchedProperties&, Origin);
-    void setDelayingForRuleRollback(CSSPropertyID, CSSValue&, const MatchedProperties&, Origin);
-
-    NODELETE bool hasProperty(CSSPropertyID, const CSSValue&);
-    NODELETE bool mayOverrideExistingProperty(CSSPropertyID, const CSSValue&);
 
     unsigned logicalGroupPropertyIndex(CSSPropertyID) const;
-    void setLogicalGroupPropertyIndex(CSSPropertyID, unsigned);
-    void sortLogicalGroupPropertyIDs();
 
     const MatchResult& m_matchResult;
     const IncludedProperties m_includedProperties;
@@ -161,13 +146,6 @@ private:
     };
     std::optional<AnimationLayer> m_animationLayer;
     std::optional<MatchedProperties> m_positionTryFallbackProperties;
-
-    struct DelayedRollbackProperty {
-        CSSValue& value;
-        const MatchedProperties& properties;
-        Origin origin;
-    };
-    HashMap<std::pair<unsigned, AtomString>, Deque<DelayedRollbackProperty>> m_delayedRollbackProperties;
 
     // The CSSPropertyID enum is sorted like this:
     // 1. CSSPropertyID::Invalid and CSSPropertyID::Custom.
@@ -209,13 +187,6 @@ inline unsigned PropertyCascade::logicalGroupPropertyIndex(CSSPropertyID id) con
     ASSERT(id >= firstLogicalGroupProperty);
     ASSERT(id <= lastLogicalGroupProperty);
     return m_logicalGroupPropertyIndices[std::to_underlying(id) - std::to_underlying(firstLogicalGroupProperty)];
-}
-
-inline void PropertyCascade::setLogicalGroupPropertyIndex(CSSPropertyID id, unsigned index)
-{
-    ASSERT(id >= firstLogicalGroupProperty);
-    ASSERT(id <= lastLogicalGroupProperty);
-    m_logicalGroupPropertyIndices[std::to_underlying(id) - std::to_underlying(firstLogicalGroupProperty)] = index;
 }
 
 inline bool PropertyCascade::hasLogicalGroupProperty(CSSPropertyID id) const

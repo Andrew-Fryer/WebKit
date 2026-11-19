@@ -23,9 +23,8 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MarkedBlock's per-cell sweep and stop-allocating loops implemented in Swift (MarkedBlockSweep.swift,
-// MarkedBlockStopAllocating.swift). The symbols are hidden in JavaScriptCore: only heap/MarkedBlock.cpp calls
-// them, from MarkedBlock::Handle::sweepWithSwiftKernel and MarkedBlock::Handle::stopAllocating.
+// MarkedBlock::Handle::stopAllocating's Resumable loops implemented in Swift (MarkedBlockStopAllocating.swift). The
+// symbol is hidden in JavaScriptCore: only heap/MarkedBlock.cpp calls it, from MarkedBlock::Handle::stopAllocating.
 //
 // `payload` is a block's atoms from the handle's m_startAtom to the end of the block: payloadAtoms 16-byte atoms
 // (at most 1024), 16-byte aligned. Swift writes only there and into the arrays passed to it.
@@ -39,22 +38,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// The loops of MarkedBlock::Handle::specializedSweep after setBits() and the unlock, for a sweep that destroys
-// cells: destroy (JSString or JSRopeString destructor, then zap(Destruction)) every dead cell that is not zapped
-// yet, and with SweepToFreeList thread the runs of dead cells into a free list, scribbling over them first (see
-// heap/Scribble.h) in Scribble mode.
-//   liveWords: the live-cell bitmap (marks, or marks | newlyAllocated) as BitSet<atomsPerBlock> words, indexed
-//     by absolute atom number; null for the all-dead (IsEmpty) path.
-//   flags: bit 0 SweepToFreeList; bit 1 Scribble; bits 2-3 the destructor: 1 JSString, 2 JSRopeString.
-//   derefs: exactly 1024 entries (one per atom of a block; Swift traps on any other capacity). Receives, in cell
-//     order, the StringImpl* of every ~String run on a non-null string; the caller derefs them.
-//   *outHeadOffset: payload byte offset of the free list's head FreeCell, or -1 for none (always -1 for SweepOnly).
-//   *outFreedBytes: the free list's size in bytes, for FreeList::initialize.
-// Returns the number of entries written to derefs.
-__attribute__((nothrow)) size_t JSCSwift_MarkedBlockSweep_sweep(uint8_t* payload, size_t payloadAtoms, const uint64_t* liveWords,
-    size_t liveWordCount, uint32_t startAtom, uint32_t atomsPerCell, uint64_t secret, uint32_t flags, uint64_t* derefs,
-    size_t derefCapacity, int64_t* outHeadOffset, uint64_t* outFreedBytes);
 
 // The Resumable path of MarkedBlock::Handle::stopAllocating: newlyAllocated = every cell, minus the cells still
 // on the free list, which are zapped with HeapCell::StopAllocating if needsZapping.

@@ -402,8 +402,10 @@ private:
     
     BranchDirection m_branchDirection; // This is only set for blocks that end in Branch and that execute to completion (i.e. m_isValid == true).
 
-    // Scratch for mergeValues(): the indices of the values that DFGCFAMerge.swift leaves to the C++ merge.
+    // Scratch for mergeValues(): the indices of the values whose merge needs a structure list.
     Vector<uint32_t> m_slowMergeIndices;
+    // Scratch for the structure lists that DFGCFAMerge.swift computes in mergeValues().
+    Vector<uint64_t, 24> m_structureListScratch;
 };
 
 } } // namespace JSC::DFG

@@ -28,6 +28,11 @@
 // [2] the low half of the cell's second 8 bytes (FreeCell::scrambledBits in a free cell).
 typealias MarkedBlockAtomWords = InlineArray<4, UInt32>
 
+/// HeapCell::ZapReason::StopAllocating (static_asserted in heap/MarkedBlock.cpp).
+enum HeapCellZapReason {
+    static var stopAllocating: UInt32 { 2 }
+}
+
 // The free list is the FreeList's raw state, as byte offsets into the payload:
 // the current interval [intervalStart, intervalEnd), partly consumed or empty, and nextInterval, the first
 // FreeCell not yet entered, where an odd offset is the sentinel (FreeList::isSentinel: the payload is 16-byte

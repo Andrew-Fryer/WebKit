@@ -21,7 +21,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// C entry point for DFGCFAMerge.swift, declared to C++ in DFGCFAMergeSwiftBoundary.h and called only from
+// C entry points for DFGCFAMerge.swift, declared to C++ in DFGCFAMergeSwiftBoundary.h and called only from
 // dfg/DFGInPlaceAbstractState.cpp. Operands<AbstractValue> arrays come as a pointer to the first element (null only
 // when empty) and an element count, an element being four 64-bit words; Operands<Node*> as a pointer and a count of
 // one-word elements. The only unsafe operations turn those, and the slow-index buffer, into spans and write the
@@ -42,4 +42,23 @@ func JSCSwift_DFGCFAMerge_mergeValues(_ destination: UnsafeMutablePointer<UInt64
     let changed = DFGCFAMerge.mergeValues(&destinationWords, sourceWords, destinationNodes: nodes, checkNodes: checkNodes, count: count, slowIndices: &slow, slowCount: &slowFound)
     unsafe slowCount.pointee = slowFound
     return changed
+}
+
+// One value's merge that needs a structure list: the destination and source values as four words each, the elements
+// of their fat sets' lists (null and 0 for a thin set), the destination list's capacity, a scratch list for the
+// result's elements, and three result words. The unsafe operations turn those into spans.
+@_cdecl("JSCSwift_DFGCFAMerge_mergeSlowValue")
+func JSCSwift_DFGCFAMerge_mergeSlowValue(_ destination: UnsafeMutablePointer<UInt64>, _ source: UnsafePointer<UInt64>,
+                                         _ destinationList: UnsafePointer<UInt64>?, _ destinationLength: Int, _ destinationCapacity: UInt32,
+                                         _ sourceList: UnsafePointer<UInt64>?, _ sourceLength: Int,
+                                         _ list: UnsafeMutablePointer<UInt64>?, _ listCapacity: Int,
+                                         _ result: UnsafeMutablePointer<UInt64>) -> Bool {
+    var destinationWords = unsafe UnsafeMutableBufferPointer(start: destination, count: 4).mutableSpan
+    let sourceWords = unsafe UnsafeBufferPointer(start: source, count: 4).span
+    let destinationElements = unsafe UnsafeBufferPointer(start: destinationList, count: destinationLength).span
+    let sourceElements = unsafe UnsafeBufferPointer(start: sourceList, count: sourceLength).span
+    var listSpan = unsafe UnsafeMutableBufferPointer(start: list, count: listCapacity).mutableSpan
+    var resultWords = unsafe UnsafeMutableBufferPointer(start: result, count: 3).mutableSpan
+    return DFGCFAMerge.mergeSlowValue(&destinationWords, sourceWords, destinationList: destinationElements, destinationCapacity: destinationCapacity,
+                                      sourceList: sourceElements, list: &listSpan, result: &resultWords)
 }

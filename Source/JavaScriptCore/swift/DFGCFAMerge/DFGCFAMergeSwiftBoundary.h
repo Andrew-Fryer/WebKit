@@ -41,12 +41,26 @@ extern "C" {
 #endif
 
 // For every i < count, and when checkNodes only where destinationNodes[i] is not null: destination[i].merge(source[i])
-// (AbstractValue::merge). Returns whether any value changed. A merge that needs a structure list to be allocated or
-// freed (a fat set on either side, or two different single structures) leaves destination[i] untouched and appends i
-// to slowIndices instead; *slowCount is the number of such indices, which the caller must merge itself. Traps unless
-// count <= destinationCount, sourceCount and slowCapacity (and destinationNodeCount when checkNodes). destination
-// must not overlap source.
+// (AbstractValue::merge). Returns whether any value changed. A merge that needs a structure list (a fat set on either
+// side, or two different single structures) leaves destination[i] untouched and appends i to slowIndices instead, for
+// the caller to merge with JSCSwift_DFGCFAMerge_mergeSlowValue; except that a copy into a clear destination (*this =
+// other) that allocates or frees a list merges words 1-3 and appends i | 1 << 31, for the caller to copy source[i]'s
+// StructureAbstractValue. *slowCount is the number of entries. Traps unless count < 2^31 and
+// count <= destinationCount, sourceCount and slowCapacity (and destinationNodeCount when checkNodes).
+// destination must not overlap source.
 __attribute__((nothrow, warn_unused_result)) bool JSCSwift_DFGCFAMerge_mergeValues(uint64_t* destination, size_t destinationCount, const uint64_t* source, size_t sourceCount, const uint64_t* destinationNodes, size_t destinationNodeCount, bool checkNodes, size_t count, uint32_t* slowIndices, size_t slowCapacity, size_t* slowCount);
+
+// destination.merge(source) for one AbstractValue (four words each) whose merge needs a structure list (see
+// DFGCFAMerge.swift). destinationList/sourceList: the fat sets' elements (null and 0 when thin). list: scratch for the
+// result's elements, at least destinationLength + sourceLength + 2 words. result[0] = kind | capacity << 32,
+// result[1] = word, result[2] = length, describing the destination's new StructureAbstractValue:
+//   kind 0: unchanged. 1: free its list if fat; its word becomes `word` (thin or TOP).
+//   2: list[0..<length] is appended to its fat list, which has room for them. 3: free its list if fat; a new list
+//   of `capacity` holds list[0..<length]. For kinds 2 and 3 the clobbered flag becomes `word` (0 or 2).
+//   4: it becomes a copy of the source's StructureAbstractValue (operator=).
+__attribute__((nothrow, warn_unused_result)) bool JSCSwift_DFGCFAMerge_mergeSlowValue(uint64_t* destination, const uint64_t* source,
+    const uint64_t* destinationList, size_t destinationLength, uint32_t destinationCapacity, const uint64_t* sourceList, size_t sourceLength,
+    uint64_t* list, size_t listCapacity, uint64_t* result);
 
 #ifdef __cplusplus
 }

@@ -126,11 +126,13 @@ static_assert(std::is_trivially_copyable_v<PropertyCascade::Property>);
 static_assert(sizeof(StylePropertyMetadata) == 4 && sizeof(CSSProperty) == 16 && alignof(CSSProperty) == 8 && sizeof(Ref<CSSValue>) == 8);
 static_assert(std::is_same_v<PropertyCascade::PropertyBitSet::WordType, uint64_t> && sizeof(CSSPropertyID) == 2);
 static_assert(std::to_underlying(CSSPropertyID::Custom) == 1 && cssPropertyIDEnumValueCount <= 0x8000);
-static_assert(SelectorChecker::MatchAll == 3 && std::to_underlying(IsCacheable::Partially) == 1);
+static_assert(SelectorChecker::MatchAll == 3 && std::to_underlying(IsCacheable::Partially) == 1 && std::to_underlying(FromStyleAttribute::Yes) == 1);
 static_assert(std::to_underlying(ScopeOrdinal::Element) == 0 && RuleSet::cascadeLayerPriorityForUnlayered == 0xFFFF);
 static_assert(std::to_underlying(PropertyCascade::PropertyType::NonInherited) == 1 && std::to_underlying(PropertyCascade::PropertyType::Inherited) == 2);
 static_assert(std::to_underlying(PropertyCascade::PropertyType::ExplicitlyInherited) == 4 && std::to_underlying(PropertyCascade::PropertyType::AfterAnimation) == 8);
 static_assert(std::to_underlying(PropertyCascade::PropertyType::StartingStyle) == 16 && std::to_underlying(PropertyCascade::PropertyType::NonCacheable) == 32);
+static_assert(!std::to_underlying(PropertyCascade::Origin::UserAgent) && std::to_underlying(PropertyCascade::Origin::User) == 1);
+static_assert(std::to_underlying(PropertyCascade::Origin::Author) == 2 && std::to_underlying(PropertyCascade::Origin::PositionFallback) == 3);
 static_assert(sizeof(MatchedProperties) == 16 && offsetof(MatchedProperties, linkMatchType) == 8 && offsetof(MatchedProperties, allowlistType) == 9);
 static_assert(offsetof(MatchedProperties, styleScopeOrdinal) == 10 && offsetof(MatchedProperties, fromStyleAttribute) == 11);
 static_assert(offsetof(MatchedProperties, cascadeLayerPriority) == 12 && offsetof(MatchedProperties, isStartingStyle) == 14 && offsetof(MatchedProperties, isCacheable) == 15);
@@ -140,7 +142,7 @@ static_assert(!std::to_underlying(PropertyAllowlist::None));
 // MutableStyleProperties; for ImmutableStyleProperties, m_storage followed by StylePropertyMetadata[n], then
 // PackedPtr<const CSSValue>[n], each pointer stored as its low storageSize bytes, little-endian. The parts that
 // cannot be static_asserted from here (CSSProperty's private members, the order of ImmutableStyleProperties' arrays,
-// StylePropertyMetadata's bit-fields) are checked against the public API on every Swift-built cascade in debug builds
+// StylePropertyMetadata's bit-fields) are checked against the public API on every cascade in debug builds
 // (assertStorageLayoutForSwift()).
 static_assert(std::endian::native == std::endian::little);
 static_assert(!PackedPtr<const CSSValue>::alignmentShiftSize && sizeof(PackedPtr<const CSSValue>) == PackedPtr<const CSSValue>::storageSize);
@@ -169,155 +171,53 @@ static void assertStorageLayoutForSwift(const StyleProperties& properties, std::
 }
 #endif
 
-// For each CSSPropertyID: cascadeAliasProperty(id) | CSSProperty::isInheritedProperty(id) << 15.
-static std::span<const uint16_t> propertyTableForSwift()
+// The property allowlist check of a match (the start of the original addMatch's shouldIncludeProperty).
+static bool isAllowedByPropertyAllowlist(PropertyAllowlist propertyAllowlist, CSSPropertyID propertyID)
 {
-    static const std::array<uint16_t, cssPropertyIDEnumValueCount> table = [] {
-        std::array<uint16_t, cssPropertyIDEnumValueCount> table { };
-        for (uint16_t id = std::to_underlying(CSSPropertyID::Custom); id < cssPropertyIDEnumValueCount; ++id) {
+#if ENABLE(VIDEO)
+    if (propertyAllowlist == PropertyAllowlist::Cue && !isValidCueStyleProperty(propertyID))
+        return false;
+    if (propertyAllowlist == PropertyAllowlist::CueSelector && !isValidCueSelectorStyleProperty(propertyID))
+        return false;
+    if (propertyAllowlist == PropertyAllowlist::CueBackground && !isValidCueBackgroundStyleProperty(propertyID))
+        return false;
+#endif
+    if (propertyAllowlist == PropertyAllowlist::Marker && !isValidMarkerStyleProperty(propertyID))
+        return false;
+    if (propertyAllowlist == PropertyAllowlist::Highlight && !isValidHighlightStyleProperty(propertyID))
+        return false;
+
+    if (propertyAllowlist == PropertyAllowlist::FirstLetter && !isValidFirstLetterStyleProperty(propertyID))
+        return false;
+
+    if (propertyAllowlist == PropertyAllowlist::FirstLine && !isValidFirstLineStyleProperty(propertyID))
+        return false;
+
+    return true;
+}
+
+// For each CSSPropertyID id, with alias = cascadeAliasProperty(id): alias (bits 0-14) | CSSProperty::isInheritedProperty(id) << 15
+// | isAllowedByPropertyAllowlist(k, alias) << (16 + k) for each PropertyAllowlist value k < 8 (the kernel admits every property
+// of a match whose allowlistType is 8 or more, as the allowlist check does).
+static std::span<const uint32_t> propertyTableForSwift()
+{
+    static const std::array<uint32_t, cssPropertyIDEnumValueCount> table = [] {
+        std::array<uint32_t, cssPropertyIDEnumValueCount> table { };
+        for (uint16_t id = 0; id < cssPropertyIDEnumValueCount; ++id) {
             auto propertyID = static_cast<CSSPropertyID>(id);
-            table[id] = std::to_underlying(cascadeAliasProperty(propertyID)) | (CSSProperty::isInheritedProperty(propertyID) ? 0x8000 : 0);
+            auto alias = cascadeAliasProperty(propertyID);
+            // The kernel and the glue's name gathering tell custom properties apart by the alias.
+            ASSERT((alias == CSSPropertyID::Custom) == (propertyID == CSSPropertyID::Custom));
+            uint32_t entry = std::to_underlying(alias) | (CSSProperty::isInheritedProperty(propertyID) ? 0x8000 : 0);
+            for (uint8_t allowlist = 0; allowlist < 8; ++allowlist) {
+                if (isAllowedByPropertyAllowlist(static_cast<PropertyAllowlist>(allowlist), alias))
+                    entry |= 1u << (16 + allowlist);
+            }
+            table[id] = entry;
         }
         return table;
     }();
     return table;
-}
-
-void PropertyCascade::buildCascade()
-{
-    if (buildCascadeWithSwift())
-        return;
-    buildCascadeCxx();
-}
-
-// Builds the cascade with the Swift kernel. Returns false for the cascades the kernel leaves to
-// buildCascadeCxx(), with the cascade still in the fresh state buildCascadeCxx() starts from (the kernel
-// may have written Property records, which the C++ treats as uninitialized).
-bool PropertyCascade::buildCascadeWithSwift()
-{
-    if (m_ruleRollbackDepth || m_rollbackScope || m_maximumCascadeLayerPriorityForRollback || m_positionTryFallbackProperties || m_maximumOrigin != Origin::Author)
-        return false;
-    auto types = m_includedProperties.types;
-    if (types.contains(PropertyType::AfterAnimation) || (types.contains(PropertyType::ExplicitlyInherited) && !types.containsAll(normalPropertyTypes())))
-        return false;
-    ASSERT(m_propertyIsPresent.isEmpty() && !m_lastIndexForLogicalGroup && m_customProperties.isEmpty());
-
-    auto& userAgentDeclarations = m_matchResult.userAgentDeclarations;
-    auto& userDeclarations = m_matchResult.userDeclarations;
-    auto& authorDeclarations = m_matchResult.authorDeclarations;
-    size_t userAgentCount = userAgentDeclarations.size();
-    size_t userCount = userDeclarations.size();
-    size_t authorCount = authorDeclarations.size();
-
-    Vector<uint64_t, 3 * 32> matchWords(3 * (userAgentCount + userCount + authorCount));
-    auto matchWordSpan = matchWords.mutableSpan();
-    size_t wordIndex = 0;
-    size_t propertyTotal = 0;
-    for (auto* declarations : { &userAgentDeclarations, &userDeclarations, &authorDeclarations }) {
-        for (auto& matchedProperties : *declarations) {
-            if (matchedProperties.allowlistType != PropertyAllowlist::None)
-                return false;
-            auto& properties = matchedProperties.properties.get();
-            auto words = matchWordSpan.subspan(wordIndex).first<3>();
-            if (properties.isMutable()) {
-                auto storage = asByteSpan(uncheckedDowncast<MutableStyleProperties>(properties).propertySpan());
-                size_t count = storage.size() / sizeof(CSSProperty);
-                if (count >= 1u << 28)
-                    return false;
-                words[0] = reinterpret_cast<uintptr_t>(storage.data());
-                words[2] = storage.size() | uint64_t { count } << 32 | 1ull << 63;
-                propertyTotal += count;
-#if ASSERT_ENABLED
-                assertStorageLayoutForSwift(properties, storage);
-#endif
-            } else {
-                auto& immutableProperties = uncheckedDowncast<ImmutableStyleProperties>(properties);
-                size_t count = immutableProperties.propertyCount();
-                size_t byteCount = count * (sizeof(StylePropertyMetadata) + sizeof(PackedPtr<const CSSValue>));
-                words[0] = reinterpret_cast<uintptr_t>(&immutableProperties.m_storage);
-                words[2] = byteCount | uint64_t { count } << 32;
-                propertyTotal += count;
-#if ASSERT_ENABLED
-                assertStorageLayoutForSwift(properties, unsafeMakeSpan(reinterpret_cast<const uint8_t*>(&immutableProperties.m_storage), byteCount));
-#endif
-            }
-            // linkMatchType through isCacheable, in their byte order (static_asserted above).
-            memcpySpan(asMutableByteSpan(words[1]), asByteSpan(matchedProperties).subspan(offsetof(MatchedProperties, linkMatchType), sizeof(uint64_t)));
-            wordIndex += 3;
-        }
-    }
-
-    size_t scratchCount = std::max<size_t>({ logicalGroupPropertyCount, userAgentCount, userCount, authorCount });
-    Vector<uint64_t, 256> work(scratchCount + propertyTotal);
-    std::array<uint32_t, 11> state { static_cast<uint32_t>(userAgentCount), static_cast<uint32_t>(userCount), static_cast<uint32_t>(authorCount),
-        types.toRaw(), std::to_underlying(firstLogicalGroupProperty), sizeof(PackedPtr<const CSSValue>), static_cast<uint32_t>(scratchCount),
-        m_lastIndexForLogicalGroup, m_seenLogicalGroupPropertyCount, std::to_underlying(m_lowestSeenLogicalGroupProperty), std::to_underlying(m_highestSeenLogicalGroupProperty) };
-    auto includedIDs = spanReinterpretCast<const uint16_t>(m_includedProperties.ids.span());
-    auto table = propertyTableForSwift();
-    auto properties = asMutableByteSpan(std::span { m_properties });
-    auto propertyIsPresent = m_propertyIsPresent.storage();
-    auto logicalGroupIDs = spanReinterpretCast<uint16_t>(std::span { m_logicalGroupPropertyIDs });
-
-    auto customCount = WebCoreSwift_PropertyCascade_build(matchWords.span().data(), matchWords.size(), state.data(), state.size(),
-        includedIDs.data(), includedIDs.size(), table.data(), table.size(), properties.data(), properties.size(),
-        propertyIsPresent.data(), propertyIsPresent.size(), m_logicalGroupPropertyIndices.data(), logicalGroupIDs.data(), logicalGroupPropertyCount,
-        work.mutableSpan().data(), work.size());
-    if (customCount < 0)
-        return false;
-
-    m_lastIndexForLogicalGroup = state[7];
-    m_seenLogicalGroupPropertyCount = state[8];
-    m_lowestSeenLogicalGroupProperty = static_cast<CSSPropertyID>(state[9]);
-    m_highestSeenLogicalGroupProperty = static_cast<CSSPropertyID>(state[10]);
-
-    // The custom property sets, in cascade order.
-    for (auto entry : work.span().subspan(scratchCount, customCount)) {
-        size_t matchIndex = entry >> 32;
-        unsigned propertyIndex = static_cast<uint32_t>(entry);
-        auto origin = Origin::UserAgent;
-        auto* declarations = &userAgentDeclarations;
-        if (matchIndex >= userAgentCount + userCount) {
-            origin = Origin::Author;
-            declarations = &authorDeclarations;
-            matchIndex -= userAgentCount + userCount;
-        } else if (matchIndex >= userAgentCount) {
-            origin = Origin::User;
-            declarations = &userDeclarations;
-            matchIndex -= userAgentCount;
-        }
-        auto& matchedProperties = (*declarations)[matchIndex];
-        auto current = matchedProperties.properties->propertyAt(propertyIndex);
-        SUPPRESS_UNCOUNTED_ARG set(CSSPropertyID::Custom, *current.value(), matchedProperties, origin);
-    }
-
-    m_delayedRollbackProperties.clear();
-    return true;
-}
-
-void PropertyCascade::buildCascadeCxx()
-{
-    std::array<bool, 3> originsWithImportant = { };
-
-    for (auto origin : { Origin::UserAgent, Origin::User, Origin::Author }) {
-        if (origin > m_maximumOrigin)
-            break;
-        bool hasImportant = addNormalMatches(origin);
-        if (hasImportant)
-            originsWithImportant[std::to_underlying(origin)] = true;
-    }
-
-    if (m_positionTryFallbackProperties)
-        addPositionTryFallbackProperties();
-
-    for (auto origin : { Origin::Author, Origin::User, Origin::UserAgent }) {
-        if (!originsWithImportant[std::to_underlying(origin)])
-            continue;
-        addImportantMatches(origin);
-    }
-
-    sortLogicalGroupPropertyIDs();
-
-    m_delayedRollbackProperties.clear();
 }
 
 void PropertyCascade::setPropertyInternal(Property& property, CSSPropertyID id, CSSValue& cssValue, const MatchedProperties& matchedProperties, Origin origin)
@@ -342,91 +242,6 @@ void PropertyCascade::setPropertyInternal(Property& property, CSSPropertyID id, 
         property.origins[matchedProperties.linkMatchType] = origin;
         property.cssValue[matchedProperties.linkMatchType] = &cssValue;
     }
-}
-
-void PropertyCascade::set(CSSPropertyID id, CSSValue& cssValue, const MatchedProperties& matchedProperties, Origin origin)
-{
-    if (id >= firstLogicalGroupProperty) {
-        setLogicalGroupProperty(id, cssValue, matchedProperties, origin);
-        return;
-    }
-
-    ASSERT(std::to_underlying(id) < m_propertyIsPresent.size());
-    if (id == CSSPropertyID::Custom) {
-        m_propertyIsPresent.set(std::to_underlying(id));
-        const auto& customValue = downcast<CSSCustomPropertyValue>(cssValue);
-        auto result = m_customProperties.ensure(customValue.name(), [&]() {
-            Property property;
-            property.cssValue = { };
-            setPropertyInternal(property, id, cssValue, matchedProperties, origin);
-            return property;
-        });
-        if (!result.isNewEntry)
-            setPropertyInternal(result.iterator->value, id, cssValue, matchedProperties, origin);
-        return;
-    }
-
-    auto& property = m_properties[std::to_underlying(id)];
-    if (!m_propertyIsPresent.testAndSet(std::to_underlying(id)))
-        property.cssValue = { };
-    setPropertyInternal(property, id, cssValue, matchedProperties, origin);
-}
-
-void PropertyCascade::setLogicalGroupProperty(CSSPropertyID id, CSSValue& cssValue, const MatchedProperties& matchedProperties, Origin origin)
-{
-    ASSERT(id >= firstLogicalGroupProperty);
-    ASSERT(id <= lastLogicalGroupProperty);
-
-    auto& property = m_properties[std::to_underlying(id)];
-    if (!hasLogicalGroupProperty(id)) {
-        property.cssValue = { };
-        m_lowestSeenLogicalGroupProperty = std::min(m_lowestSeenLogicalGroupProperty, id);
-        m_highestSeenLogicalGroupProperty = std::max(m_highestSeenLogicalGroupProperty, id);
-    }
-    setLogicalGroupPropertyIndex(id, ++m_lastIndexForLogicalGroup);
-    setPropertyInternal(property, id, cssValue, matchedProperties, origin);
-}
-
-void PropertyCascade::setDelayingForRuleRollback(CSSPropertyID propertyID, CSSValue& cssValue, const MatchedProperties& matchedProperties, Origin origin)
-{
-    ASSERT(m_ruleRollbackDepth);
-
-    auto key = [&] -> std::pair<unsigned, AtomString>  {
-        if (propertyID == CSSPropertyID::Custom)
-            return { std::to_underlying(propertyID), downcast<CSSCustomPropertyValue>(cssValue).name() };
-        return { std::to_underlying(propertyID), emptyAtom() };
-    }();
-    auto& delayedValues = m_delayedRollbackProperties.ensure(key, [&] {
-        return Deque<DelayedRollbackProperty>();
-    }).iterator->value;
-
-    delayedValues.prepend(DelayedRollbackProperty { cssValue, matchedProperties, origin });
-
-    // Ignore the last m_ruleRollbackDepth values for each property.
-    if (delayedValues.size() <= m_ruleRollbackDepth)
-        return;
-
-    auto last = delayedValues.takeLast();
-    SUPPRESS_UNCOUNTED_ARG set(propertyID, last.value, last.properties, last.origin);
-}
-
-bool PropertyCascade::hasProperty(CSSPropertyID propertyID, const CSSValue& value)
-{
-    if (propertyID == CSSPropertyID::Custom)
-        return hasCustomProperty(downcast<CSSCustomPropertyValue>(value).name());
-    return propertyID < firstLogicalGroupProperty ? hasNormalProperty(propertyID) : hasLogicalGroupProperty(propertyID);
-}
-
-bool PropertyCascade::mayOverrideExistingProperty(CSSPropertyID propertyID, const CSSValue& value)
-{
-    if (propertyID == CSSPropertyID::Custom)
-        return hasCustomProperty(downcast<CSSCustomPropertyValue>(value).name());
-    if (propertyID < firstLogicalGroupProperty)
-        return hasNormalProperty(propertyID);
-
-    // Apply all logical group properties if we have applied any. They may override the ones we already applied.
-    // FIXME: This could check if any existing properties are actually in the same group.
-    return !!m_lastIndexForLogicalGroup;
 }
 
 const PropertyCascade::Property& PropertyCascade::functionResultProperty() const
@@ -479,103 +294,6 @@ static bool explicitlyInheritsFromParent(const CSSValue& value)
     return false;
 }
 
-bool PropertyCascade::addMatch(const MatchedProperties& matchedProperties, Origin origin, IsImportant important)
-{
-    auto includePropertiesForRollback = [&] {
-        if (m_rollbackScope && matchedProperties.styleScopeOrdinal > *m_rollbackScope)
-            return true;
-        if (origin < m_maximumOrigin)
-            return true;
-        if (matchedProperties.fromStyleAttribute == FromStyleAttribute::Yes)
-            return false;
-        return matchedProperties.cascadeLayerPriority <= *m_maximumCascadeLayerPriorityForRollback;
-    };
-    if (m_maximumCascadeLayerPriorityForRollback && !includePropertiesForRollback())
-        return false;
-
-    if (matchedProperties.isStartingStyle == IsStartingStyle::Yes && !m_includedProperties.types.contains(PropertyType::StartingStyle))
-        return false;
-
-    auto propertyAllowlist = matchedProperties.allowlistType;
-    bool hasImportantProperties = false;
-
-    for (auto current : matchedProperties.properties.get()) {
-        if (current.isImportant())
-            hasImportantProperties = true;
-        if ((important == IsImportant::No && current.isImportant()) || (important == IsImportant::Yes && !current.isImportant()))
-            continue;
-
-        auto propertyID = cascadeAliasProperty(current.id());
-
-        auto shouldIncludeProperty = [&] {
-#if ENABLE(VIDEO)
-            if (propertyAllowlist == PropertyAllowlist::Cue && !isValidCueStyleProperty(propertyID))
-                return false;
-            if (propertyAllowlist == PropertyAllowlist::CueSelector && !isValidCueSelectorStyleProperty(propertyID))
-                return false;
-            if (propertyAllowlist == PropertyAllowlist::CueBackground && !isValidCueBackgroundStyleProperty(propertyID))
-                return false;
-#endif
-            if (propertyAllowlist == PropertyAllowlist::Marker && !isValidMarkerStyleProperty(propertyID))
-                return false;
-            if (propertyAllowlist == PropertyAllowlist::Highlight && !isValidHighlightStyleProperty(propertyID))
-                return false;
-
-            if (propertyAllowlist == PropertyAllowlist::FirstLetter && !isValidFirstLetterStyleProperty(propertyID))
-                return false;
-
-            if (propertyAllowlist == PropertyAllowlist::FirstLine && !isValidFirstLineStyleProperty(propertyID))
-                return false;
-
-            if (m_includedProperties.types.containsAll(normalPropertyTypes()))
-                return true;
-
-            if (m_includedProperties.ids.contains(propertyID))
-                return true;
-
-            if (matchedProperties.isCacheable == IsCacheable::Partially && m_includedProperties.types.contains(PropertyType::NonCacheable))
-                return true;
-
-            // If we have applied this property for some reason already we must apply anything that overrides it.
-            if (mayOverrideExistingProperty(propertyID, *current.value()))
-                return true;
-
-            if (m_includedProperties.types.contains(PropertyType::AfterAnimation)) {
-                if (shouldApplyAfterAnimation(current)) {
-                    m_animationLayer->overriddenProperties.add(propertyID);
-                    return true;
-                }
-                return false;
-            }
-
-            bool currentIsInherited = CSSProperty::isInheritedProperty(current.id());
-            if (m_includedProperties.types.contains(PropertyType::Inherited) && currentIsInherited)
-                return true;
-            if (m_includedProperties.types.contains(PropertyType::ExplicitlyInherited)) {
-                RefPtr value = current.value();
-                if (explicitlyInheritsFromParent(*value))
-                    return true;
-            }
-            if (m_includedProperties.types.contains(PropertyType::NonInherited) && !currentIsInherited)
-                return true;
-
-            return false;
-        }();
-
-        if (!shouldIncludeProperty)
-            continue;
-
-        if (m_ruleRollbackDepth) {
-            setDelayingForRuleRollback(propertyID, protect(*current.value()), matchedProperties, origin);
-            continue;
-        }
-
-        SUPPRESS_UNCOUNTED_ARG set(propertyID, *current.value(), matchedProperties, origin);
-    }
-
-    return hasImportantProperties;
-}
-
 bool PropertyCascade::shouldApplyAfterAnimation(const StyleProperties::PropertyReference& property)
 {
     ASSERT(m_animationLayer);
@@ -613,107 +331,152 @@ bool PropertyCascade::shouldApplyAfterAnimation(const StyleProperties::PropertyR
     return false;
 }
 
-void PropertyCascade::addPositionTryFallbackProperties()
+// Builds the cascade with the Swift kernel: buildCascade's normal and !important passes over the UserAgent, User and
+// Author matches up to m_maximumOrigin, the position-try fallback match, the rollback limits (m_rollbackScope,
+// m_maximumCascadeLayerPriorityForRollback), revert-rule delaying (m_ruleRollbackDepth) and sortLogicalGroupPropertyIDs.
+// The glue only gathers inputs and stores results: the match storage, the per-property facts the kernel can't read
+// from CSSValues (gathered below for the cascades that can need them), and, from the kernel, the custom-property sets
+// (into m_customProperties) and the overridden animated properties.
+void PropertyCascade::buildCascade()
 {
-    ASSERT(m_positionTryFallbackProperties);
+    ASSERT(m_propertyIsPresent.isEmpty() && !m_lastIndexForLogicalGroup && m_customProperties.isEmpty());
+    auto types = m_includedProperties.types;
 
-    // "All of the properties in a @position-try are applied to the box as part of the Position Fallback Origin,
-    // a new cascade origin that lies between the Author Origin and the Animation Origin"
-    // https://drafts.csswg.org/css-anchor-position-1/#fallback-rule
-    if (m_maximumOrigin < Origin::PositionFallback)
-        return;
+    // The kernel's matches, in order: UserAgent, User, Author, then the position-try fallback (Origin::PositionFallback).
+    auto positionTryFallback = m_positionTryFallbackProperties ? std::span<const MatchedProperties> { singleElementSpan(*m_positionTryFallbackProperties) } : std::span<const MatchedProperties> { };
+    std::array<std::span<const MatchedProperties>, 4> groups { m_matchResult.userAgentDeclarations.span(), m_matchResult.userDeclarations.span(), m_matchResult.authorDeclarations.span(), positionTryFallback };
+    size_t matchCount = groups[0].size() + groups[1].size() + groups[2].size() + groups[3].size();
 
-    addMatch(*m_positionTryFallbackProperties, Origin::PositionFallback, IsImportant::No);
-}
-
-NODELETE static auto& declarationsForOrigin(const MatchResult& matchResult, PropertyCascade::Origin origin)
-{
-    switch (origin) {
-    case PropertyCascade::Origin::UserAgent: return matchResult.userAgentDeclarations;
-    case PropertyCascade::Origin::User: return matchResult.userDeclarations;
-    case PropertyCascade::Origin::Author: return matchResult.authorDeclarations;
-    case PropertyCascade::Origin::PositionFallback: break;
-    }
-    ASSERT_NOT_REACHED();
-    return matchResult.authorDeclarations;
-}
-
-bool PropertyCascade::addNormalMatches(Origin origin)
-{
-    bool hasImportant = false;
-    for (auto& matchedDeclarations : declarationsForOrigin(m_matchResult, origin))
-        hasImportant |= addMatch(matchedDeclarations, origin, IsImportant::No);
-
-    return hasImportant;
-}
-
-NODELETE static bool hasImportantProperties(const StyleProperties& properties)
-{
-    for (auto property : properties) {
-        if (property.isImportant())
-            return true;
-    }
-    return false;
-}
-
-void PropertyCascade::addImportantMatches(Origin origin)
-{
-    struct ImportantMatch {
-        unsigned index;
-        ScopeOrdinal ordinal;
-        CascadeLayerPriority layerPriority;
-        FromStyleAttribute fromStyleAttribute;
-    };
-    Vector<ImportantMatch> importantMatches;
-    bool hasMatchesFromOtherScopesOrLayers = false;
-
-    auto& matchedDeclarations = declarationsForOrigin(m_matchResult, origin);
-
-    for (unsigned i = 0; i < matchedDeclarations.size(); ++i) {
-        const MatchedProperties& matchedProperties = matchedDeclarations[i];
-
-        if (!hasImportantProperties(matchedProperties.properties))
-            continue;
-
-        importantMatches.append({ i, matchedProperties.styleScopeOrdinal, matchedProperties.cascadeLayerPriority, matchedProperties.fromStyleAttribute });
-
-        if (matchedProperties.styleScopeOrdinal != ScopeOrdinal::Element || matchedProperties.cascadeLayerPriority != RuleSet::cascadeLayerPriorityForUnlayered)
-            hasMatchesFromOtherScopesOrLayers = true;
+    Vector<uint64_t, 3 * 32> matchWords(3 * matchCount);
+    auto matchWordSpan = matchWords.mutableSpan();
+    size_t wordIndex = 0;
+    size_t propertyTotal = 0;
+    for (auto group : groups) {
+        for (auto& matchedProperties : group) {
+            auto& properties = matchedProperties.properties.get();
+            auto words = matchWordSpan.subspan(wordIndex).first<3>();
+            size_t count;
+            if (properties.isMutable()) {
+                auto storage = uncheckedDowncast<MutableStyleProperties>(properties).propertySpan();
+                count = storage.size();
+                words[0] = reinterpret_cast<uintptr_t>(storage.data());
+                words[2] = count | 1ull << 63;
+#if ASSERT_ENABLED
+                assertStorageLayoutForSwift(properties, asByteSpan(storage));
+#endif
+            } else {
+                auto& immutableProperties = uncheckedDowncast<ImmutableStyleProperties>(properties);
+                count = immutableProperties.propertyCount();
+                words[0] = reinterpret_cast<uintptr_t>(&immutableProperties.m_storage);
+                words[2] = count;
+#if ASSERT_ENABLED
+                assertStorageLayoutForSwift(properties, unsafeMakeSpan(reinterpret_cast<const uint8_t*>(&immutableProperties.m_storage), count * (sizeof(StylePropertyMetadata) + sizeof(PackedPtr<const CSSValue>))));
+#endif
+            }
+            // linkMatchType through isCacheable, in their byte order (static_asserted above).
+            memcpySpan(asMutableByteSpan(words[1]), asByteSpan(matchedProperties).subspan(offsetof(MatchedProperties, linkMatchType), sizeof(uint64_t)));
+            propertyTotal += count;
+            wordIndex += 3;
+        }
     }
 
-    if (importantMatches.isEmpty())
-        return;
-
-    if (hasMatchesFromOtherScopesOrLayers) {
-        // Match results are sorted in reverse tree context order so this is not needed for normal properties.
-        std::ranges::stable_sort(importantMatches, [](auto& a, auto& b) {
-            // For !important properties a later shadow tree wins.
-            if (a.ordinal != b.ordinal)
-                return a.ordinal < b.ordinal;
-            // Lower priority layer wins, except if style attribute is involved.
-            if (a.fromStyleAttribute != b.fromStyleAttribute)
-                return a.fromStyleAttribute == FromStyleAttribute::No;
-            return a.layerPriority > b.layerPriority;
-        });
+    // Per property, in match order: bit 32 = shouldApplyAfterAnimation(), bit 33 = explicitlyInheritsFromParent(), and for
+    // a custom property bits 0-31 = an id per distinct name. Gathered only where the inclusion rules can read them (the
+    // kernel traps on a missing input): AfterAnimation and ExplicitlyInherited without both normal types (with Inherited
+    // included, the ExplicitlyInherited check is never reached for an inherited property); the names with rule rollback
+    // (they key the delayed properties) and when whether a custom property is included can depend on hasCustomProperty()
+    // (some type is included, but AfterAnimation or not the custom properties' own one).
+    auto table = propertyTableForSwift();
+    bool includesAllNormal = types.containsAll(normalPropertyTypes());
+    bool needsAfterAnimation = !includesAllNormal && types.contains(PropertyType::AfterAnimation);
+    bool needsExplicitlyInherited = !includesAllNormal && types.contains(PropertyType::ExplicitlyInherited);
+    bool includesInherited = types.contains(PropertyType::Inherited);
+    bool needsCustomNames = m_ruleRollbackDepth || (types && !includesAllNormal && (types.contains(PropertyType::AfterAnimation)
+        || !types.contains(table[std::to_underlying(CSSPropertyID::Custom)] & 0x8000 ? PropertyType::Inherited : PropertyType::NonInherited)));
+    Vector<uint64_t, 64> propertyInputs;
+    unsigned customNameCount = 0;
+    if (needsAfterAnimation || needsExplicitlyInherited || needsCustomNames) {
+        propertyInputs.grow(propertyTotal);
+        HashMap<AtomString, unsigned> customNameIDs;
+        size_t index = 0;
+        for (auto group : groups) {
+            for (auto& matchedProperties : group) {
+                for (auto property : matchedProperties.properties.get()) {
+                    uint64_t input = 0;
+                    if (needsAfterAnimation && shouldApplyAfterAnimation(property))
+                        input |= 1ull << 32;
+                    if (needsExplicitlyInherited && !(includesInherited && (table[std::to_underlying(property.id())] & 0x8000))) {
+                        RefPtr value = property.value();
+                        if (explicitlyInheritsFromParent(*value))
+                            input |= 1ull << 33;
+                    }
+                    if (needsCustomNames && (table[std::to_underlying(property.id())] & 0x7FFF) == std::to_underlying(CSSPropertyID::Custom)) {
+                        auto& name = downcast<CSSCustomPropertyValue>(*property.value()).name();
+                        input |= customNameIDs.ensure(name, [&] { return customNameCount++; }).iterator->value;
+                    }
+                    propertyInputs[index++] = input;
+                }
+            }
+        }
     }
 
-    for (auto& match : importantMatches)
-        addMatch(matchedDeclarations[match.index], origin, IsImportant::Yes);
-}
+    // The kernel's work regions (PropertyCascadeSwiftBoundary.h): sort scratch, custom-property sets, overridden animated
+    // properties, per-match property offsets and seen custom names, revert-rule keys and delayed properties.
+    size_t scratchCount = std::max<size_t>({ logicalGroupPropertyCount, groups[0].size(), groups[1].size(), groups[2].size() });
+    size_t workCount = scratchCount + propertyTotal;
+    if (types.contains(PropertyType::AfterAnimation))
+        workCount += propertyTotal;
+    if (!propertyInputs.isEmpty())
+        workCount += matchCount + (customNameCount + 63) / 64;
+    if (m_ruleRollbackDepth)
+        workCount += 2 * (table.size() + customNameCount) + 2 * propertyTotal;
+    Vector<uint64_t, 256> work(workCount);
 
-void PropertyCascade::sortLogicalGroupPropertyIDs()
-{
-    size_t endIndex = 0;
-    for (uint16_t id = std::to_underlying(m_lowestSeenLogicalGroupProperty); id <= std::to_underlying(m_highestSeenLogicalGroupProperty); ++id) {
-        auto propertyID = static_cast<CSSPropertyID>(id);
-        if (hasLogicalGroupProperty(propertyID))
-            m_logicalGroupPropertyIDs[endIndex++] = propertyID;
+    std::array<uint32_t, 19> state { static_cast<uint32_t>(groups[0].size()), static_cast<uint32_t>(groups[1].size()), static_cast<uint32_t>(groups[2].size()),
+        static_cast<uint32_t>(groups[3].size()), types.toRaw(), std::to_underlying(firstLogicalGroupProperty), sizeof(PackedPtr<const CSSValue>),
+        static_cast<uint32_t>(scratchCount), std::to_underlying(m_maximumOrigin),
+        m_rollbackScope ? 0x100u | static_cast<uint8_t>(std::to_underlying(*m_rollbackScope)) : 0u,
+        m_maximumCascadeLayerPriorityForRollback ? 0x10000u | *m_maximumCascadeLayerPriorityForRollback : 0u,
+        m_ruleRollbackDepth, static_cast<uint32_t>(propertyTotal), customNameCount,
+        m_lastIndexForLogicalGroup, m_seenLogicalGroupPropertyCount, std::to_underlying(m_lowestSeenLogicalGroupProperty), std::to_underlying(m_highestSeenLogicalGroupProperty), 0 };
+    auto includedIDs = spanReinterpretCast<const uint16_t>(m_includedProperties.ids.span());
+    auto properties = asMutableByteSpan(std::span { m_properties });
+    auto propertyIsPresent = m_propertyIsPresent.storage();
+    auto logicalGroupIDs = spanReinterpretCast<uint16_t>(std::span { m_logicalGroupPropertyIDs });
+
+    size_t customCount = WebCoreSwift_PropertyCascade_build(matchWords.span().data(), matchWords.size(), state.data(), state.size(),
+        includedIDs.data(), includedIDs.size(), table.data(), table.size(), propertyInputs.span().data(), propertyInputs.size(),
+        properties.data(), properties.size(), propertyIsPresent.data(), propertyIsPresent.size(),
+        m_logicalGroupPropertyIndices.data(), logicalGroupIDs.data(), logicalGroupPropertyCount, work.mutableSpan().data(), work.size());
+
+    m_lastIndexForLogicalGroup = state[14];
+    m_seenLogicalGroupPropertyCount = state[15];
+    m_lowestSeenLogicalGroupProperty = static_cast<CSSPropertyID>(state[16]);
+    m_highestSeenLogicalGroupProperty = static_cast<CSSPropertyID>(state[17]);
+
+    // The custom property sets, in cascade order (work[S + i] = match << 32 | property index).
+    for (auto entry : work.span().subspan(scratchCount, customCount)) {
+        size_t matchIndex = entry >> 32;
+        size_t groupIndex = 0;
+        while (matchIndex >= groups[groupIndex].size()) {
+            matchIndex -= groups[groupIndex].size();
+            ++groupIndex;
+        }
+        auto& matchedProperties = groups[groupIndex][matchIndex];
+        auto current = matchedProperties.properties->propertyAt(static_cast<uint32_t>(entry));
+        auto& property = m_customProperties.ensure(downcast<CSSCustomPropertyValue>(*current.value()).name(), [] {
+            Property property;
+            property.cssValue = { };
+            return property;
+        }).iterator->value;
+        SUPPRESS_UNCOUNTED_ARG setPropertyInternal(property, CSSPropertyID::Custom, *current.value(), matchedProperties, static_cast<Origin>(groupIndex));
     }
-    m_seenLogicalGroupPropertyCount = endIndex;
-    auto logicalGroupPropertyIDs = std::span { m_logicalGroupPropertyIDs }.first(endIndex);
-    std::ranges::sort(logicalGroupPropertyIDs, [&](auto id1, auto id2) {
-        return logicalGroupPropertyIndex(id1) < logicalGroupPropertyIndex(id2);
-    });
+
+    // The properties AfterAnimation included because they override an animation, in order (work[S + T + i]).
+    if (unsigned overriddenCount = state[18]) {
+        for (auto id : work.span().subspan(scratchCount + propertyTotal, overriddenCount))
+            m_animationLayer->overriddenProperties.add(static_cast<CSSPropertyID>(id));
+    }
 }
 
 ValueOrReference<HashSet<AnimatableCSSProperty>> PropertyCascade::overriddenAnimatedProperties() const

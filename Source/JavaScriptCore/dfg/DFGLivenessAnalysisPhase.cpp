@@ -37,8 +37,6 @@
 #include <wtf/IndexSparseSet.h>
 #include <wtf/SparseBitVector.h>
 
-#include "DFGLivenessSwiftBoundary.h"
-
 namespace JSC { namespace DFG {
 
 namespace {
@@ -85,10 +83,6 @@ public:
     }
     Row operator[](BasicBlock* block) { return (*this)[block->index()]; }
 
-    // For LivenessAnalysisPhase::runSwift(): the whole matrix, numBlocks rows of wordsPerSet() words.
-    std::span<uint64_t> words() LIFETIME_BOUND { return m_store.mutableSpan(); }
-    size_t wordsPerSet() const { return m_wordsPerSet; }
-
 private:
     size_t m_wordsPerSet { 0 };
     Vector<uint64_t> m_store;
@@ -121,14 +115,6 @@ public:
     }
 
     bool run()
-    {
-        if constexpr (std::is_same_v<TailStorage, DenseTailStorage>)
-            return runSwift();
-        else
-            return runCxx();
-    }
-
-    bool runCxx()
     {
         BlockIndex numBlock = m_graph.numBlocks();
         m_dirtyBlocks.ensureSize(numBlock);
@@ -172,207 +158,6 @@ public:
     }
 
 private:
-    // Graphs with fewer flow indices (about nodes + Phis) than this run the original C++. On FTL graphs captured
-    // from JetStream 3 the Swift path is slower below about 1500 nodes (flattening the graph costs about as much as
-    // one pass of the original, and small graphs are walked only about 1.5 times) and 10-13% faster above 2048.
-    static constexpr unsigned swiftMinimumIndexCount = 2048;
-
-    // The DenseTailStorage instantiation of run(), with processBlock() in Swift (DFGLiveness.swift):
-    // 1. One walk over the graph flattens every block into an action stream (nodes in reverse order, see
-    //    DFGLiveness.swift), the Edges of its uses (in stream order) and its predecessors' indices.
-    // 2. The original worklist loop, calling Swift for processBlock() and for its live-at-head update. It uses
-    //    m_liveAtHead and m_liveAtTail; the workset, the dirty bits and the worklist are scratch arrays here.
-    // 3. Each Edge gets the kill status computed by the last processing of its block, in the order of those last
-    //    processings (so the last write wins as in the original even if an Edge were reached from two blocks).
-    // 4. The original output loop, verbatim.
-    bool runSwift()
-    {
-        static constexpr uint32_t phiTag = 1u << 30;
-
-        unsigned numIndices = m_indexing.numIndices();
-        if (numIndices < swiftMinimumIndexCount)
-            return runCxx();
-
-        BlockIndex numBlock = m_graph.numBlocks();
-        size_t wordsPerSet = m_liveAtTail.wordsPerSet();
-
-        size_t nodeCount = 0;
-        size_t predecessorCount = 0;
-        for (BlockIndex blockIndex = 0; blockIndex < numBlock; ++blockIndex) {
-            if (BasicBlock* block = m_graph.block(blockIndex)) {
-                nodeCount += block->size();
-                predecessorCount += block->predecessors.size();
-            }
-        }
-
-        // 1. Flatten. A node takes at most 5 action words and 3 use Edges, except a varargs node with more than 3
-        // children, whose excess comes out of `extra` (grown if the varargs ranges overlap).
-        size_t extra = m_graph.m_varArgChildren.size();
-        Vector<uint32_t> actions;
-        actions.grow(5 * nodeCount + extra);
-        Vector<Edge*> useEdges;
-        useEdges.grow(3 * nodeCount + extra);
-        Vector<uint32_t, 64> predecessors;
-        predecessors.grow(predecessorCount);
-        Vector<size_t, 64> actionBegin;
-        actionBegin.grow(numBlock + 1);
-        Vector<size_t, 64> useBegin;
-        useBegin.grow(numBlock + 1);
-        Vector<size_t, 64> predecessorBegin;
-        predecessorBegin.grow(numBlock + 1);
-
-        std::span<uint32_t> actionWords = actions.mutableSpan();
-        std::span<Edge*> edges = useEdges.mutableSpan();
-        size_t actionCount = 0;
-        size_t useCount = 0;
-        size_t predecessorIndex = 0;
-        size_t excess = 0;
-        for (BlockIndex blockIndex = 0; blockIndex < numBlock; ++blockIndex) {
-            actionBegin[blockIndex] = actionCount;
-            useBegin[blockIndex] = useCount;
-            predecessorBegin[blockIndex] = predecessorIndex;
-            BasicBlock* block = m_graph.block(blockIndex);
-            if (!block)
-                continue;
-
-            for (unsigned nodeIndex = block->size(); nodeIndex--;) {
-                Node* node = block->at(nodeIndex);
-                switch (node->op()) {
-                case Upsilon: {
-                    actionWords[actionCount] = 1;
-                    actionWords[actionCount + 1] = m_indexing.shadowIndex(node->phi());
-                    actionWords[actionCount + 2] = m_indexing.index(node->child1().node());
-                    actionCount += 3;
-                    edges[useCount++] = &node->child1();
-                    break;
-                }
-                case Phi: {
-                    actionWords[actionCount] = phiTag;
-                    actionWords[actionCount + 1] = m_indexing.index(node);
-                    actionWords[actionCount + 2] = m_indexing.shadowIndex(node);
-                    actionCount += 3;
-                    break;
-                }
-                default: {
-                    if (node->flags() & NodeHasVarArgs) {
-                        unsigned numChildren = node->numChildren();
-                        RELEASE_ASSERT(numChildren < phiTag);
-                        if (numChildren > 3) {
-                            excess += numChildren - 3;
-                            if (excess > extra) [[unlikely]] {
-                                actions.grow(actions.size() + excess - extra);
-                                useEdges.grow(useEdges.size() + excess - extra);
-                                actionWords = actions.mutableSpan();
-                                edges = useEdges.mutableSpan();
-                                extra = excess;
-                            }
-                        }
-                    }
-                    size_t header = actionCount;
-                    actionWords[actionCount + 1] = m_indexing.index(node);
-                    actionCount += 2;
-                    m_graph.doToChildren(node, [&](Edge& edge) {
-                        actionWords[actionCount++] = m_indexing.index(edge.node());
-                        edges[useCount++] = &edge;
-                    });
-                    actionWords[header] = static_cast<uint32_t>(actionCount - header - 2);
-                    break;
-                }
-                }
-            }
-
-            for (BasicBlock* predecessor : block->predecessors)
-                predecessors[predecessorIndex++] = predecessor->index();
-        }
-        actionBegin[numBlock] = actionCount;
-        useBegin[numBlock] = useCount;
-        predecessorBegin[numBlock] = predecessorIndex;
-
-        // 2. Fixpoint until we do not add any new live values at tail.
-        Vector<uint32_t> workset(FillWith { }, 2 * static_cast<size_t>(numIndices), 0);
-        std::span<uint32_t> worksetMap = workset.mutableSpan().first(numIndices);
-        std::span<uint32_t> worksetValues = workset.mutableSpan().subspan(numIndices);
-        Vector<uint8_t> kill(FillWith { }, useCount, 0);
-        Vector<uint64_t, 4> dirtyBlocks(FillWith { }, (numBlock + 63) / 64, 0);
-        Vector<uint32_t, 64> worklist(FillWith { }, numBlock, 0);
-        Vector<uint32_t, 128> processingOrder;
-        std::span<uint64_t> tail = m_liveAtTail.words();
-
-        size_t worklistCount = 0;
-        for (BlockIndex blockIndex = 0; blockIndex < numBlock; ++blockIndex) {
-            if (m_graph.block(blockIndex)) {
-                dirtyBlocks[blockIndex / 64] |= static_cast<uint64_t>(1) << (blockIndex % 64);
-                worklist[worklistCount++] = blockIndex;
-            }
-        }
-
-        while (worklistCount) {
-            BlockIndex blockIndex = worklist[--worklistCount];
-            dirtyBlocks[blockIndex / 64] &= ~(static_cast<uint64_t>(1) << (blockIndex % 64));
-            processingOrder.append(blockIndex);
-
-            auto blockActions = actions.span().subspan(actionBegin[blockIndex], actionBegin[blockIndex + 1] - actionBegin[blockIndex]);
-            auto blockKills = kill.mutableSpan().subspan(useBegin[blockIndex], useBegin[blockIndex + 1] - useBegin[blockIndex]);
-            auto tailRow = tail.subspan(static_cast<size_t>(blockIndex) * wordsPerSet, wordsPerSet);
-            size_t worksetCount = JSCSwift_DFGLiveness_processBlock(blockActions.data(), blockActions.size(), tailRow.data(), tailRow.size(),
-                worksetMap.data(), worksetValues.data(), numIndices, blockKills.data(), blockKills.size());
-            RELEASE_ASSERT(worksetCount <= numIndices);
-
-            // Update live at head.
-            auto& liveAtHead = m_liveAtHead[blockIndex];
-            if (worksetCount == liveAtHead.size())
-                continue;
-
-            size_t oldHeadCount = liveAtHead.size();
-            liveAtHead.grow(oldHeadCount + worksetCount);
-            auto blockPredecessors = predecessors.span().subspan(predecessorBegin[blockIndex], predecessorBegin[blockIndex + 1] - predecessorBegin[blockIndex]);
-            size_t newHeadCount = 0;
-            worklistCount = JSCSwift_DFGLiveness_updateHead(liveAtHead.mutableSpan().data(), oldHeadCount, liveAtHead.size(),
-                worksetMap.data(), worksetValues.data(), worksetCount, numIndices,
-                tail.data(), tail.size(), wordsPerSet,
-                blockPredecessors.data(), blockPredecessors.size(),
-                dirtyBlocks.mutableSpan().data(), dirtyBlocks.size(), worklist.mutableSpan().data(), worklist.size(), worklistCount,
-                &newHeadCount);
-            RELEASE_ASSERT(newHeadCount <= liveAtHead.size() && worklistCount <= worklist.size());
-            liveAtHead.shrink(newHeadCount);
-        }
-
-        // 3. Kill statuses from each block's last processing, in the order of those.
-        Vector<uint32_t, 64> lastProcessing(FillWith { }, numBlock, 0);
-        for (size_t i = 0; i < processingOrder.size(); ++i)
-            lastProcessing[processingOrder[i]] = static_cast<uint32_t>(i);
-        for (size_t i = 0; i < processingOrder.size(); ++i) {
-            BlockIndex blockIndex = processingOrder[i];
-            if (lastProcessing[blockIndex] != i)
-                continue;
-            for (size_t k = useBegin[blockIndex]; k < useBegin[blockIndex + 1]; ++k)
-                edges[k]->setKillStatus(kill[k] ? DoesKill : DoesNotKill);
-        }
-
-        // 4. Update the per-block node list for live and tail.
-        for (BlockIndex blockIndex = numBlock; blockIndex--;) {
-            BasicBlock* block = m_graph.block(blockIndex);
-            if (!block)
-                continue;
-
-            {
-                block->ssa->liveAtHead = m_liveAtHead[blockIndex].map([this](auto index) {
-                    return m_indexing.nodeProjection(index);
-                });
-            }
-            {
-                auto& liveAtTail = block->ssa->liveAtTail;
-                liveAtTail.shrink(0);
-                m_liveAtTail[blockIndex].forEachSetBit([&](size_t index) {
-                    liveAtTail.append(m_indexing.nodeProjection(static_cast<unsigned>(index)));
-                });
-            }
-        }
-
-        return true;
-    }
-
-
     void processBlock(BlockIndex blockIndex)
     {
         BasicBlock* block = m_graph.block(blockIndex);

@@ -355,6 +355,45 @@ static const uint64_t* nodeWords(const Operands<Node*>& nodes)
     return nodes.size() ? std::bit_cast<const uint64_t*>(&nodes[0]) : nullptr;
 }
 
+// destination.merge(source) for a value whose merge reads, allocates or frees a structure list (a fat set on either
+// side, or two different single structures): Swift does the merge on flat copies of the two sets' lists and says what
+// the destination's set becomes; this stores that, since C++ owns the lists.
+static bool mergeValueWithStructureLists(AbstractValue& destination, const AbstractValue& source, Vector<uint64_t, 24>& scratch)
+{
+    auto destinationList = destination.m_structure.listForSwift();
+    auto sourceList = source.m_structure.listForSwift();
+    // Room for the result's elements (Swift writes them before it reads them).
+    if (size_t needed = destinationList.size() + sourceList.size() + 2; needed > scratch.size()) [[unlikely]]
+        scratch.grow(needed);
+    std::span<uint64_t> list = scratch.mutableSpan();
+    std::array<uint64_t, 3> result;
+    bool changed = JSCSwift_DFGCFAMerge_mergeSlowValue(std::bit_cast<uint64_t*>(&destination), std::bit_cast<const uint64_t*>(&source),
+        std::bit_cast<const uint64_t*>(destinationList.data()), destinationList.size(), destination.m_structure.listCapacityForSwift(),
+        std::bit_cast<const uint64_t*>(sourceList.data()), sourceList.size(), list.data(), list.size(), result.data());
+    uint32_t kind = static_cast<uint32_t>(result[0]);
+    switch (kind) {
+    case 0:
+        break;
+    case 1:
+        destination.m_structure.setWordForSwift(static_cast<uintptr_t>(result[1]));
+        break;
+    case 2:
+        RELEASE_ASSERT(result[2] <= list.size());
+        destination.m_structure.appendToListForSwift(list.first(result[2]), result[1]);
+        break;
+    case 3:
+        RELEASE_ASSERT(result[2] <= list.size());
+        destination.m_structure.setNewListForSwift(list.first(result[2]), static_cast<unsigned>(result[0] >> 32), result[1]);
+        break;
+    case 4:
+        destination.m_structure = source.m_structure;
+        break;
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
+    }
+    return changed;
+}
+
 // The per-variable part of merge(from, to) runs in Swift (DFGCFAMerge.swift): from->valuesAtTail[i] into
 // to->valuesAtHead[i] for every variable (in ThreadedCPS form only those with a to->variablesAtHead node).
 bool InPlaceAbstractState::mergeValues(BasicBlock* from, BasicBlock* to)
@@ -366,11 +405,18 @@ bool InPlaceAbstractState::mergeValues(BasicBlock* from, BasicBlock* to)
     size_t slowCount = 0;
     bool changed = JSCSwift_DFGCFAMerge_mergeValues(abstractValueWords(to->valuesAtHead), to->valuesAtHead.size(), abstractValueWords(from->valuesAtTail), from->valuesAtTail.size(),
         isCPS ? nodeWords(to->variablesAtHead) : nullptr, isCPS ? to->variablesAtHead.size() : 0, isCPS, count, m_slowMergeIndices.mutableSpan().data(), m_slowMergeIndices.size(), &slowCount);
-    // The values Swift left untouched because merging them allocates or frees a structure list.
+    // The values whose merge needs a structure list: with bit 31 set, Swift merged the other words and the set
+    // becomes a copy of the source's (*this = other); otherwise the value is untouched.
     RELEASE_ASSERT(slowCount <= m_slowMergeIndices.size());
-    for (uint32_t index : m_slowMergeIndices.span().first(slowCount)) {
+    for (uint32_t entry : m_slowMergeIndices.span().first(slowCount)) {
+        uint32_t index = entry & ~(1u << 31);
         RELEASE_ASSERT(index < count);
-        changed |= to->valuesAtHead[index].merge(from->valuesAtTail[index]);
+        if (entry & (1u << 31)) {
+            // *this = other (Swift copied the other words): copy the structure set.
+            to->valuesAtHead[index].m_structure = from->valuesAtTail[index].m_structure;
+            continue;
+        }
+        changed |= mergeValueWithStructureLists(to->valuesAtHead[index], from->valuesAtTail[index], m_structureListScratch);
     }
     return changed;
 }

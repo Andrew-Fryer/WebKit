@@ -20,37 +20,9 @@
 // CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 
-// C entry points for MarkedBlockSweep.swift and MarkedBlockStopAllocating.swift, declared to C++ in
-// MarkedBlockSweepSwiftBoundary.h and called only from heap/MarkedBlock.cpp. The unsafe operations are turning
-// (pointer, count) pairs into spans and writing the scalar results. The payload pointer is 16-byte aligned
-// (MarkedBlock atoms): the sweep views it as atoms of two UInt64, stopAllocating as atoms of four UInt32. The
-// bitmaps and the deref buffer are 8-byte aligned.
-
-@_cdecl("JSCSwift_MarkedBlockSweep_sweep")
-func JSCSwift_MarkedBlockSweep_sweep(_ payload: UnsafeMutableRawPointer?, _ payloadAtoms: Int,
-                                     _ liveWords: UnsafePointer<UInt64>?, _ liveWordCount: Int,
-                                     _ startAtom: UInt32, _ atomsPerCell: UInt32, _ secret: UInt64, _ flags: UInt32,
-                                     _ derefs: UnsafeMutablePointer<UInt64>?, _ derefCapacity: Int,
-                                     _ outHeadOffset: UnsafeMutablePointer<Int64>, _ outFreedBytes: UnsafeMutablePointer<UInt64>) -> Int {
-    let atomBase = unsafe payload?.bindMemory(to: MarkedBlockAtom.self, capacity: payloadAtoms)
-    let atoms = unsafe UnsafeMutableBufferPointer(start: atomBase, count: payloadAtoms).mutableSpan
-    let live = unsafe UnsafeBufferPointer(start: liveWords, count: liveWordCount).span
-    precondition(derefCapacity == 1024)
-    let derefBase = unsafe derefs.map { unsafe UnsafeMutableRawPointer($0).bindMemory(to: MarkedBlockDerefs.self, capacity: 1) }
-    let derefSpan = unsafe UnsafeMutableBufferPointer(start: derefBase, count: 1).mutableSpan
-    let destroyKind: MarkedBlockSweepDestroyKind
-    switch (flags >> 2) & 3 {
-    case 1: destroyKind = .string
-    case 2: destroyKind = .rope
-    default: preconditionFailure("unknown MarkedBlockSweep destroy kind")
-    }
-    let result = sweepMarkedBlock(atoms, live: live, allDead: unsafe liveWords == nil, startAtom: startAtom,
-                                  atomsPerCell: atomsPerCell, secret: secret, toFreeList: flags & 1 != 0, scribble: flags & 2 != 0,
-                                  destroyKind: destroyKind, derefs: derefSpan)
-    unsafe outHeadOffset.pointee = Int64(result.headOffset)
-    unsafe outFreedBytes.pointee = UInt64(result.freedBytes)
-    return result.derefCount
-}
+// C entry point for MarkedBlockStopAllocating.swift, declared to C++ in MarkedBlockSweepSwiftBoundary.h and called
+// only from heap/MarkedBlock.cpp. The unsafe operations turn (pointer, count) pairs into spans. The payload pointer
+// is 16-byte aligned (MarkedBlock atoms), viewed as atoms of four UInt32; the bitmap is 8-byte aligned.
 
 @_cdecl("JSCSwift_MarkedBlockSweep_stopAllocating")
 func JSCSwift_MarkedBlockSweep_stopAllocating(_ payload: UnsafeMutableRawPointer?, _ payloadAtoms: Int,

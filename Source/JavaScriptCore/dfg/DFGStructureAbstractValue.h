@@ -249,7 +249,46 @@ public:
     NODELETE bool isNotSubClassOf(const ClassInfo*) const;
     
     void validateReferences(const TrackedReferences&) const;
-    
+
+    // For the CFA merges that need a structure list, which DFGCFAMerge.swift does on flat copies of the lists
+    // (InPlaceAbstractState::mergeValues): a fat set's list and its capacity (empty and 0 when thin), and the two
+    // ways to store Swift's result, a new word (thin or TOP) or a fat list in the existing or a new OutOfLineList.
+    std::span<const RegisteredStructure> listForSwift() const
+    {
+        if (m_set.isThin())
+            return { };
+        return m_set.list()->lengthSpan();
+    }
+    unsigned listCapacityForSwift() const { return m_set.isThin() ? 0 : m_set.list()->m_capacity; }
+    void setWordForSwift(uintptr_t word)
+    {
+        m_set.deleteListIfNecessary();
+        m_set.m_pointer = word;
+    }
+    void appendToListForSwift(std::span<const uint64_t> structures, bool clobbered)
+    {
+        RELEASE_ASSERT(!m_set.isThin());
+        auto* list = m_set.list();
+        RELEASE_ASSERT(structures.size() <= list->m_capacity - list->m_length);
+        auto destination = list->capacitySpan().subspan(list->m_length, structures.size());
+        for (auto [source, element] : zippedRange(structures, destination))
+            element = std::bit_cast<RegisteredStructure>(source);
+        list->m_length += structures.size();
+        setClobbered(clobbered);
+    }
+    void setNewListForSwift(std::span<const uint64_t> structures, unsigned capacity, bool clobbered)
+    {
+        using OutOfLineList = TinyPtrSet<RegisteredStructure>::OutOfLineList;
+        RELEASE_ASSERT(structures.size() <= capacity);
+        OutOfLineList* list = OutOfLineList::create(capacity);
+        list->m_length = structures.size();
+        for (auto [source, element] : zippedRange(structures, list->lengthSpan()))
+            element = std::bit_cast<RegisteredStructure>(source);
+        m_set.deleteListIfNecessary();
+        m_set.set(list);
+        setClobbered(clobbered);
+    }
+
 private:
     static constexpr uintptr_t clobberedFlag = RegisteredStructureSet::reservedFlag;
     static constexpr uintptr_t topValue = RegisteredStructureSet::reservedValue;

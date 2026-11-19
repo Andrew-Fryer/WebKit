@@ -293,16 +293,6 @@ void MarkedBlock::Handle::specializedSweep(FreeList* freeList, MarkedBlock::Hand
         return wasUnswept;
     };
 
-    // The cell loops run in Swift (sweepWithSwiftKernel) when they destroy cells of a type whose destructor Swift
-    // implements (JSString, JSRopeString), so the C++ loops below never destroy such cells. Sweeps that destroy
-    // nothing (blocks without destructors, cells already swept) keep the C++ loops.
-    constexpr SwiftSweepDestroyKind swiftDestroyKind = [] {
-        if constexpr (requires { DestroyFunc::swiftSweepDestroyKind; })
-            return DestroyFunc::swiftSweepDestroyKind;
-        else
-            return SwiftSweepDestroyKind::Unsupported;
-    }();
-
     if (emptyMode == IsEmpty || (marksMode != MarksNotStale && newlyAllocatedMode != HasNewlyAllocated)) {
         // This is an incredibly powerful assertion that checks the sanity of our block bits.
         if (marksMode == MarksNotStale && !header.m_marks.isEmpty()) [[unlikely]] {
@@ -324,12 +314,7 @@ void MarkedBlock::Handle::specializedSweep(FreeList* freeList, MarkedBlock::Hand
         bool wasUnswept = setBits(true);
         if (isMarking)
             header.m_lock.unlock();
-        if constexpr (swiftDestroyKind != SwiftSweepDestroyKind::Unsupported) {
-            if (destructionMode == BlockHasDestructors && wasUnswept) [[likely]] {
-                sweepWithSwiftKernel(freeList, nullptr, sweepMode, scribbleMode, swiftDestroyKind, secret);
-                return;
-            }
-        } else if (destructionMode == BlockHasDestructors) {
+        if (destructionMode == BlockHasDestructors) {
             if (wasUnswept) {
                 for (char* cell = payloadBegin; cell < payloadEnd; cell += cellSize)
                     destroy(cell);
@@ -415,13 +400,7 @@ void MarkedBlock::Handle::specializedSweep(FreeList* freeList, MarkedBlock::Hand
         }
     };
 
-    if constexpr (swiftDestroyKind != SwiftSweepDestroyKind::Unsupported) {
-        if (destructionMode == BlockHasDestructors && wasUnswept) [[likely]] {
-            sweepWithSwiftKernel(freeList, &live, sweepMode, scribbleMode, swiftDestroyKind, secret);
-            return;
-        }
-        sweepBlock.template operator()</* needsDestruction */ false>();
-    } else if (destructionMode == BlockHasNoDestructors || !wasUnswept)
+    if (destructionMode == BlockHasNoDestructors || !wasUnswept)
         sweepBlock.template operator()</* needsDestruction */ false>();
     else
         sweepBlock.template operator()</* needsDestruction */ true>();
