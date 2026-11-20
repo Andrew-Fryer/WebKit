@@ -7569,6 +7569,8 @@
 		DD85995854DFC0EAEB6E4F5D /* MatchResultCacheDiffBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E1BD88FB72F259A921863A5 /* MatchResultCacheDiffBoundary.swift */; };
 		0CD0532D83C0D6C4633C6B95 /* SVGNumberGrammar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE3A185A9B62769588017718 /* SVGNumberGrammar.swift */; };
 		6582252DCF8C466E379664D1 /* SVGNumberGrammarBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F764CBB68A750D35EE491C91 /* SVGNumberGrammarBoundary.swift */; };
+		682EE5D54A11C3C569DA6C85 /* SVGPropertyRegistryTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55DA8300071CF09B88414107 /* SVGPropertyRegistryTable.swift */; };
+		48621BEFF5949F6BFAD2B5CE /* SVGPropertyRegistryTableBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAD37A118CF61ADBD41E94D1 /* SVGPropertyRegistryTableBoundary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -24245,6 +24247,9 @@
 		FE3A185A9B62769588017718 /* SVGNumberGrammar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGNumberGrammar/SVGNumberGrammar.swift; sourceTree = "<group>"; };
 		F764CBB68A750D35EE491C91 /* SVGNumberGrammarBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGNumberGrammar/SVGNumberGrammarBoundary.swift; sourceTree = "<group>"; };
 		D6BEACD0F61A913EF9372DFE /* SVGNumberGrammarSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SVGNumberGrammar/SVGNumberGrammarSwiftBoundary.h; sourceTree = "<group>"; };
+		55DA8300071CF09B88414107 /* SVGPropertyRegistryTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGPropertyRegistryTable/SVGPropertyRegistryTable.swift; sourceTree = "<group>"; };
+		EAD37A118CF61ADBD41E94D1 /* SVGPropertyRegistryTableBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGPropertyRegistryTable/SVGPropertyRegistryTableBoundary.swift; sourceTree = "<group>"; };
+		5F111EC5848A47E8149860AF /* SVGPropertyRegistryTableSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SVGPropertyRegistryTable/SVGPropertyRegistryTableSwiftBoundary.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44324,6 +44329,9 @@
 		91EC392E6A5F6B385F6BCD04 /* swift */ = {
 			isa = PBXGroup;
 			children = (
+				5F111EC5848A47E8149860AF /* SVGPropertyRegistryTableSwiftBoundary.h */,
+				EAD37A118CF61ADBD41E94D1 /* SVGPropertyRegistryTableBoundary.swift */,
+				55DA8300071CF09B88414107 /* SVGPropertyRegistryTable.swift */,
 				D6BEACD0F61A913EF9372DFE /* SVGNumberGrammarSwiftBoundary.h */,
 				F764CBB68A750D35EE491C91 /* SVGNumberGrammarBoundary.swift */,
 				FE3A185A9B62769588017718 /* SVGNumberGrammar.swift */,
@@ -51480,6 +51488,8 @@
 				41514FDB2E92DC40002074EA /* StreamPipeToUtilities.cpp in Sources */,
 				A833C7CA0A2CF06B00D57664 /* SVGNames.cpp in Sources */,
 				07E047C3305A9DB000DFCC4B /* SwiftStub.swift in Sources */,
+				48621BEFF5949F6BFAD2B5CE /* SVGPropertyRegistryTableBoundary.swift in Sources */,
+				682EE5D54A11C3C569DA6C85 /* SVGPropertyRegistryTable.swift in Sources */,
 				6582252DCF8C466E379664D1 /* SVGNumberGrammarBoundary.swift in Sources */,
 				0CD0532D83C0D6C4633C6B95 /* SVGNumberGrammar.swift in Sources */,
 				DD85995854DFC0EAEB6E4F5D /* MatchResultCacheDiffBoundary.swift in Sources */,

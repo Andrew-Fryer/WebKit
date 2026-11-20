@@ -29,6 +29,9 @@
 #include "SVGAnimatedPropertyPairAccessorImpl.h"
 #include "SVGPropertyAccessorImpl.h"
 #include "SVGPropertyRegistry.h"
+#include "SVGPropertyRegistryTableSwiftBoundary.h"
+#include <bit>
+#include <span>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -179,9 +182,21 @@ public:
     template<typename Functor>
     static bool enumerateRecursively(NOESCAPE const Functor& functor)
     {
-        for (const auto& entry : attributeNameToAccessorMap()) {
-            if (!functor(entry))
-                return false;
+        // In registration order (the original HashMap's order was unspecified: it followed AtomStringImpl addresses).
+        // Reads the entry array whose layout SVGPropertyRegistryTableSwiftBoundary.h publishes.
+        if (auto table = s_attributeNameToAccessorTable; !table.empty()) {
+            size_t count = table[WebCoreSwift_SVGPropertyRegistryTable_CountWord];
+            RELEASE_ASSERT(count <= (table.size() - WebCoreSwift_SVGPropertyRegistryTable_EntriesWord) / WebCoreSwift_SVGPropertyRegistryTable_EntryWords);
+            auto entries = table.subspan(WebCoreSwift_SVGPropertyRegistryTable_EntriesWord, count * WebCoreSwift_SVGPropertyRegistryTable_EntryWords);
+            for (size_t i = 0; i < count; ++i) {
+                auto words = entries.subspan(i * WebCoreSwift_SVGPropertyRegistryTable_EntryWords, WebCoreSwift_SVGPropertyRegistryTable_EntryWords);
+                Entry entry {
+                    *std::bit_cast<const QualifiedName*>(static_cast<uintptr_t>(words[WebCoreSwift_SVGPropertyRegistryTable_EntryKeyWord])),
+                    std::bit_cast<const SVGMemberAccessor<OwnerType>*>(static_cast<uintptr_t>(words[WebCoreSwift_SVGPropertyRegistryTable_EntryAccessorWord]))
+                };
+                if (!functor(entry))
+                    return false;
+            }
         }
         return enumerateRecursivelyBaseTypes(functor);
     }
@@ -222,18 +237,51 @@ public:
     }
 
 private:
-    // Singleton map for every OwnerType.
-    using QualifiedNameAccessorHashMap = HashMap<QualifiedName, const SVGMemberAccessor<OwnerType>*, SVGAttributeHashTranslator>;
+    // What enumerateRecursively() gives the functor for each entry.
+    struct Entry {
+        const QualifiedName& key;
+        const SVGMemberAccessor<OwnerType>* value;
+    };
 
-    static QualifiedNameAccessorHashMap& attributeNameToAccessorMap()
-    {
-        static NeverDestroyed<QualifiedNameAccessorHashMap> attributeNameToAccessorMap;
-        return attributeNameToAccessorMap;
-    }
+    static uint64_t tableHandle(const void* pointer) { return std::bit_cast<uintptr_t>(pointer); }
+    static_assert(sizeof(uintptr_t) == sizeof(uint64_t));
+    static_assert(WebCoreSwift_SVGPropertyRegistryTable_CountWord < WebCoreSwift_SVGPropertyRegistryTable_EntriesWord);
+    static_assert(WebCoreSwift_SVGPropertyRegistryTable_EntryKeyWord < WebCoreSwift_SVGPropertyRegistryTable_EntryWords);
+    static_assert(WebCoreSwift_SVGPropertyRegistryTable_EntryAccessorWord < WebCoreSwift_SVGPropertyRegistryTable_EntryWords);
+    static_assert(WebCoreSwift_SVGPropertyRegistryTable_EntryKeyWord != WebCoreSwift_SVGPropertyRegistryTable_EntryAccessorWord);
 
-    static void registerProperty(const QualifiedName& attributeName, const SVGMemberAccessor<OwnerType>& propertyAccessor)
+    // Singleton table for every OwnerType, attribute name -> accessor, matching names with SVGAttributeHashTranslator
+    // (QualifiedName::matches). Swift owns its layout and the operations that build and search it
+    // (swift/SVGPropertyRegistryTable); C++ allocates its words and reads only the entry array the boundary header
+    // publishes. Constant-initialized, so a lookup needs no static-initialization guard; empty until OwnerType registers
+    // a property.
+    static inline constinit std::span<const uint64_t> s_attributeNameToAccessorTable { };
+
+    // The table keeps the address of attributeName, which is immortal (the LazyNeverDestroyed template argument of the
+    // registerProperty() overloads above), instead of a copy.
+    static void registerProperty(const LazyNeverDestroyed<const QualifiedName>& attributeNameStorage, const SVGMemberAccessor<OwnerType>& propertyAccessor)
     {
-        attributeNameToAccessorMap().add(attributeName, &propertyAccessor);
+        static NeverDestroyed<Vector<uint64_t>> words;
+        const QualifiedName& attributeName = attributeNameStorage.get();
+        auto entryCount = [] {
+            auto table = s_attributeNameToAccessorTable;
+            return table.empty() ? 0 : static_cast<size_t>(table[WebCoreSwift_SVGPropertyRegistryTable_CountWord]);
+        };
+        size_t countBefore = entryCount();
+        while (size_t grownWordCount = WebCoreSwift_SVGPropertyRegistryTable_add(words->mutableSpan().data(), words->size(), tableHandle(attributeName.localName().impl()), tableHandle(attributeName.namespaceURI().impl()), tableHandle(&attributeName), tableHandle(&propertyAccessor))) {
+            Vector<uint64_t> grown(FillWith { }, grownWordCount, 0);
+            WebCoreSwift_SVGPropertyRegistryTable_rehash(words->span().data(), words->size(), grown.mutableSpan().data(), grown.size());
+            words.get() = WTF::move(grown);
+            s_attributeNameToAccessorTable = words->span();
+        }
+        // Registration is cold, so check here that Swift writes the entry array the way the boundary header publishes it
+        // (enumerateRecursively() reads it): a new name is appended holding exactly these handles; a name that is already
+        // there leaves the table unchanged (HashMap::add).
+        if (size_t count = entryCount(); count != countBefore) {
+            RELEASE_ASSERT(count == countBefore + 1);
+            auto entry = s_attributeNameToAccessorTable.subspan(WebCoreSwift_SVGPropertyRegistryTable_EntriesWord + countBefore * WebCoreSwift_SVGPropertyRegistryTable_EntryWords, WebCoreSwift_SVGPropertyRegistryTable_EntryWords);
+            RELEASE_ASSERT(entry[WebCoreSwift_SVGPropertyRegistryTable_EntryKeyWord] == tableHandle(&attributeName) && entry[WebCoreSwift_SVGPropertyRegistryTable_EntryAccessorWord] == tableHandle(&propertyAccessor));
+        }
     }
 
     template<typename Functor, size_t I = 0>
@@ -257,8 +305,11 @@ private:
 
     static const SVGMemberAccessor<OwnerType>* findAccessor(const QualifiedName& attributeName)
     {
-        auto it = attributeNameToAccessorMap().find(attributeName);
-        return it != attributeNameToAccessorMap().end() ? it->value : nullptr;
+        auto table = s_attributeNameToAccessorTable;
+        if (table.empty())
+            return nullptr;
+        auto accessor = WebCoreSwift_SVGPropertyRegistryTable_find(table.data(), table.size(), tableHandle(attributeName.localName().impl()), tableHandle(attributeName.namespaceURI().impl()));
+        return std::bit_cast<const SVGMemberAccessor<OwnerType>*>(static_cast<uintptr_t>(accessor));
     }
 
     template<typename Functor, size_t I = 0>
