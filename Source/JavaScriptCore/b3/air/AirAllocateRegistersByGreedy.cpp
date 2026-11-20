@@ -34,6 +34,7 @@
 #include "AirEmitShuffle.h"
 #include "AirEnsureDedicatedLoopEntryExitBlocks.h"
 #include "AirFixSpillsAfterTerminals.h"
+#include "AirGreedyRegisterRangesSwiftBoundary.h"
 #include "AirInstInlines.h"
 #include "AirLiveness.h"
 #include "AirNaturalLoops.h"
@@ -49,6 +50,7 @@
 #include <wtf/IntervalSet.h>
 #include <wtf/IterationStatus.h>
 #include <wtf/ListDump.h>
+#include <wtf/Nonmovable.h>
 #include <wtf/PriorityQueue.h>
 #include <wtf/Range.h>
 
@@ -482,30 +484,45 @@ private:
     uint64_t m_priority { 0 };
 };
 
-class RegisterRange {
+// The RegisterRange of every register: which Tmp occupies the register at each Point (a Tmp assigned to it, or the
+// register's own Tmp for fixed uses, defs and clobbers), plus, for a vector register, the Points where a clobber
+// preserves only its low 64 bits. Swift owns this data structure (swift/AirGreedyRegisterRanges: an interval B+ tree per
+// set); this class owns its storage, an arena of words that Swift asks it to grow, and passes LiveRanges across.
+class RegisterRanges {
+    WTF_MAKE_NONCOPYABLE(RegisterRanges);
+    // A LiveRange's intervals as words begin | end << 32, which is their layout on a little-endian CPU. Its buffer is
+    // 8-byte aligned in practice (a Vector's inline buffer follows its pointer, an out-of-line one is from fastMalloc);
+    // any other is copied.
+    class IntervalWords {
+        WTF_MAKE_NONCOPYABLE(IntervalWords);
+        WTF_MAKE_NONMOVABLE(IntervalWords);
+    public:
+        IntervalWords(std::span<const Interval> intervals)
+        {
+            static_assert(sizeof(Interval) == sizeof(uint64_t) && std::is_standard_layout_v<Interval> && std::endian::native == std::endian::little);
+            if (!(reinterpret_cast<uintptr_t>(intervals.data()) % alignof(uint64_t))) [[likely]] {
+                m_words = { reinterpret_cast<const uint64_t*>(intervals.data()), intervals.size() };
+                ASSERT(intervals.empty() || m_words[0] >> 32 == intervals[0].end());
+                return;
+            }
+            m_copy.reserveInitialCapacity(intervals.size());
+            for (auto& interval : intervals)
+                m_copy.append(interval.begin() | static_cast<uint64_t>(interval.end()) << 32);
+            m_words = m_copy.span();
+        }
+
+        const uint64_t* data() const { return m_words.data(); }
+        size_t size() const { return m_words.size(); }
+
+    private:
+        std::span<const uint64_t> m_words;
+        Vector<uint64_t> m_copy;
+    };
+
 public:
-    // Diminishing returns on perf after 2 cache lines, but 3 is more space efficient than 2.
-    // InnerNodes store arrays of Range<Point> & uintptr_t (16 bytes per order)
-    // LeafNodes store arrays of Range<Point> & Tmp (12 bytes per order)
-    // Both are multiples of 192, which is 3 cache lines.
-    static constexpr unsigned cacheLinesPerNode = 3;
-    using AllocatedIntervalSet = IntervalSet<Point, Tmp, cacheLinesPerNode>;
-
-    RegisterRange() = default;
-
     struct AllocatedInterval {
         Interval interval;
         Tmp tmp;
-
-        AllocatedInterval(const std::pair<Interval, Tmp>& pair)
-            : interval(pair.first)
-            , tmp(pair.second)
-        { }
-
-        NODELETE bool operator<(const AllocatedInterval& other) const
-        {
-            return this->interval.end() < other.interval.end();
-        }
 
         void dump(PrintStream& out) const
         {
@@ -513,109 +530,240 @@ public:
         }
     };
 
-    void add(Tmp tmp, LiveRange& range)
+    RegisterRanges()
     {
-        ASSERT(!hasConflict(range, Width64)); // Can't add overlapping LiveRanges
+        static_assert(Reg::maxIndex() < JSCSwift_AirGreedyRegisterRanges_maxRegisters);
+        grow(JSCSwift_AirGreedyRegisterRanges_minimumWords + initialNodeWords);
+    }
 
-        // The first range can build the tree directly from its intervals in one pass.
-        if (m_allocations.isEmpty()) {
-            m_allocations = AllocatedIntervalSet(range.intervals().span(), tmp);
-            return;
-        }
+    ~RegisterRanges()
+    {
+        fastFree(m_words);
+    }
 
-        for (auto& interval : range.intervals()) {
+    // Tries the preferred register, then the others in order: the first without a conflict with the range gets it
+    // added for tmp and is returned. Returns Reg() if every register conflicts.
+    Reg tryAllocate(Tmp tmp, const LiveRange& range, Width width, Reg preferred, std::span<const Reg> order)
+    {
+        static_assert(sizeof(Reg) == 1);
+        IntervalWords intervals(range.intervals().span());
+        size_t progress = 0;
+        int32_t result = JSCSwift_AirGreedyRegisterRanges_tryAllocate(m_words, m_size, intervals.data(), intervals.size(),
+            preferred ? static_cast<int32_t>(preferred.index()) : -1, reinterpret_cast<const uint8_t*>(order.data()), order.size(),
+            width > Width64, tmp.internalValue(), &progress);
+        if (result < 0)
+            return Reg();
+        Reg reg = Reg::fromIndex(result);
+        if (progress < intervals.size()) [[unlikely]]
+            finishAdd(reg, tmp, intervals, progress);
+        return reg;
+    }
+
+    void add(Reg reg, Tmp tmp, const LiveRange& range)
+    {
+        IntervalWords intervals(range.intervals().span());
+#if ASSERT_ENABLED
+        for (auto& interval : range.intervals())
             ASSERT(interval != Interval()); // Strict ordering requires no empty intervals.
-            m_allocations.insert(interval, tmp);
-        }
+        bool overlaps = false;
+        forEachEntry<1>(reg, intervals, allocationsOnly, [&](AllocatedInterval&) {
+            overlaps = true;
+            return IterationStatus::Done;
+        });
+        ASSERT(!overlaps); // Can't add overlapping LiveRanges
+#endif
+        finishAdd(reg, tmp, intervals, 0);
+    }
+
+    void evict(Reg reg, const LiveRange& range)
+    {
+        IntervalWords intervals(range.intervals().span());
+        JSCSwift_AirGreedyRegisterRanges_evict(m_words, m_size, reg.index(), intervals.data(), intervals.size());
     }
 
     void addClobberHigh64(Reg reg, Point point)
     {
         ASSERT(reg.isFPR());
-        m_allocationsHigh64.insert(Interval(point), Tmp(reg));
+        while (size_t needed = JSCSwift_AirGreedyRegisterRanges_addClobberHigh64(m_words, m_size, reg.index(), point, Tmp(reg).internalValue()))
+            grow(needed);
     }
 
-    void evict(LiveRange& range)
-    {
-        for (auto& interval : range.intervals())
-            m_allocations.erase(interval);
-    }
-
-    NODELETE bool hasConflict(LiveRange& range, Width width)
-    {
-        for (auto interval : range.intervals()) {
-            if (m_allocations.hasOverlap(interval))
-                return true;
-        }
-        if (width <= Width64)
-            return false;
-        for (auto interval : range.intervals()) {
-            if (m_allocationsHigh64.hasOverlap(interval))
-                return true;
-        }
-        return false;
-    }
-
-    // func is called with each (Tmp, Interval) pair (i.e. AllocatedInterval) of this
-    // RegisterRange that overlaps with the given LiveRange 'range'.
-    //
-    // func is allowed to modify this RegisterRange, e.g. by calling evict().
+    // func is called with each (Tmp, Interval) pair (i.e. AllocatedInterval) of reg's RegisterRange that overlaps with
+    // the given LiveRange 'range', in order, until it returns IterationStatus::Done. The conflicts come from Swift in
+    // batches of up to maxBatch (a batch past the first conflict costs no extra tree descents), so func may modify the
+    // RegisterRange (e.g. evict()) only with maxBatch == 1.
     // func must not modify 'range' for the duration of this forEachConflict invocation.
-    void forEachConflict(const LiveRange& range, Width width, NOESCAPE const Invocable<IterationStatus(AllocatedInterval&)> auto& func)
+    template<size_t maxBatch = 8>
+    void forEachConflict(Reg reg, const LiveRange& range, Width width, NOESCAPE const Invocable<IterationStatus(AllocatedInterval&)> auto& func) const
     {
-        auto status = forEachConflictImpl(m_allocations, range, func);
-        if (width > Width64) [[unlikely]] {
-            if (status == IterationStatus::Continue)
-                forEachConflictImpl(m_allocationsHigh64, range, func);
-        }
+        forEachEntry<maxBatch>(reg, IntervalWords(range.intervals().span()), width > Width64 ? allocationsAndHigh64 : allocationsOnly, func);
     }
 
-    NODELETE bool isEmpty() const
+    // tryEvict's cost loop, all in Swift: for each register of the order, the sum of the spill costs of its conflicts
+    // with 'range' (in forEachConflict's order), stopping at an unspillable one or once the sum reaches minSpillCost,
+    // the lowest sum so far (initially the cost to beat). A conflict with a register's own Tmp is unspillable (Swift
+    // tells them apart by value, as Tmp::isReg() does); for the others, costOf(conflictTmp, orderIndex) returns the
+    // SpillCost, or std::nullopt to skip it (a Tmp already counted for the register at orderIndex); Swift calls it back
+    // through a C function pointer. Returns the last register whose sum lowered minSpillCost (now that sum), or Reg().
+    Reg cheapestEviction(std::span<const Reg> order, const LiveRange& range, Width width, SpillCost& minSpillCost, NOESCAPE const Invocable<std::optional<SpillCost>(Tmp, size_t)> auto& costOf) const
     {
-        return m_allocations.isEmpty() && m_allocationsHigh64.isEmpty();
-    }
-
-    void dump(PrintStream& out) const
-    {
-        auto dumpSet = [&out](const AllocatedIntervalSet& allocationSet) {
-            CommaPrinter comma;
-            out.print("[");
-            for (auto alloc : allocationSet) {
-                out.print(comma);
-                out.print(AllocatedInterval(alloc));
-            }
-            out.print("]");
+        static_assert(sizeof(Reg) == 1);
+        using CostOf = std::remove_cvref_t<decltype(costOf)>;
+        auto trampoline = [](void* context, uint32_t tmp, size_t orderIndex) -> uint64_t {
+            std::optional<SpillCost> cost = (*static_cast<const CostOf*>(context))(Tmp::tmpForInternalValue(tmp), orderIndex);
+            if (!cost)
+                return JSCSwift_AirGreedyRegisterRanges_skipConflict;
+            return std::bit_cast<uint32_t>(cost->value());
         };
-
-        dumpSet(m_allocations);
-        if (!m_allocationsHigh64.isEmpty()) {
-            out.print(", ↑");
-            dumpSet(m_allocationsHigh64);
-        }
+        // Tmp::isReg() is 0 < value <= Tmp(lastRegister) or Tmp(lastFPRegister) <= value < 0.
+        int32_t lastGPRTmp = static_cast<int32_t>(Tmp(Reg(MacroAssembler::lastRegister())).internalValue());
+        int32_t lastFPRTmp = static_cast<int32_t>(Tmp(Reg(MacroAssembler::lastFPRegister())).internalValue());
+        ASSERT(lastFPRTmp < 0 && lastGPRTmp > 0);
+        IntervalWords intervals(range.intervals().span());
+        float minimum = minSpillCost.value();
+        int32_t index = JSCSwift_AirGreedyRegisterRanges_cheapestEviction(m_words, m_size, reinterpret_cast<const uint8_t*>(order.data()), order.size(),
+            intervals.data(), intervals.size(), width > Width64 ? allocationsAndHigh64 : allocationsOnly, lastGPRTmp, lastFPRTmp, &minimum, trampoline,
+            const_cast<void*>(static_cast<const void*>(&costOf)));
+        minSpillCost = SpillCost(minimum);
+        if (index < 0)
+            return Reg();
+        RELEASE_ASSERT(static_cast<size_t>(index) < order.size());
+        return order[index];
     }
+
+    // forEachConflict(order[i], range, width, ...) for each register of an order, for callers that scan every one of
+    // them and only read (the trySplitAroundClobbers cost loop): the first batch of every scan comes from one call into
+    // Swift.
+    class ConflictScans {
+        WTF_MAKE_NONCOPYABLE(ConflictScans);
+        WTF_MAKE_NONMOVABLE(ConflictScans);
+    public:
+        ConflictScans(const RegisterRanges& ranges, std::span<const Reg> order, const LiveRange& range, Width width)
+            : m_ranges(ranges)
+            , m_order(order)
+            , m_intervals(range.intervals().span())
+            , m_sets(width > Width64 ? allocationsAndHigh64 : allocationsOnly)
+        {
+            static_assert(sizeof(Reg) == 1);
+            RELEASE_ASSERT(order.size() <= maxRegisters);
+            JSCSwift_AirGreedyRegisterRanges_firstConflicts(ranges.m_words, ranges.m_size, reinterpret_cast<const uint8_t*>(order.data()), order.size(),
+                m_intervals.data(), m_intervals.size(), m_sets, m_cursors.data(), m_counts.data(), m_batches.data(), batchSize);
+        }
+
+        size_t size() const { return m_order.size(); }
+        Reg reg(size_t i) const { return m_order[i]; }
+
+        void forEachConflict(size_t i, NOESCAPE const Invocable<IterationStatus(AllocatedInterval&)> auto& func) const
+        {
+            for (size_t j = 0; j < m_counts[i]; ++j) {
+                const uint32_t* entry = &m_batches[3 * (batchSize * i + j)];
+                AllocatedInterval conflict { Interval(entry[1], entry[2]), Tmp::tmpForInternalValue(entry[0]) };
+                if (func(conflict) == IterationStatus::Done)
+                    return;
+            }
+            if (m_cursors[i] != JSCSwift_AirGreedyRegisterRanges_scanOver)
+                m_ranges.forEachEntry<8>(m_order[i], m_intervals, m_sets, func, m_cursors[i]);
+        }
+
+    private:
+        static constexpr size_t maxRegisters = 64;
+        static constexpr size_t batchSize = 2;
+
+        const RegisterRanges& m_ranges;
+        std::span<const Reg> m_order;
+        IntervalWords m_intervals;
+        uint32_t m_sets;
+        std::array<uint64_t, maxRegisters> m_cursors;
+        std::array<uint8_t, maxRegisters> m_counts;
+        std::array<uint32_t, 3 * batchSize * maxRegisters> m_batches;
+    };
+
+    bool isEmpty(Reg reg) const
+    {
+        bool empty = true;
+        forEachEntry<1>(reg, IntervalWords(everyPoint()), allocationsAndHigh64, [&](AllocatedInterval&) {
+            empty = false;
+            return IterationStatus::Done;
+        });
+        return empty;
+    }
+
+    struct Dump {
+        const RegisterRanges& ranges;
+        Reg reg;
+
+        void dump(PrintStream& out) const
+        {
+            auto dumpSet = [&](uint32_t set) {
+                CommaPrinter comma;
+                out.print("[");
+                ranges.forEachEntry<8>(reg, IntervalWords(everyPoint()), set, [&](AllocatedInterval& entry) {
+                    out.print(comma, entry);
+                    return IterationStatus::Continue;
+                });
+                out.print("]");
+            };
+            dumpSet(allocationsOnly);
+            bool hasHigh64 = false;
+            ranges.forEachEntry<1>(reg, IntervalWords(everyPoint()), high64Only, [&](AllocatedInterval&) {
+                hasHigh64 = true;
+                return IterationStatus::Done;
+            });
+            if (hasHigh64) {
+                out.print(", ↑");
+                dumpSet(high64Only);
+            }
+        }
+    };
+
+    Dump dump(Reg reg) const { return { *this, reg }; }
 
 private:
-    static IterationStatus forEachConflictImpl(AllocatedIntervalSet& allocatedSet, const LiveRange& range, NOESCAPE const Invocable<IterationStatus(AllocatedInterval&)> auto& func)
+    static constexpr uint32_t allocationsOnly = 1;
+    static constexpr uint32_t high64Only = 2;
+    static constexpr uint32_t allocationsAndHigh64 = 3;
+    static constexpr size_t initialNodeWords = 32 * JSCSwift_AirGreedyRegisterRanges_nodeWords;
+
+    static std::span<const Interval> everyPoint()
     {
-        for (auto interval : range.intervals()) {
-            while (true) {
-                auto intervalAndTmp = allocatedSet.find(interval);
-                if (!intervalAndTmp)
-                    break;
-                AllocatedInterval conflict = { *intervalAndTmp };
-                if (func(conflict) == IterationStatus::Done)
-                    return IterationStatus::Done;
-                if (interval.end() <= conflict.interval.end())
-                    break; // There can't exist other conflicts with interval
-                // Search for remaining conflicts with 'interval'
-                interval = { conflict.interval.end(), interval.end() };
-            }
-        }
-        return IterationStatus::Continue;
+        alignas(uint64_t) static constexpr Interval all { 0, std::numeric_limits<Point>::max() };
+        return { &all, 1 };
     }
 
-    AllocatedIntervalSet m_allocations;
-    AllocatedIntervalSet m_allocationsHigh64; // Tracks clobbers to vector registers that preserve lower 64-bits
+    template<size_t maxBatch>
+    void forEachEntry(Reg reg, const IntervalWords& intervals, uint32_t sets, NOESCAPE const Invocable<IterationStatus(AllocatedInterval&)> auto& func, uint64_t cursor = 0) const
+    {
+        std::array<uint32_t, 3 * maxBatch> batch;
+        do {
+            size_t count = JSCSwift_AirGreedyRegisterRanges_conflicts(m_words, m_size, reg.index(), intervals.data(), intervals.size(), sets, &cursor, batch.data(), maxBatch);
+            for (size_t i = 0; i < count; ++i) {
+                AllocatedInterval conflict { Interval(batch[3 * i + 1], batch[3 * i + 2]), Tmp::tmpForInternalValue(batch[3 * i]) };
+                if (func(conflict) == IterationStatus::Done)
+                    return;
+            }
+        } while (cursor != JSCSwift_AirGreedyRegisterRanges_scanOver);
+    }
+
+    void finishAdd(Reg reg, Tmp tmp, const IntervalWords& intervals, size_t progress)
+    {
+        while (size_t needed = JSCSwift_AirGreedyRegisterRanges_add(m_words, m_size, reg.index(), tmp.internalValue(), intervals.data(), intervals.size(), &progress))
+            grow(needed);
+    }
+
+    void grow(size_t needed)
+    {
+        size_t newSize = std::max(needed, 2 * m_size);
+        auto* newWords = static_cast<uint64_t*>(fastAlignedMalloc(64, newSize * sizeof(uint64_t)));
+        if (m_size)
+            memcpy(newWords, m_words, m_size * sizeof(uint64_t));
+        memset(newWords + m_size, 0, (newSize - m_size) * sizeof(uint64_t));
+        fastFree(m_words);
+        m_words = newWords;
+        m_size = newSize;
+    }
+
+    uint64_t* m_words { nullptr };
+    size_t m_size { 0 };
 };
 
 // Per-Tmp list of coalescable partners and their move costs.
@@ -879,7 +1027,6 @@ public:
         , m_useDefLists()
         , m_aroundClobbersMetadata(1) // Sacrifice index 0.
         , m_spillSlotTable(FillWith { }, 1, nullptr) // Sacrifice index 0.
-        , m_regRanges(Reg::maxIndex() + 1)
         , m_insertionSets(code.size())
     {
         TmpWidth::Analyzer tmpWidthAnalyzer(m_tmpWidth);
@@ -1026,12 +1173,12 @@ private:
     void dumpRegRanges(PrintStream& out) const
     {
         for (Reg r : m_allowedRegistersInPriorityOrder[bank]) {
-            if (!m_regRanges[r].isEmpty())
-                out.println("    ", r, ": ", m_regRanges[r]);
+            if (!m_regRanges.isEmpty(r))
+                out.println("    ", r, ": ", m_regRanges.dump(r));
         }
         m_code.pinnedRegisters().forEachReg([&](Reg r) {
             if (bankForReg(r) == bank)
-                out.println("    ", r, ": ", m_regRanges[r]);
+                out.println("    ", r, ": ", m_regRanges.dump(r));
         });
     }
 
@@ -1555,7 +1702,7 @@ private:
                     pruneCoalescable(inst, tmp, positionOfLate);
                 }
                 for (Reg reg : lateClobbersHigh64)
-                    m_regRanges[reg].addClobberHigh64(reg, positionOfLate);
+                    m_regRanges.addClobberHigh64(reg, positionOfLate);
 
                 for (Tmp tmp : earlyUses)
                     markUse(tmp, positionOfEarly);
@@ -1564,7 +1711,7 @@ private:
                     pruneCoalescable(inst, tmp, positionOfEarly);
                 }
                 for (Reg reg : earlyClobbersHigh64)
-                    m_regRanges[reg].addClobberHigh64(reg, positionOfEarly);
+                    m_regRanges.addClobberHigh64(reg, positionOfEarly);
             }
 #if ASSERT_ENABLED
             m_code.forEachTmp([&](Tmp tmp) {
@@ -2419,29 +2566,13 @@ private:
         ASSERT(&m_map.get<bank>(tmp) == &tmpData);
         ASSERT(!assignedReg(tmp));
 
-        Width width = widthForConflicts<bank>(tmp);
-
-        auto tryAllocateToReg = [&](Reg r) {
-            LiveRange& liveRange = tmpData.liveRange;
-            RegisterRange& regRanges = m_regRanges[r];
-            if (!regRanges.hasConflict(liveRange, width)) {
-                assign(tmp, tmpData, r);
-                return true;
-            }
+        // The preferred register first, then the others in priority order; the first without a conflict gets tmp.
+        Reg reg = m_regRanges.tryAllocate(tmp, tmpData.liveRange, widthForConflicts<bank>(tmp), tmpData.preferredReg, m_allowedRegistersInPriorityOrder[bank].span());
+        if (!reg)
             return false;
-        };
-
-        if (tmpData.preferredReg) {
-            if (tryAllocateToReg(tmpData.preferredReg))
-                return true;
-        }
-        for (Reg r : m_allowedRegistersInPriorityOrder[bank]) {
-            if (r == tmpData.preferredReg)
-                continue;
-            if (tryAllocateToReg(r))
-                return true;
-        }
-        return false;
+        ASSERT(m_allAllowedRegisters.contains(reg, IgnoreVectors));
+        assignImpl(tmp, tmpData, reg);
+        return true;
     }
 
     template <Bank bank>
@@ -2457,7 +2588,7 @@ private:
             out.println("Unspillable Conflicts:");
             for (Reg r : m_allowedRegistersInPriorityOrder[bank]) {
                 out.print("  ", r, ": ");
-                m_regRanges[r].forEachConflict(m_map.get<bank>(tmp).liveRange, widthForConflicts<bank>(tmp),
+                m_regRanges.forEachConflict(r, m_map.get<bank>(tmp).liveRange, widthForConflicts<bank>(tmp),
                     [&](auto& conflict) -> IterationStatus {
                         if (m_map.get<bank>(conflict.tmp).spillCost() == unspillableCost)
                             out.print("{", conflict.tmp, ", ", conflict.interval, "}, ");
@@ -2471,41 +2602,26 @@ private:
             RELEASE_ASSERT_NOT_REACHED();
         };
 
-        Reg bestEvictReg;
         SpillCost minSpillCost = tmpData.spillCost();
         m_visited.resize(m_code.numTmps(bank));
         LiveRange& liveRange = tmpData.liveRange;
         Width width = widthForConflicts<bank>(tmp);
-        for (Reg r : m_allowedRegistersInPriorityOrder[bank]) {
-            SpillCost conflictsSpillCost(0);
-            m_visited.clear();
-            m_regRanges[r].forEachConflict(liveRange, width,
-                [&](auto& conflict) -> IterationStatus {
-                    if (conflict.tmp.isReg()) {
-                        // Conflicts with a fixed register use/def, cannot evict.
-                        conflictsSpillCost = unspillableCost;
-                        return IterationStatus::Done;
-                    }
-                    unsigned conflictTmpIndex = conflict.tmp.tmpIndex(bank);
-                    if (m_visited.contains(conflictTmpIndex))
-                        return IterationStatus::Continue;
-                    m_visited.add(conflictTmpIndex);
-                    auto cost = m_map.get<bank>(conflict.tmp).spillCost();
-                    if (cost == unspillableCost) {
-                        conflictsSpillCost = unspillableCost;
-                        return IterationStatus::Done;
-                    }
-                    if (cost == maxSpillableSpillCost || conflictsSpillCost == maxSpillableSpillCost) [[unlikely]]
-                        conflictsSpillCost = maxSpillableSpillCost;
-                    else
-                        conflictsSpillCost += cost;
-                    return conflictsSpillCost >= minSpillCost ? IterationStatus::Done : IterationStatus::Continue;
+        size_t visitedOrderIndex = std::numeric_limits<size_t>::max();
+        Reg bestEvictReg = m_regRanges.cheapestEviction(m_allowedRegistersInPriorityOrder[bank].span(), liveRange, width, minSpillCost,
+            [&](Tmp conflictTmp, size_t orderIndex) -> std::optional<SpillCost> {
+                if (orderIndex != visitedOrderIndex) {
+                    // The first conflict of the next register.
+                    visitedOrderIndex = orderIndex;
+                    m_visited.clear();
+                }
+                // Swift counts conflicts with a fixed register use/def as unspillable (cannot evict) itself.
+                ASSERT(!conflictTmp.isReg());
+                unsigned conflictTmpIndex = conflictTmp.tmpIndex(bank);
+                if (m_visited.contains(conflictTmpIndex))
+                    return std::nullopt;
+                m_visited.add(conflictTmpIndex);
+                return m_map.get<bank>(conflictTmp).spillCost();
             });
-            if (conflictsSpillCost < minSpillCost) {
-                minSpillCost = conflictsSpillCost;
-                bestEvictReg = r;
-            }
-        }
         if (minSpillCost >= tmpData.spillCost()) {
             // If 'tmp' was unspillable, we better have found at least one suitable register.
             if (tmpData.spillCost() == unspillableCost) [[unlikely]]
@@ -2513,7 +2629,8 @@ private:
             return false;
         }
         // It's cheaper to spill all the already-assigned conflicting tmps, so evict them in favor of assigning 'tmp'.
-        m_regRanges[bestEvictReg].forEachConflict(liveRange, widthForConflicts<bank>(tmp),
+        // One conflict at a time, since evicting modifies the RegisterRange.
+        m_regRanges.forEachConflict<1>(bestEvictReg, liveRange, widthForConflicts<bank>(tmp),
             [&](auto& conflict) -> IterationStatus {
                 TmpData& conflictData = m_map.get<bank>(conflict.tmp);
                 evict(conflict.tmp, conflictData, bestEvictReg);
@@ -2543,7 +2660,7 @@ private:
     void assign(Tmp tmp, TmpData& tmpData, Reg reg)
     {
         ASSERT(m_allAllowedRegisters.contains(reg, IgnoreVectors));
-        m_regRanges[reg].add(tmp, tmpData.liveRange);
+        m_regRanges.add(reg, tmp, tmpData.liveRange);
         assignImpl(tmp, tmpData, reg);
     }
 
@@ -2552,7 +2669,7 @@ private:
         ASSERT(tmpData.stage == Stage::Assigned);
         ASSERT(tmpData.spillCost() != unspillableCost);
         ASSERT(tmpData.assigned == reg);
-        m_regRanges[reg].evict(tmpData.liveRange);
+        m_regRanges.evict(reg, tmpData.liveRange);
         tmpData.stage = Stage::New;
         tmpData.assigned = Reg();
         dataLogLnIf(verbose(), "Evicted ", tmp, " from ", reg);
@@ -2819,9 +2936,11 @@ private:
         const UseDefCost splitCostLimit = splitMultiplier > 0.0 ? tmpData.useDefCost / splitMultiplier : invalidSplitCost;
         UseDefCost minSplitCost = splitCostLimit;
         Width width = widthForConflicts<bank>(tmp);
-        for (Reg r : m_allowedRegistersInPriorityOrder[bank]) {
+        RegisterRanges::ConflictScans scans(m_regRanges, m_allowedRegistersInPriorityOrder[bank].span(), tmpData.liveRange, width);
+        for (size_t i = 0; i < scans.size(); ++i) {
+            Reg r = scans.reg(i);
             UseDefCost splitCost(0);
-            m_regRanges[r].forEachConflict(tmpData.liveRange, width,
+            scans.forEachConflict(i,
                 [&](auto& conflict) -> IterationStatus {
                     if (conflict.tmp.isReg() && conflict.interval.distance() == 1) {
                         ClobberSite site = clobberSiteAt(conflict.interval.begin());
@@ -2853,7 +2972,7 @@ private:
         ASSERT(bestSplitReg);
 
         LiveRange holeRange;
-        m_regRanges[bestSplitReg].forEachConflict(tmpData.liveRange, width,
+        m_regRanges.forEachConflict(bestSplitReg, tmpData.liveRange, width,
             [&](auto& conflict) -> IterationStatus {
                 ASSERT(conflict.tmp.isReg() && conflict.interval.distance() == 1);
                 // Punched hole should always include the instructions late interval so the
@@ -3730,7 +3849,7 @@ private:
     Vector<IntraBlockSplitMetadata> m_intraBlockMetadata;
     Vector<AroundLoopSplitMetadata> m_aroundLoopMetadata;
     Vector<StackSlot*> m_spillSlotTable;
-    IndexMap<Reg, RegisterRange> m_regRanges;
+    RegisterRanges m_regRanges;
     GenerationalSet<uint8_t, SaVector> m_visited;
     PriorityQueue<TmpPriority> m_queue;
     IndexMap<BasicBlock*, PhaseInsertionSet> m_insertionSets;
