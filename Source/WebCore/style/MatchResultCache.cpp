@@ -27,10 +27,13 @@
 #include "MatchResultCache.h"
 
 #include "MatchResult.h"
+#include "MatchResultCacheDiffSwiftBoundary.h"
+#include "MutableStyleProperties.h"
 #include "ResolvedStyle.h"
 #include "StyleComputedStyle+SettersInlines.h"
 #include "StyleProperties.h"
 #include "StyledElement.h"
+#include <bit>
 #include <wtf/BitSet.h>
 
 namespace WebCore {
@@ -86,63 +89,104 @@ inline UnadjustedStyle copy(const UnadjustedStyle& other)
     };
 }
 
-bool MatchResultCache::isUsableAfterInlineStyleChange(const MatchResultCache::Entry& entry, const StyleProperties& currentInlineStyle)
+// The layouts MatchResultCacheDiffSwiftBoundary.h documents for the Swift kernel. CSSProperty's members are private;
+// its layout (StylePropertyMetadata, then the Ref<CSSValue>) is checked against the public API in debug builds
+// (assertLayoutForSwift()).
+static_assert(std::endian::native == std::endian::little);
+static_assert(sizeof(OriginalInlineProperty) == 16 && alignof(OriginalInlineProperty) == 8 && sizeof(CSSPropertyID) == 2 && sizeof(bool) == 1);
+static_assert(offsetof(OriginalInlineProperty, propertyID) == 0 && offsetof(OriginalInlineProperty, wasImportant) == 2);
+static_assert(offsetof(OriginalInlineProperty, valueIfUnchanged) == 8 && sizeof(RefPtr<const CSSValue>) == sizeof(uintptr_t));
+static_assert(sizeof(CSSProperty) == 16 && alignof(CSSProperty) == 8 && sizeof(StylePropertyMetadata) == 4 && sizeof(uintptr_t) == 8);
+static_assert(std::to_underlying(firstLowPriorityProperty) <= 0xFFFF && std::to_underlying(CSSPropertyID::LineHeight) <= 0xFFFF);
+static_assert(std::to_underlying(CSSPropertyID::Custom) <= 0xFFFF && cssPropertyIDEnumValueCount <= 0x400);
+
+#if ASSERT_ENABLED
+// Decodes the snapshot and the current properties as the kernel does and compares them with the public API.
+static void assertLayoutForSwift(std::span<const OriginalInlineProperty> originalProperties, const MutableStyleProperties& inlineStyle)
 {
-    if (entry.inlineStyle.ptr() != &currentInlineStyle)
-        return false;
-
-    auto& inlineStyle = entry.inlineStyle;
-
-    // Only allow the same exact properties after a change. This way the previous values in ComputedStyle are guaranteed to get overwritten.
-    // Adding properties could be allowed without other changes. Removal would require resetting the removed property to initial
-    // value in the style builder.
-
-    auto size = entry.originalInlineProperties.size();
-    if (size != inlineStyle->size())
-        return false;
-
-    for (size_t index = 0; index < size; ++index) {
-        if (entry.originalInlineProperties[index].propertyID != inlineStyle->propertyAt(index).id())
-            return false;
+    for (auto& property : originalProperties) {
+        auto words = spanReinterpretCast<const uint64_t>(asByteSpan(property));
+        ASSERT((words[0] & 0xFFFF) == std::to_underlying(property.propertyID));
+        // The kernel compares wasImportant as a byte, as `bool ==` compiles.
+        ASSERT(((words[0] >> 16) & 0xFF) == static_cast<uint64_t>(property.wasImportant));
+        ASSERT(words[1] == reinterpret_cast<uintptr_t>(property.valueIfUnchanged.get()));
     }
-    return true;
+    auto currentProperties = inlineStyle.propertySpan();
+    for (size_t index = 0; index < currentProperties.size(); ++index) {
+        auto words = spanReinterpretCast<const uint64_t>(asByteSpan(currentProperties[index]));
+        auto property = inlineStyle.propertyAt(index);
+        ASSERT((words[0] & 0x3FF) == std::to_underlying(property.id()));
+        ASSERT(!!(words[0] & (1 << 13)) == property.isImportant());
+        ASSERT(words[1] == reinterpret_cast<uintptr_t>(property.value()));
+    }
+}
+#endif
+
+// cascadeAliasProperty() for every CSSPropertyID, for the Swift kernel.
+static std::span<const uint16_t> cascadeAliasTableForSwift()
+{
+    static const std::array<uint16_t, cssPropertyIDEnumValueCount> table = [] {
+        std::array<uint16_t, cssPropertyIDEnumValueCount> table { };
+        for (uint16_t id = 0; id < cssPropertyIDEnumValueCount; ++id)
+            table[id] = std::to_underlying(cascadeAliasProperty(static_cast<CSSPropertyID>(id)));
+        return table;
+    }();
+    return table;
 }
 
-PropertyCascade::IncludedProperties MatchResultCache::computeAndUpdateChangedProperties(MatchResultCache::Entry& entry)
+// isUsableAfterInlineStyleChange() and computeAndUpdateChangedProperties() in one Swift pass
+// (MatchResultCacheDiffSwiftBoundary.h). Returns false if the entry can't be used with the element's current inline
+// style; otherwise sets `changedProperties`. Only the RefPtr resets (the update of the entry's snapshot) stay in C++.
+ALWAYS_INLINE bool MatchResultCache::changedPropertiesAfterInlineStyleChange(MatchResultCache::Entry& entry, const StyleProperties* currentInlineStyle, PropertyCascade::IncludedProperties& changedProperties)
 {
     auto& originalProperties = entry.originalInlineProperties;
-    Ref inlineStyle = entry.inlineStyle.get();
+    auto currentProperties = entry.inlineStyle->propertySpan();
+#if ASSERT_ENABLED
+    assertLayoutForSwift(originalProperties.span(), entry.inlineStyle);
+#endif
 
-    PropertyCascade::IncludedProperties result;
+    // The kernel's output: the changed ids, then the indices of the snapshot values to null. On the stack unless the
+    // inline style has more than 32 properties.
+    size_t count = originalProperties.size();
+    std::array<uint32_t, 64> inlineOut;
+    Vector<uint32_t> outOfLineOut;
+    std::span<uint32_t> out = inlineOut;
+    if (2 * count > inlineOut.size()) [[unlikely]] {
+        outOfLineOut.grow(2 * count);
+        out = outOfLineOut.mutableSpan();
+    }
+    // The kernel compares the two inline style addresses as integers, both as StyleProperties pointers.
+    std::array<uint64_t, 4> state { reinterpret_cast<uintptr_t>(static_cast<const StyleProperties*>(entry.inlineStyle.ptr())), reinterpret_cast<uintptr_t>(currentInlineStyle),
+        std::to_underlying(firstLowPriorityProperty) | static_cast<uint64_t>(std::to_underlying(CSSPropertyID::LineHeight)) << 16
+            | static_cast<uint64_t>(std::to_underlying(CSSPropertyID::Custom)) << 32, 0 };
+    auto aliases = cascadeAliasTableForSwift();
+    auto result = WebCoreSwift_MatchResultCacheDiff_changedProperties(state.data(), state.size(),
+        reinterpret_cast<const uint64_t*>(originalProperties.span().data()), 2 * count,
+        reinterpret_cast<const uint64_t*>(currentProperties.data()), 2 * currentProperties.size(), aliases.data(), aliases.size(), out.data(), out.size());
 
-    auto size = originalProperties.size();
-    for (size_t index = 0; index < size; ++index) {
-        auto currentProperty = inlineStyle->propertyAt(index);
-        auto propertyID = currentProperty.id();
-
-        ASSERT(originalProperties[index].propertyID == propertyID);
-
-        if (originalProperties[index].valueIfUnchanged == currentProperty.value()
-            && originalProperties[index].wasImportant == currentProperty.isImportant())
-            continue;
-
-        // Assume that if a value or priority changes once then it will change more. Don't track changes anymore.
-        originalProperties[index].valueIfUnchanged = nullptr;
-
-        // FIXME: Support custom properties.
-        if (propertyID == CSSPropertyID::Custom)
-            return PropertyCascade::normalProperties();
-
-        // Only use partial applying with low-priority properties since we know changes to them can't
-        // affect values of other properties.
-        // FIXME: CSSPropertyID::LineHeight shouldn't be a low-priority property as others can depend on it via `lh` unit.
-        if (propertyID < firstLowPriorityProperty || propertyID == CSSPropertyID::LineHeight)
-            return PropertyCascade::normalProperties();
-
-        result.ids.append(cascadeAliasProperty(propertyID));
+    // Assume that if a value or priority changes once then it will change more. Don't track changes anymore.
+    if (state[3]) [[unlikely]] {
+        for (auto index : out.subspan(count, state[3]))
+            originalProperties[index].valueIfUnchanged = nullptr;
     }
 
-    return result;
+    switch (result) {
+    case WebCoreSwiftMatchResultCacheDiffUnusable:
+        return false;
+    case WebCoreSwiftMatchResultCacheDiffAllNormalProperties:
+        // PropertyCascade::normalProperties().
+        ASSERT(!changedProperties.types && changedProperties.ids.isEmpty());
+        changedProperties.types = PropertyCascade::normalPropertyTypes();
+        return true;
+    default:
+        ASSERT(result == WebCoreSwiftMatchResultCacheDiffChangedIDs);
+        if (state[2]) {
+            changedProperties.ids.appendUsingFunctor(state[2], [&](size_t index) {
+                return static_cast<CSSPropertyID>(out[index]);
+            });
+        }
+        return true;
+    }
 }
 
 const std::optional<CachedMatchResult> MatchResultCache::resultWithCurrentInlineStyle(const Element& element)
@@ -156,12 +200,11 @@ const std::optional<CachedMatchResult> MatchResultCache::resultWithCurrentInline
     auto* styledElement = dynamicDowncast<StyledElement>(element);
     RefPtr inlineStyle = styledElement ? styledElement->inlineStyle() : nullptr;
 
-    if (!inlineStyle || !isUsableAfterInlineStyleChange(entry, *inlineStyle)) {
+    PropertyCascade::IncludedProperties changedProperties;
+    if (!changedPropertiesAfterInlineStyleChange(entry, inlineStyle.get(), changedProperties)) {
         m_entries.remove(it);
         return { };
     }
-
-    auto changedProperties = computeAndUpdateChangedProperties(entry);
 
     return CachedMatchResult {
         .unadjustedStyle = copy(entry->unadjustedStyle),

@@ -129,6 +129,7 @@
 #include "SideDataRepository.h"
 #include "SimpleTypedArrayController.h"
 #include "SourceProviderCache.h"
+#include "StringSearchSwiftBoundary.h"
 #include "StringSplitCache.h"
 #include "StrongInlines.h"
 #include "StructureChainInlines.h"
@@ -307,10 +308,6 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
 
         m_heapProfiler.initLater([](VM& vm, auto& ref) {
             ref.set(makeUniqueRef<HeapProfiler>(vm));
-        });
-
-        m_stringSearcherTables.initLater([](VM&, auto& ref) {
-            ref.set(makeUniqueRef<AdaptiveStringSearcherTables>());
         });
 
         m_watchdog.initLater([](VM& vm, auto& ref) {
@@ -1523,6 +1520,28 @@ void sanitizeStackForVM(VM& vm)
     sanitizeStackForVMImpl(&vm);
 #endif
     RELEASE_ASSERT(stack.contains(vm.lastStackTop()), 0xaa20, vm.lastStackTop(), stack.origin(), stack.end());
+}
+
+static inline uint32_t stringSearchWidths(StringView subject, StringView pattern)
+{
+    return (subject.is8Bit() ? JSCSwift_StringSearch_Subject8Bit : 0) | (pattern.is8Bit() ? JSCSwift_StringSearch_Pattern8Bit : 0);
+}
+
+size_t stringSearch(StringView subject, StringView pattern, unsigned start)
+{
+    static_assert(notFound == static_cast<size_t>(-1));
+    return static_cast<size_t>(JSCSwift_StringSearch_find(subject.rawCharacters(), subject.length(), pattern.rawCharacters(), pattern.length(), stringSearchWidths(subject, pattern), start));
+}
+
+StringSearchMatches stringSearchAll(StringView subject, StringView pattern, size_t start, std::span<Range<int32_t>> gaps)
+{
+    // Swift writes each gap as its two int32_t bounds.
+    static_assert(std::is_trivially_copyable_v<Range<int32_t>> && sizeof(Range<int32_t>) == 2 * sizeof(int32_t));
+    static_assert(std::bit_cast<std::array<int32_t, 2>>(Range<int32_t>(1, 2)) == std::array<int32_t, 2> { 1, 2 });
+    static_assert(sizeof(JSCSwift_StringSearch_Matches) == 4 * sizeof(size_t));
+    JSCSwift_StringSearch_Matches result;
+    JSCSwift_StringSearch_findAll(subject.rawCharacters(), subject.length(), pattern.rawCharacters(), pattern.length(), stringSearchWidths(subject, pattern), start, spanReinterpretCast<int32_t>(gaps).data(), gaps.size(), &result);
+    return { result.count, result.last, result.end, result.gapCount };
 }
 
 size_t VM::committedStackByteCount()

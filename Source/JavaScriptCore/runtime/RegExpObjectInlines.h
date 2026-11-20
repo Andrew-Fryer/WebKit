@@ -384,19 +384,22 @@ JSValue collectMatches(VM& vm, JSGlobalObject* globalObject, JSString* string, S
 }
 
 template<typename SubjectChar, typename PatternChar>
-ALWAYS_INLINE size_t genericMatches(VM& vm, std::span<const SubjectChar> input, std::span<const PatternChar> pattern, size_t& numberOfMatches, size_t& startIndex)
+ALWAYS_INLINE size_t genericMatches(VM&, std::span<const SubjectChar> input, std::span<const PatternChar> pattern, size_t& numberOfMatches, size_t& startIndex)
 {
     ASSERT(!pattern.empty());
     if (startIndex > input.size())
         return notFound;
-    AdaptiveStringSearcher<PatternChar, SubjectChar> search(vm.adaptiveStringSearcherTables(), pattern);
     size_t lastResult = notFound;
-    size_t found = search.search(input, startIndex);
-    while (found != notFound) {
-        lastResult = found;
-        startIndex = found + pattern.size();
-        numberOfMatches++;
-        found = search.search(input, startIndex);
+    std::array<Range<int32_t>, 64> gaps;
+    while (true) {
+        auto matches = stringSearchAll(StringView(input), StringView(pattern), startIndex, gaps);
+        if (matches.count) {
+            lastResult = matches.last;
+            startIndex = matches.end;
+            numberOfMatches += matches.count;
+        }
+        if (matches.gapCount < gaps.size())
+            break;
     }
     return lastResult;
 }

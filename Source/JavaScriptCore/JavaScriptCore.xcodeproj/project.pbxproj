@@ -2444,6 +2444,12 @@
 		DC508F68200C5F313785A372 /* LexerEscapedLiterals.swift in Sources */ = {isa = PBXBuildFile; fileRef = F233953D3EDB69DEDC327308 /* LexerEscapedLiterals.swift */; };
 		8AC1DECE5A05C8D98031E97C /* LexerRegExp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26893C6C1B6697860709C075 /* LexerRegExp.swift */; };
 		163AC281874D9499CE45C5D8 /* LexerScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC699DA15D0438B17D689595 /* LexerScan.swift */; };
+		584A19B2598CDA675A8C3B37 /* BitRangeClear.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67E760F5756A256CEFA59C9 /* BitRangeClear.swift */; };
+		E379541895F27566201CB40B /* BitRangeClearBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 919760BB94EA545ADCC69D57 /* BitRangeClearBoundary.swift */; };
+		38CEE9B8577F34D773368A45 /* BuiltinSourceScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E643CD24AD1D54ECA9F682A /* BuiltinSourceScan.swift */; };
+		A7947A1015CEE6440BE38BE4 /* BuiltinSourceScanBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC8A9BAF34C0625E429AEC80 /* BuiltinSourceScanBoundary.swift */; };
+		6B40153FA94AE87066E44DC6 /* StringSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6DA93BFF8CABC71FCDAC12 /* StringSearch.swift */; };
+		9A0359ADF334AEA0B63F2A6A /* StringSearchBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C527A0EBADE40C7776993D6B /* StringSearchBoundary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -6828,6 +6834,15 @@
 		26893C6C1B6697860709C075 /* LexerRegExp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lexer/LexerRegExp.swift; sourceTree = "<group>"; };
 		BC699DA15D0438B17D689595 /* LexerScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lexer/LexerScan.swift; sourceTree = "<group>"; };
 		CA731FA3FA4069194E764455 /* LexerSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Lexer/LexerSwiftBoundary.h; sourceTree = "<group>"; };
+		C67E760F5756A256CEFA59C9 /* BitRangeClear.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BitRangeClear/BitRangeClear.swift; sourceTree = "<group>"; };
+		919760BB94EA545ADCC69D57 /* BitRangeClearBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BitRangeClear/BitRangeClearBoundary.swift; sourceTree = "<group>"; };
+		D670A73D653E40960A0B8BDB /* BitRangeClearSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BitRangeClear/BitRangeClearSwiftBoundary.h; sourceTree = "<group>"; };
+		2E643CD24AD1D54ECA9F682A /* BuiltinSourceScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltinSourceScan/BuiltinSourceScan.swift; sourceTree = "<group>"; };
+		CC8A9BAF34C0625E429AEC80 /* BuiltinSourceScanBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltinSourceScan/BuiltinSourceScanBoundary.swift; sourceTree = "<group>"; };
+		24E90734684870ECAE219F4C /* BuiltinSourceScanSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BuiltinSourceScan/BuiltinSourceScanSwiftBoundary.h; sourceTree = "<group>"; };
+		8D6DA93BFF8CABC71FCDAC12 /* StringSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringSearch/StringSearch.swift; sourceTree = "<group>"; };
+		C527A0EBADE40C7776993D6B /* StringSearchBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringSearch/StringSearchBoundary.swift; sourceTree = "<group>"; };
+		2577C59C3B2199FF68FAED4F /* StringSearchSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = StringSearch/StringSearchSwiftBoundary.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -11297,6 +11312,15 @@
 		D9E037DFCA8FE415AD30CF27 /* swift */ = {
 			isa = PBXGroup;
 			children = (
+				2577C59C3B2199FF68FAED4F /* StringSearchSwiftBoundary.h */,
+				C527A0EBADE40C7776993D6B /* StringSearchBoundary.swift */,
+				8D6DA93BFF8CABC71FCDAC12 /* StringSearch.swift */,
+				24E90734684870ECAE219F4C /* BuiltinSourceScanSwiftBoundary.h */,
+				CC8A9BAF34C0625E429AEC80 /* BuiltinSourceScanBoundary.swift */,
+				2E643CD24AD1D54ECA9F682A /* BuiltinSourceScan.swift */,
+				D670A73D653E40960A0B8BDB /* BitRangeClearSwiftBoundary.h */,
+				919760BB94EA545ADCC69D57 /* BitRangeClearBoundary.swift */,
+				C67E760F5756A256CEFA59C9 /* BitRangeClear.swift */,
 				CA731FA3FA4069194E764455 /* LexerSwiftBoundary.h */,
 				BC699DA15D0438B17D689595 /* LexerScan.swift */,
 				26893C6C1B6697860709C075 /* LexerRegExp.swift */,
@@ -14775,6 +14799,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				077B97302FD2BBE10042BC77 /* JavaScriptCore.swift in Sources */,
+				9A0359ADF334AEA0B63F2A6A /* StringSearchBoundary.swift in Sources */,
+				6B40153FA94AE87066E44DC6 /* StringSearch.swift in Sources */,
+				A7947A1015CEE6440BE38BE4 /* BuiltinSourceScanBoundary.swift in Sources */,
+				38CEE9B8577F34D773368A45 /* BuiltinSourceScan.swift in Sources */,
+				E379541895F27566201CB40B /* BitRangeClearBoundary.swift in Sources */,
+				584A19B2598CDA675A8C3B37 /* BitRangeClear.swift in Sources */,
 				163AC281874D9499CE45C5D8 /* LexerScan.swift in Sources */,
 				8AC1DECE5A05C8D98031E97C /* LexerRegExp.swift in Sources */,
 				DC508F68200C5F313785A372 /* LexerEscapedLiterals.swift in Sources */,

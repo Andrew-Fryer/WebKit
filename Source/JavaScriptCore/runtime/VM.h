@@ -58,8 +58,9 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 #include <wtf/Lock.h>
 #include <wtf/MallocPtr.h>
 #include <wtf/ObjectIdentifier.h>
+#include <wtf/Range.h>
 #include <wtf/ThreadSafeRefCountedWithSuppressingSaferCPPChecking.h>
-#include <wtf/text/AdaptiveStringSearcher.h>
+#include <wtf/text/StringView.h>
 
 #if ENABLE(WEBASSEMBLY)
 #include <JavaScriptCore/WasmContext.h>
@@ -269,8 +270,6 @@ public:
 
     HeapProfiler* heapProfiler() { return m_heapProfiler.getIfExists(); }
     HeapProfiler& ensureHeapProfiler() { return m_heapProfiler.get(*this); }
-
-    WTF::AdaptiveStringSearcherTables& adaptiveStringSearcherTables() { return m_stringSearcherTables.get(*this); }
 
     uint64_t& recentLatin1JSONStringifyLengths() { return m_recentLatin1JSONStringifyLengths; }
     uint64_t& recentUTF16JSONStringifyLengths() { return m_recentUTF16JSONStringifyLengths; }
@@ -1268,7 +1267,6 @@ private:
     MallocPtr<EncodedJSValue, VMMalloc> m_exceptionFuzzBuffer;
     LazyRef<VM, Watchdog> m_watchdog;
     LazyUniqueRef<VM, HeapProfiler> m_heapProfiler;
-    LazyUniqueRef<VM, AdaptiveStringSearcherTables> m_stringSearcherTables;
 #if ENABLE(SAMPLING_PROFILER)
     const RefPtr<SamplingProfiler> m_samplingProfiler;
 #endif
@@ -1347,6 +1345,23 @@ extern "C" void SYSV_ABI sanitizeStackForVMImpl(VM*);
 #endif
 
 JS_EXPORT_PRIVATE void sanitizeStackForVM(VM&);
+
+// The string search of String.prototype.indexOf/includes/split/replace/replaceAll, atom RegExps and the DFG string
+// operations, implemented in Swift (swift/StringSearch). Results are exact, whatever the strategy: stringSearch is the
+// first index >= start at which pattern occurs in subject, or notFound (start > subject.length() gives notFound, an
+// empty pattern gives start).
+size_t stringSearch(StringView subject, StringView pattern, unsigned start = 0);
+// Successive non-overlapping matches of a non-empty pattern: the first at or after start, each next one at or after the
+// end of the previous one. For each match, the non-empty gap since the end of the previous one (since start for the
+// first) is written to gaps. Stops after the match that fills gaps (more matches may follow from end), or when there are
+// no more matches.
+struct StringSearchMatches {
+    size_t count; // Matches found.
+    size_t last; // The last of them (if count).
+    size_t end; // The end of the last match, or start if count is 0: where to continue.
+    size_t gapCount; // Gaps written.
+};
+StringSearchMatches stringSearchAll(StringView subject, StringView pattern, size_t start, std::span<Range<int32_t>> gaps);
 
 } // namespace JSC
 

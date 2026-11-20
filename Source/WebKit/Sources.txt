@@ -239,6 +239,7 @@ Shared/JavaScriptEvaluationResult.cpp
 Shared/JSHandleInfo.cpp
 Shared/KeyEventInterpretationContext.cpp
 Shared/NetworkStorageSession.cpp
+Shared/PathArgumentCoders.cpp
 Shared/PersistencyUtils.cpp
 Shared/PrintInfo.cpp
 Shared/ProcessTerminationReason.cpp

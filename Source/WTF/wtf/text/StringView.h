@@ -46,7 +46,6 @@ OBJC_CLASS NSString;
 
 namespace WTF {
 
-class AdaptiveStringSearcherTables;
 template<typename T> class ValueOrReference;
 
 // StringView is a non-owning reference to a string, similar to the proposed std::string_view.
@@ -169,7 +168,6 @@ public:
     NODELETE size_t find(NOESCAPE const CodeUnitMatchFunction&, unsigned start = 0) const;
     ALWAYS_INLINE size_t find(ASCIILiteral literal, unsigned start = 0) const { return find(literal.span8(), start); }
     NODELETE WTF_EXPORT_PRIVATE size_t find(StringView, unsigned start = 0) const;
-    NODELETE WTF_EXPORT_PRIVATE size_t find(AdaptiveStringSearcherTables&, StringView, unsigned start = 0) const;
 
     NODELETE size_t reverseFind(char16_t, unsigned index = std::numeric_limits<unsigned>::max()) const;
     NODELETE ALWAYS_INLINE size_t reverseFind(ASCIILiteral literal, unsigned start = std::numeric_limits<unsigned>::max()) const { return reverseFind(literal.span8(), start); }

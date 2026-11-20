@@ -92,6 +92,12 @@ public:
     std::span<uint8_t> mutableSpan() LIFETIME_BOUND { return bodyBuffer().first(m_bufferSize); }
     std::span<const uint8_t> span() const LIFETIME_BOUND { return bodyBuffer().first(m_bufferSize); }
 
+    // For a coder that encodes in place (the Swift Path encoder, Shared/PathArgumentCoders.cpp): the size of the body so
+    // far, which values are aligned in (encodeSpan() aligns each to its size), then appendForInPlaceEncoding(), which
+    // appends `size` bytes that the caller must all write (gaps included), and returns them.
+    size_t bodySize() const { return m_bufferSize; }
+    std::span<uint8_t> appendForInPlaceEncoding(size_t size) LIFETIME_BOUND { return grow(1, size).first(size); }
+
     void addAttachment(Attachment&&);
     size_t attachmentCount() const { return m_attachments.size(); }
     Vector<Attachment> releaseAttachments();

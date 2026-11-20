@@ -37,28 +37,20 @@ enum class SuffixSkippingPolicy {
     Skip
 };
 
+// The SVG <number> grammar (numbers, path arc flags, the spaces / ',' between them, and list item scanning) is
+// implemented in Swift: Source/WebCore/swift/SVGNumberGrammar. These functions are its C++ interface.
+
 NODELETE std::optional<float> parseNumber(StringParsingBuffer<Latin1Character>&, SuffixSkippingPolicy = SuffixSkippingPolicy::Skip);
 NODELETE std::optional<float> parseNumber(StringParsingBuffer<char16_t>&, SuffixSkippingPolicy = SuffixSkippingPolicy::Skip);
 std::optional<float> parseNumber(StringView, SuffixSkippingPolicy = SuffixSkippingPolicy::Skip);
 
 std::optional<std::pair<float, float>> parseNumberOptionalNumber(StringView);
 
-NODELETE std::optional<bool> parseArcFlag(StringParsingBuffer<Latin1Character>&);
-NODELETE std::optional<bool> parseArcFlag(StringParsingBuffer<char16_t>&);
-
 std::optional<FloatPoint> parsePoint(StringView);
 std::optional<FloatRect> parseRect(StringView);
 
-NODELETE std::optional<FloatPoint> parseFloatPoint(StringParsingBuffer<Latin1Character>&);
-NODELETE std::optional<FloatPoint> parseFloatPoint(StringParsingBuffer<char16_t>&);
-
 std::optional<std::pair<UnicodeRanges, HashSet<String>>> parseKerningUnicodeString(StringView);
 std::optional<HashSet<String>> parseGlyphName(StringView);
-
-template<typename CharacterType> constexpr bool isSVGSpaceOrComma(CharacterType c)
-{
-    return isASCIIWhitespace(c) || c == ',';
-}
 
 template<typename CharacterType> constexpr bool skipOptionalSVGSpaces(const CharacterType*& ptr, const CharacterType* end)
 {
@@ -70,38 +62,6 @@ template<typename CharacterType> constexpr bool skipOptionalSVGSpaces(StringPars
 {
     skipWhile<isASCIIWhitespace>(characters);
     return characters.hasCharactersRemaining();
-}
-
-template<typename CharacterType> constexpr bool skipOptionalSVGSpacesOrDelimiter(const CharacterType*& ptr, const CharacterType* end, char delimiter = ',')
-{
-    if (ptr < end && !isASCIIWhitespace(*ptr) && *ptr != delimiter)
-        return false;
-    if (skipOptionalSVGSpaces(ptr, end)) {
-        if (ptr < end && *ptr == delimiter) {
-            ptr++;
-            skipOptionalSVGSpaces(ptr, end);
-        }
-    }
-    return ptr < end;
-}
-
-template<typename CharacterType> constexpr bool skipOptionalSVGSpacesOrDelimiter(StringParsingBuffer<CharacterType>& characters, char delimiter = ',')
-{
-    if (!characters.hasCharactersRemaining())
-        return false;
-
-    if (!isASCIIWhitespace(*characters) && *characters != delimiter)
-        return false;
-
-    // There are only spaces in the remaining characters.
-    if (!skipOptionalSVGSpaces(characters))
-        return false;
-
-    if (*characters != delimiter)
-        return true;
-
-    // A delimiter is hit. Skip the following spaces also e.g. " , ".
-    return skipOptionalSVGSpaces(++characters);
 }
 
 } // namespace WebCore

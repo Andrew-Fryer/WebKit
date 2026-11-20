@@ -23,12 +23,13 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// The per-variable loops of JSC::DFG::InPlaceAbstractState::merge(from, to), implemented in Swift (DFGCFAMerge.swift).
+// The per-variable loops of JSC::DFG::InPlaceAbstractState::merge(from, to) and the value resets of initialize(),
+// implemented in Swift (DFGCFAMerge.swift).
 // An Operands<AbstractValue> is passed as a pointer to its first element (null only if it is empty) and its element
 // count; an AbstractValue is read and written as four 64-bit words (m_structure, m_type, m_arrayModes and
 // m_effectEpoch, m_value; static_asserted in DFGAbstractValue.h and DFGStructureAbstractValue.h). Node pointers are
-// only tested for null and structure pointers are never dereferenced. The symbol is hidden in JavaScriptCore: only
-// dfg/DFGInPlaceAbstractState.cpp calls it.
+// only tested for null and structure pointers are never dereferenced. The symbols are hidden in JavaScriptCore: only
+// dfg/DFGInPlaceAbstractState.cpp calls them.
 
 #pragma once
 
@@ -61,6 +62,16 @@ __attribute__((nothrow, warn_unused_result)) bool JSCSwift_DFGCFAMerge_mergeValu
 __attribute__((nothrow, warn_unused_result)) bool JSCSwift_DFGCFAMerge_mergeSlowValue(uint64_t* destination, const uint64_t* source,
     const uint64_t* destinationList, size_t destinationLength, uint32_t destinationCapacity, const uint64_t* sourceList, size_t sourceLength,
     uint64_t* list, size_t listCapacity, uint64_t* result);
+
+// One block's value resets in InPlaceAbstractState::initialize(): for every i < headCount, head[i] and tail[i] are cleared (AbstractValue::clear()); then
+// for every i < argumentFormatCount, head[i] becomes the starting value of a ThreadedCPS root's argument with FlushFormat
+// argumentFormats[i] (FlushedInt32, FlushedBoolean, FlushedCell or FlushedJSValue, as initialize() sets it). Returns
+// the number of fat structure sets whose old words are now freedLists[0 ..< result], for the caller to free their
+// out-of-line lists; or -1, touching nothing, if a format is not one of the four. Traps unless headCount <= tailCount,
+// argumentFormatCount <= headCount and freedLists has room for every fat set (2 * headCount always suffices; the caller
+// passes that). head must not overlap tail.
+__attribute__((nothrow, warn_unused_result)) ptrdiff_t JSCSwift_DFGCFAMerge_resetValues(uint64_t* head, size_t headCount, uint64_t* tail, size_t tailCount,
+    const uint8_t* argumentFormats, size_t argumentFormatCount, uint64_t* freedLists, size_t freedCapacity);
 
 #ifdef __cplusplus
 }

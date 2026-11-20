@@ -28,9 +28,9 @@
 #include "BuiltinExecutables.h"
 
 #include "BuiltinNames.h"
+#include "BuiltinSourceScanSwiftBoundary.h"
 #include "JSCJSValueInlines.h"
 #include "Parser.h"
-#include "SourceCharacters.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -88,89 +88,21 @@ UnlinkedFunctionExecutable* BuiltinExecutables::createBuiltinExecutable(const So
 // FIXME: Can we just make MetaData computation be constexpr and have the compiler do this for us?
 // https://bugs.webkit.org/show_bug.cgi?id=193272
 // Scanning by hand rather than parsing keeps us from recursing into the parser, and hence from
-// overflowing the stack on a builtin.
+// overflowing the stack on a builtin. The scan is BuiltinSourceScan.swift; this only unpacks its result.
 static BuiltinSourceMetadata computeBuiltinSourceMetadata(std::span<const Latin1Character> characters)
 {
-    auto regularFunctionBegin = "(function ("_span;
-    auto asyncFunctionBegin = "(async function ("_span;
-    RELEASE_ASSERT(characters.size() >= strlen("(function (){})"));
-    bool isAsyncFunction = characters.size() >= strlen("(async function (){})") && spanHasPrefix(characters, asyncFunctionBegin);
-    RELEASE_ASSERT(isAsyncFunction || spanHasPrefix(characters, regularFunctionBegin));
-
-    unsigned asyncOffset = isAsyncFunction ? strlen("async ") : 0;
-    unsigned parametersStart = strlen("function (") + asyncOffset;
-    bool isInStrictContext = false;
-
-    unsigned parameterCount;
-    {
-        unsigned i = parametersStart + 1;
-        unsigned commas = 0;
-        bool insideCurlyBrackets = false;
-        bool sawOneParam = false;
-        bool hasRestParam = false;
-        while (true) {
-            ASSERT(i < characters.size());
-            if (characters[i] == ')')
-                break;
-
-            if (characters[i] == '}')
-                insideCurlyBrackets = false;
-            else if (characters[i] == '{' || insideCurlyBrackets) {
-                insideCurlyBrackets = true;
-                ++i;
-                continue;
-            } else if (characters[i] == ',')
-                ++commas;
-            else if (!isWhiteSpace<Latin1Character>(characters[i]))
-                sawOneParam = true;
-
-            if (i + 2 < characters.size() && characters[i] == '.' && characters[i + 1] == '.' && characters[i + 2] == '.') {
-                hasRestParam = true;
-                i += 2;
-            }
-
-            ++i;
-        }
-
-        if (commas)
-            parameterCount = commas + 1;
-        else if (sawOneParam)
-            parameterCount = 1;
-        else
-            parameterCount = 0;
-
-        if (hasRestParam) {
-            RELEASE_ASSERT(parameterCount);
-            --parameterCount;
-        }
-    }
-
-    for (unsigned i = 0; i < characters.size(); ++i) {
-        if (!isInStrictContext && (characters[i] == '"' || characters[i] == '\'')) {
-            const auto useStrict = "use strict"_span;
-            if (i + 1 + useStrict.size() < characters.size()) {
-                if (spanHasPrefix(characters.subspan(i + 1), useStrict)) {
-                    isInStrictContext = true;
-                    i += 1 + useStrict.size();
-                }
-            }
-        }
-    }
-
-    int closeBraceOffsetFromEnd = 1;
-    while (true) {
-        if (characters[characters.size() - closeBraceOffsetFromEnd] == '}')
-            break;
-        ++closeBraceOffsetFromEnd;
-    }
+    // BuiltinSourceScan.swift writes the fields in this order, one word each (BuiltinSourceScan.wordCount).
+    static_assert(JSCSwift_BuiltinSourceScan_WordCount == 6 && JSCSwift_BuiltinSourceScan_IsInStrictContext == 5);
+    std::array<uint32_t, JSCSwift_BuiltinSourceScan_WordCount> words;
+    JSCSwift_BuiltinSourceScan_computeMetadata(byteCast<uint8_t>(characters.data()), characters.size(), words.data());
 
     BuiltinSourceMetadata result;
-    result.sourceLength = characters.size();
-    result.parametersStart = parametersStart;
-    result.parameterCount = parameterCount;
-    result.closeBraceOffsetFromEnd = closeBraceOffsetFromEnd;
-    result.isAsyncFunction = isAsyncFunction;
-    result.isInStrictContext = isInStrictContext;
+    result.sourceLength = words[JSCSwift_BuiltinSourceScan_SourceLength];
+    result.parametersStart = words[JSCSwift_BuiltinSourceScan_ParametersStart];
+    result.parameterCount = words[JSCSwift_BuiltinSourceScan_ParameterCount];
+    result.closeBraceOffsetFromEnd = static_cast<int>(words[JSCSwift_BuiltinSourceScan_CloseBraceOffsetFromEnd]);
+    result.isAsyncFunction = words[JSCSwift_BuiltinSourceScan_IsAsyncFunction];
+    result.isInStrictContext = words[JSCSwift_BuiltinSourceScan_IsInStrictContext];
     return result;
 }
 

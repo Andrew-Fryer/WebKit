@@ -32,11 +32,11 @@
 #include <WebCore/CSSParserToken.h>
 #include <WebCore/CSSTokenizerInputStream.h>
 #include <climits>
+#include <wtf/MallocSpan.h>
 #include <wtf/text/StringView.h>
 
 namespace WebCore {
 
-class CSSTokenizerInputStream;
 class CSSParserObserverWrapper;
 class CSSParserTokenRange;
 
@@ -61,77 +61,18 @@ public:
 private:
     CSSTokenizer(StringView string LIFETIME_BOUND, CSSParserObserverWrapper*, bool* constructionSuccess);
 
-    CSSParserToken nextToken();
+    // The tokenization itself (the input stream, the block stack, every token) is Swift: swift/CSSTokenizer. It writes
+    // the tokens, in CSSParserToken's layout, straight into m_tokenStorage: m_inlineTokenStorage, or m_tokenBuffer once
+    // the input has more tokens than fit inline.
+    static constexpr size_t inlineTokenCapacity = 32;
+    std::span<const CSSParserToken> tokens() const LIFETIME_BOUND { return m_tokenStorage.first(m_tokenCount); }
 
-    NODELETE char16_t consume();
-    NODELETE void reconsume(char16_t);
-
-    StringView preprocessString(StringView);
-
-    CSSParserToken consumeNumericToken();
-    CSSParserToken consumeIdentLikeToken();
-    CSSParserToken consumeNumber();
-    CSSParserToken consumeStringTokenUntil(char16_t);
-    CSSParserToken consumeURLToken();
-
-    NODELETE void consumeBadUrlRemnants();
-    NODELETE void consumeSingleWhitespaceIfNext();
-    void consumeUntilCommentEndFound();
-
-    NODELETE bool consumeIfNext(char16_t);
-    StringView consumeName();
-    NODELETE char32_t consumeEscape();
-
-    NODELETE bool nextTwoCharsAreValidEscape();
-    NODELETE bool nextCharsAreNumber(char16_t);
-    NODELETE bool nextCharsAreNumber();
-    NODELETE bool nextCharsAreIdentifier(char16_t);
-    NODELETE bool nextCharsAreIdentifier();
-
-    CSSParserToken blockStart(CSSParserTokenType);
-    CSSParserToken blockStart(CSSParserTokenType blockType, CSSParserTokenType, StringView);
-    CSSParserToken blockEnd(CSSParserTokenType, CSSParserTokenType startType);
-
-    CSSParserToken newline(char16_t);
-    CSSParserToken whitespace(char16_t);
-    CSSParserToken leftParenthesis(char16_t);
-    CSSParserToken rightParenthesis(char16_t);
-    CSSParserToken leftBracket(char16_t);
-    CSSParserToken rightBracket(char16_t);
-    CSSParserToken leftBrace(char16_t);
-    CSSParserToken rightBrace(char16_t);
-    CSSParserToken plusOrFullStop(char16_t);
-    CSSParserToken comma(char16_t);
-    CSSParserToken hyphenMinus(char16_t);
-    CSSParserToken asterisk(char16_t);
-    CSSParserToken lessThan(char16_t);
-    CSSParserToken solidus(char16_t);
-    CSSParserToken colon(char16_t);
-    CSSParserToken semiColon(char16_t);
-    CSSParserToken hash(char16_t);
-    CSSParserToken circumflexAccent(char16_t);
-    CSSParserToken dollarSign(char16_t);
-    CSSParserToken verticalLine(char16_t);
-    CSSParserToken tilde(char16_t);
-    CSSParserToken commercialAt(char16_t);
-    CSSParserToken reverseSolidus(char16_t);
-    CSSParserToken asciiDigit(char16_t);
-    CSSParserToken letterU(char16_t);
-    CSSParserToken nameStart(char16_t);
-    CSSParserToken stringStart(char16_t);
-    CSSParserToken endOfFile(char16_t);
-
-    StringView registerString(String&&);
-    StringView registerString(const String&);
-
-    using CodePoint = CSSParserToken (CSSTokenizer::*)(char16_t);
-    static const std::array<CodePoint, 128> codePoints;
-
-    Vector<CSSParserTokenType, 8> m_blockStack;
-    Vector<CSSParserToken, 32> m_tokens;
+    std::span<CSSParserToken> m_tokenStorage;
+    unsigned m_tokenCount { 0 };
+    std::optional<MallocSpan<CSSParserToken>> m_tokenBuffer; // Engaged only for inputs with more tokens than fit inline.
+    alignas(CSSParserToken) std::array<std::byte, inlineTokenCapacity * sizeof(CSSParserToken)> m_inlineTokenStorage;
     // We only allocate strings when escapes are used.
     Vector<String> m_stringPool;
-    CSSTokenizerInputStream m_input;
 };
 
 } // namespace WebCore

@@ -404,3 +404,93 @@ enum DFGCFAMerge {
         return changed
     }
 }
+
+// The value resets of JSC::DFG::InPlaceAbstractState::initialize() (dfg/DFGInPlaceAbstractState.cpp), which starts every
+// CFA run: each value at the head and at the tail of each block becomes clear (AbstractValue::clear()), except that a
+// ThreadedCPS root's arguments at head start out as their FlushFormat says. Clearing frees a fat set's list, which C++
+// owns, so resetValues writes the old words of those sets out for the C++ caller to free.
+//
+extension DFGCFAMerge {
+    // The SpeculatedType and ArrayModes values (bytecode/SpeculatedType.h, bytecode/ArrayProfile.h) and FlushFormat
+    // cases (dfg/DFGFlushFormat.h) that initialize() uses; static_asserted in dfg/DFGInPlaceAbstractState.cpp.
+    @inline(__always) static var specInt32Only: UInt64 { 0x60_0000_0000 }
+    @inline(__always) static var specBoolean: UInt64 { 0x2000_0000_0000 }
+    @inline(__always) static var specCellCheck: UInt64 { 0x3_801f_ffff_fff7 }
+    @inline(__always) static var specBytecodeTop: UInt64 { 0x3_ee7f_ffff_fff7 }
+    @inline(__always) static var allArrayModes: UInt32 { 0xfeff_3ffb }
+    @inline(__always) static var flushedInt32: UInt8 { 1 }
+    @inline(__always) static var flushedCell: UInt8 { 4 }
+    @inline(__always) static var flushedBoolean: UInt8 { 5 }
+    @inline(__always) static var flushedJSValue: UInt8 { 6 }
+    // resetValues' result for a format that is none of the four.
+    @inline(__always) static var badFlushFormat: Int { -1 }
+
+    // A CPS root's argument value at head for its flush format, as (m_structure word, m_type, m_arrayModes):
+    // setNonCellType(SpecInt32Only), setNonCellType(SpecBoolean), setType(graph, SpecCellCheck) (cells that are neither
+    // only strings nor only symbols, so makeTop() of the structures) and makeBytecodeTop(). nil for any other format,
+    // for which the C++ caller crashes (DFG_CRASH "Bad flush format for argument").
+    @inline(__always)
+    static func argumentValueAtHead(_ format: UInt8) -> (structure: UInt64, type: UInt64, arrayModes: UInt32)? {
+        switch format {
+        case flushedInt32:
+            return (0, specInt32Only, 0)
+        case flushedBoolean:
+            return (0, specBoolean, 0)
+        case flushedCell:
+            return (topValue, specCellCheck, allArrayModes)
+        case flushedJSValue:
+            return (topValue, specBytecodeTop, allArrayModes)
+        default:
+            return nil
+        }
+    }
+
+    // values[base ..< base + 4].clear(): m_type = SpecNone, m_arrayModes = 0, m_structure.clear() (the word becomes 0,
+    // clobbered bit included), m_value = JSValue(); m_effectEpoch (the high half of word 2) is kept. A fat set's old word
+    // is appended to freedLists. The highest word goes first, so that its bounds check (with non-wrapping index
+    // arithmetic) covers the other three.
+    @inline(__always)
+    static func clearValue(_ values: inout MutableSpan<UInt64>, at base: Int, _ freedLists: inout MutableSpan<UInt64>, _ freed: inout Int) {
+        values[base + 3] = 0
+        let structure = values[base]
+        if structure & fatFlag != 0 {
+            freedLists[freed] = structure
+            freed &+= 1
+        }
+        values[base] = 0
+        values[base + 1] = 0
+        values[base + 2] &= ~arrayModesMask
+    }
+
+    // One block's values, head.count / 4 of them: head and tail values i < that count are cleared, then head value
+    // i < argumentFormats.count is set for argumentFormats[i] (argumentValueAtHead; set after the clear, which is what
+    // setNonCellType, setType and makeBytecodeTop leave of the old value). Returns how many fat sets' old words are now
+    // freedLists[0 ..< result] (at most two per value; C++ frees their lists, which nothing else references), or
+    // badFlushFormat, touching nothing, if a format is not one of the four. Traps unless tail has at least as many values,
+    // argumentFormats.count <= the count and freedLists has room for every fat set (C++ indexes out of bounds otherwise).
+    @inline(__always)
+    static func resetValues(head: inout MutableSpan<UInt64>, tail: inout MutableSpan<UInt64>, argumentFormats: Span<UInt8>,
+                            freedLists: inout MutableSpan<UInt64>) -> Int {
+        let count = head.count / 4
+        // (The argument and freed-list writes are bounds-checked themselves.)
+        precondition(count <= tail.count / 4)
+        for i in argumentFormats.indices where argumentValueAtHead(argumentFormats[i]) == nil {
+            return badFlushFormat
+        }
+        var freed = 0
+        for i in 0 ..< count {
+            clearValue(&head, at: 4 * i, &freedLists, &freed)
+            clearValue(&tail, at: 4 * i, &freedLists, &freed)
+        }
+        for i in argumentFormats.indices {
+            guard let value = argumentValueAtHead(argumentFormats[i]) else {
+                continue
+            }
+            let base = 4 * i
+            head[base + 2] |= UInt64(value.arrayModes)
+            head[base] = value.structure
+            head[base + 1] = value.type
+        }
+        return freed
+    }
+}

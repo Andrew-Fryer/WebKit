@@ -288,6 +288,14 @@ public:
         m_set.set(list);
         setClobbered(clobbered);
     }
+    // For CFA initialization, whose value resets DFGCFAMerge.swift does on the words (InPlaceAbstractState::initialize):
+    // frees the list of a fat set whose word Swift overwrote when it cleared the value.
+    static void destroyListForSwift(uint64_t word)
+    {
+        using OutOfLineList = TinyPtrSet<RegisteredStructure>::OutOfLineList;
+        RELEASE_ASSERT(word & RegisteredStructureSet::fatFlag);
+        OutOfLineList::destroy(std::bit_cast<OutOfLineList*>(static_cast<uintptr_t>(word & ~RegisteredStructureSet::flags)));
+    }
 
 private:
     static constexpr uintptr_t clobberedFlag = RegisteredStructureSet::reservedFlag;

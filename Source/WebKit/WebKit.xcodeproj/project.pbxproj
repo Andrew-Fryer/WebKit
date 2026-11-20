@@ -2879,6 +2879,10 @@
 		34ACBC4A5463E3300138558F /* IPCPathDecode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D49295B0CC75A5358CA0F35E /* IPCPathDecode.swift */; };
 		AAF8877DD62865622B7F2A6D /* IPCStreamMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D470E476A76565FBB9E5120 /* IPCStreamMessage.swift */; };
 		E8E39A2FE97F387B05E891FB /* IPCStreamMessageBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BE99504FB618BDE52F501F6 /* IPCStreamMessageBoundary.swift */; };
+		0AA465B36A5A5E5559B6DCF9 /* IPCPathEncode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B9DFF149CFF6733C166FD41 /* IPCPathEncode.swift */; };
+		5D9F7B2A9FE2808DE02B4176 /* IPCPathEncodeBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A7C4F821ECA0FFBCF62EB6 /* IPCPathEncodeBoundary.swift */; };
+		06FFC63F18A163066C121A6B /* GPUStrokeLines.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3588383496EFCBEBAD114F63 /* GPUStrokeLines.swift */; };
+		5A9D2EEDA0029AE710EB6730 /* GPUStrokeLinesBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91436ADC9433209AA73A8AC /* GPUStrokeLinesBoundary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -9482,6 +9486,12 @@
 		9D470E476A76565FBB9E5120 /* IPCStreamMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCStreamMessage/IPCStreamMessage.swift; sourceTree = "<group>"; };
 		9BE99504FB618BDE52F501F6 /* IPCStreamMessageBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCStreamMessage/IPCStreamMessageBoundary.swift; sourceTree = "<group>"; };
 		094959D880DE0AA0B432B8F8 /* IPCStreamMessageSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = IPCStreamMessage/IPCStreamMessageSwiftBoundary.h; sourceTree = "<group>"; };
+		4B9DFF149CFF6733C166FD41 /* IPCPathEncode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCPathEncode/IPCPathEncode.swift; sourceTree = "<group>"; };
+		D4A7C4F821ECA0FFBCF62EB6 /* IPCPathEncodeBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCPathEncode/IPCPathEncodeBoundary.swift; sourceTree = "<group>"; };
+		C77520126BF70F04BB4A1855 /* IPCPathEncodeSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = IPCPathEncode/IPCPathEncodeSwiftBoundary.h; sourceTree = "<group>"; };
+		3588383496EFCBEBAD114F63 /* GPUStrokeLines.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPUStrokeLines/GPUStrokeLines.swift; sourceTree = "<group>"; };
+		A91436ADC9433209AA73A8AC /* GPUStrokeLinesBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPUStrokeLines/GPUStrokeLinesBoundary.swift; sourceTree = "<group>"; };
+		A1334798E9FCB916DC11128D /* GPUStrokeLinesSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GPUStrokeLines/GPUStrokeLinesSwiftBoundary.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -18153,6 +18163,12 @@
 		F975F0A9A3659FE82E0A1E33 /* swift */ = {
 			isa = PBXGroup;
 			children = (
+				A1334798E9FCB916DC11128D /* GPUStrokeLinesSwiftBoundary.h */,
+				A91436ADC9433209AA73A8AC /* GPUStrokeLinesBoundary.swift */,
+				3588383496EFCBEBAD114F63 /* GPUStrokeLines.swift */,
+				C77520126BF70F04BB4A1855 /* IPCPathEncodeSwiftBoundary.h */,
+				D4A7C4F821ECA0FFBCF62EB6 /* IPCPathEncodeBoundary.swift */,
+				4B9DFF149CFF6733C166FD41 /* IPCPathEncode.swift */,
 				094959D880DE0AA0B432B8F8 /* IPCStreamMessageSwiftBoundary.h */,
 				9BE99504FB618BDE52F501F6 /* IPCStreamMessageBoundary.swift */,
 				9D470E476A76565FBB9E5120 /* IPCStreamMessage.swift */,
@@ -22311,6 +22327,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5D9F7B2A9FE2808DE02B4176 /* IPCPathEncodeBoundary.swift in Sources */,
+				0AA465B36A5A5E5559B6DCF9 /* IPCPathEncode.swift in Sources */,
 				E8E39A2FE97F387B05E891FB /* IPCStreamMessageBoundary.swift in Sources */,
 				AAF8877DD62865622B7F2A6D /* IPCStreamMessage.swift in Sources */,
 				34ACBC4A5463E3300138558F /* IPCPathDecode.swift in Sources */,
@@ -22378,6 +22396,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5A9D2EEDA0029AE710EB6730 /* GPUStrokeLinesBoundary.swift in Sources */,
+				06FFC63F18A163066C121A6B /* GPUStrokeLines.swift in Sources */,
 				5790A67125679F1A0077C5A7 /* _WKAuthenticationExtensionsClientInputs.mm in Sources */,
 				5790A67D2567A13E0077C5A7 /* _WKAuthenticationExtensionsClientOutputs.mm in Sources */,
 				5790A6892567A28A0077C5A7 /* _WKAuthenticatorAssertionResponse.mm in Sources */,

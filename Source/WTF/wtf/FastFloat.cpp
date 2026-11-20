@@ -26,80 +26,55 @@
 #include "config.h"
 #include <wtf/FastFloat.h>
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-#include "fast_float/fast_float.h"
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+#include "NumberParseSwiftBoundary.h"
+
+// The parsing itself (fast_float's algorithm) is Swift: wtf/swift/NumberParse.
 
 namespace WTF {
 
 double parseDouble(std::span<const Latin1Character> string, size_t& parsedLength)
 {
-    double doubleValue = 0;
-    auto stringData = byteCast<char>(string);
-    auto result = fast_float::from_chars(std::to_address(stringData.begin()), std::to_address(stringData.end()), doubleValue, fast_float::chars_format::general | fast_float::chars_format::no_infnan | fast_float::chars_format::allow_leading_plus);
-    parsedLength = result.ptr - stringData.data();
-    return doubleValue;
+    return WTFSwift_NumberParse_parseDouble8(byteCast<uint8_t>(string).data(), string.size(), &parsedLength);
 }
 
 double parseDouble(std::span<const char16_t> string, size_t& parsedLength)
 {
-    double doubleValue = 0;
-    auto result = fast_float::from_chars(std::to_address(string.begin()), std::to_address(string.end()), doubleValue, fast_float::chars_format::general | fast_float::chars_format::no_infnan | fast_float::chars_format::allow_leading_plus);
-    parsedLength = result.ptr - string.data();
-    return doubleValue;
+    return WTFSwift_NumberParse_parse16(string.data(), string.size(), 0, &parsedLength);
 }
 
 double parseFixedDouble(std::span<const Latin1Character> string, size_t& parsedLength)
 {
-    double doubleValue = 0;
-    auto stringData = byteCast<char>(string);
-    auto result = fast_float::from_chars(std::to_address(stringData.begin()), std::to_address(stringData.end()), doubleValue, fast_float::chars_format::fixed | fast_float::chars_format::no_infnan);
-    parsedLength = result.ptr - stringData.data();
-    return doubleValue;
+    return WTFSwift_NumberParse_parse8(byteCast<uint8_t>(string).data(), string.size(), WTFSwiftNumberParseModeFixed, &parsedLength);
 }
 
 double parseFixedDouble(std::span<const char16_t> string, size_t& parsedLength)
 {
-    double doubleValue = 0;
-    auto result = fast_float::from_chars(std::to_address(string.begin()), std::to_address(string.end()), doubleValue, fast_float::chars_format::fixed | fast_float::chars_format::no_infnan);
-    parsedLength = result.ptr - string.data();
-    return doubleValue;
+    return WTFSwift_NumberParse_parse16(string.data(), string.size(), WTFSwiftNumberParseModeFixed, &parsedLength);
 }
 
 std::optional<double> parseJSONDouble(std::span<const Latin1Character> string, size_t& parsedLength)
 {
-    double doubleValue = 0;
-    auto stringData = byteCast<char>(string);
-    auto result = fast_float::from_chars(std::to_address(stringData.begin()), std::to_address(stringData.end()), doubleValue, fast_float::chars_format::json);
-    if (!result) [[unlikely]] {
-        if (result.ec != std::errc::result_out_of_range)
-            return std::nullopt;
-    }
-    parsedLength = result.ptr - stringData.data();
+    size_t length;
+    double doubleValue = WTFSwift_NumberParse_parseJSONDouble8(byteCast<uint8_t>(string).data(), string.size(), &length);
+    if (length == SIZE_MAX) [[unlikely]]
+        return std::nullopt;
+    parsedLength = length;
     return doubleValue;
 }
 
 std::optional<double> parseJSONDouble(std::span<const char16_t> string, size_t& parsedLength)
 {
-    double doubleValue = 0;
-    auto result = fast_float::from_chars(std::to_address(string.begin()), std::to_address(string.end()), doubleValue, fast_float::chars_format::json);
-    if (!result) [[unlikely]] {
-        if (result.ec != std::errc::result_out_of_range)
-            return std::nullopt;
-    }
-    parsedLength = result.ptr - string.data();
+    size_t length;
+    double doubleValue = WTFSwift_NumberParse_parse16(string.data(), string.size(), WTFSwiftNumberParseModeJSON, &length);
+    if (length == SIZE_MAX) [[unlikely]]
+        return std::nullopt;
+    parsedLength = length;
     return doubleValue;
 }
 
 double parseJSONDoubleFromDigitsSlow(uint64_t mantissa, int64_t exponent)
 {
-    // compute_float needs the digits themselves, for a slower comparison, only when the mantissa has been
-    // truncated, and a mantissa of at most 19 digits is exact.
-    auto adjusted = fast_float::compute_float<fast_float::binary_format<double>>(exponent, mantissa);
-    RELEASE_ASSERT(adjusted.power2 >= 0);
-    double doubleValue = 0;
-    fast_float::to_float(false, adjusted, doubleValue);
-    return doubleValue;
+    return WTFSwift_NumberParse_doubleFromDigits(mantissa, exponent);
 }
 
 } // namespace WTF

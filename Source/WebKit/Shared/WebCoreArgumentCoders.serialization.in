@@ -1111,12 +1111,13 @@ header: <WebCore/RectCorners.h>
     WebCore::RubberBandingBehavior left();
 }
 
-[AdditionalEncoder=StreamConnectionEncoder] class WebCore::Path {
+# The encoders of Path and PathImpl are in Swift (Source/WebKit/swift/IPCPathEncode), called from Shared/PathArgumentCoders.cpp.
+[AdditionalEncoder=StreamConnectionEncoder, CustomEncoder] class WebCore::Path {
     Vector<WebCore::PathSegment> segments();
 }
 
 header: <WebCore/PlatformPathImpl.h>
-[RefCounted, AdditionalEncoder=StreamConnectionEncoder, ConstructSubclass=PlatformPathImpl] class WebCore::PathImpl {
+[RefCounted, AdditionalEncoder=StreamConnectionEncoder, CustomEncoder, ConstructSubclass=PlatformPathImpl] class WebCore::PathImpl {
     Vector<WebCore::PathSegment> segments();
 }
 

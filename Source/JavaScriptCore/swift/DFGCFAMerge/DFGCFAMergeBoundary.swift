@@ -62,3 +62,21 @@ func JSCSwift_DFGCFAMerge_mergeSlowValue(_ destination: UnsafeMutablePointer<UIn
     return DFGCFAMerge.mergeSlowValue(&destinationWords, sourceWords, destinationList: destinationElements, destinationCapacity: destinationCapacity,
                                       sourceList: sourceElements, list: &listSpan, result: &resultWords)
 }
+
+// InPlaceAbstractState::initialize()'s resets of one block's values (DFGCFAMerge.resetValues): the valuesAtHead and
+// valuesAtTail Operands as a pointer and an element count each (four 64-bit words per element), a CPS root's
+// argument FlushFormats (one byte each; null and 0 otherwise) and the buffer for the freed sets' words. The unsafe
+// operations turn those into spans. Eight integer arguments, so that none goes on the stack on arm64 (x86_64 passes
+// the last two on the stack).
+@_cdecl("JSCSwift_DFGCFAMerge_resetValues")
+@inline(__always)
+func JSCSwift_DFGCFAMerge_resetValues(_ head: UnsafeMutablePointer<UInt64>?, _ headCount: Int, _ tail: UnsafeMutablePointer<UInt64>?, _ tailCount: Int,
+                                      _ argumentFormats: UnsafePointer<UInt8>?, _ argumentFormatCount: Int,
+                                      _ freedLists: UnsafeMutablePointer<UInt64>?, _ freedCapacity: Int) -> Int {
+    precondition(UInt(bitPattern: headCount) <= UInt(Int.max / 4) && UInt(bitPattern: tailCount) <= UInt(Int.max / 4))
+    var headWords = unsafe UnsafeMutableBufferPointer(start: head, count: 4 &* headCount).mutableSpan
+    var tailWords = unsafe UnsafeMutableBufferPointer(start: tail, count: 4 &* tailCount).mutableSpan
+    let formats = unsafe UnsafeBufferPointer(start: argumentFormats, count: argumentFormatCount).span
+    var freed = unsafe UnsafeMutableBufferPointer(start: freedLists, count: freedCapacity).mutableSpan
+    return DFGCFAMerge.resetValues(head: &headWords, tail: &tailWords, argumentFormats: formats, freedLists: &freed)
+}

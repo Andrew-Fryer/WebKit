@@ -21,9 +21,31 @@
 #include "config.h"
 #include "SVGPathStringViewSource.h"
 
+#include "SVGNumberGrammarSwiftBoundary.h"
 #include "SVGParserUtilities.h"
 
 namespace WebCore {
+
+// The numbers and arc flags of a segment are parsed by the Swift SVG number grammar (SVGNumberGrammarSwiftBoundary.h),
+// in one call per segment: each is followed by the spaces and ',' after it. On failure the buffer is left where the
+// item that did not parse stopped.
+template<size_t count, typename CharacterType> static std::optional<std::array<float, count>> parsePathSegmentNumbers(StringParsingBuffer<CharacterType>& buffer, uint32_t program = WebCoreSwift_SVGNumberGrammar_numbers(count))
+{
+    std::array<float, count> values;
+    auto characters = buffer.span();
+    if constexpr (count == 1) {
+        auto parsed = WebCoreSwift_SVGNumberGrammar_parseNumber(characters.data(), characters.size(), std::is_same_v<CharacterType, char16_t>, true, values.data());
+        buffer.advanceBy(WebCoreSwift_SVGNumberGrammar_numberConsumed(parsed));
+        if (!WebCoreSwift_SVGNumberGrammar_parsedNumber(parsed))
+            return std::nullopt;
+        return values;
+    }
+    auto parsed = WebCoreSwift_SVGNumberGrammar_parseNumbers(characters.data(), characters.size(), std::is_same_v<CharacterType, char16_t>, program, values.data(), values.size());
+    buffer.advanceBy(WebCoreSwift_SVGNumberGrammar_consumed(parsed));
+    if (WebCoreSwift_SVGNumberGrammar_parsedCount(parsed) != count)
+        return std::nullopt;
+    return values;
+}
 
 SVGPathStringViewSource::SVGPathStringViewSource(StringView view)
     : m_is8BitSource(view.is8Bit())
@@ -139,12 +161,12 @@ std::optional<SVGPathSegType> SVGPathStringViewSource::parseSVGSegmentType()
 std::optional<SVGPathSource::MoveToSegment> SVGPathStringViewSource::parseMoveToSegment(FloatPoint)
 {
     return parse([](auto& buffer) -> std::optional<MoveToSegment> {
-        auto targetPoint = parseFloatPoint(buffer);
-        if (!targetPoint)
+        auto values = parsePathSegmentNumbers<2>(buffer);
+        if (!values)
             return std::nullopt;
-        
+
         MoveToSegment segment;
-        segment.targetPoint = WTF::move(*targetPoint);
+        segment.targetPoint = { (*values)[0], (*values)[1] };
         return segment;
     });
 }
@@ -152,12 +174,12 @@ std::optional<SVGPathSource::MoveToSegment> SVGPathStringViewSource::parseMoveTo
 std::optional<SVGPathSource::LineToSegment> SVGPathStringViewSource::parseLineToSegment(FloatPoint)
 {
     return parse([](auto& buffer) -> std::optional<LineToSegment> {
-        auto targetPoint = parseFloatPoint(buffer);
-        if (!targetPoint)
+        auto values = parsePathSegmentNumbers<2>(buffer);
+        if (!values)
             return std::nullopt;
-        
+
         LineToSegment segment;
-        segment.targetPoint = WTF::move(*targetPoint);
+        segment.targetPoint = { (*values)[0], (*values)[1] };
         return segment;
     });
 }
@@ -165,12 +187,12 @@ std::optional<SVGPathSource::LineToSegment> SVGPathStringViewSource::parseLineTo
 std::optional<SVGPathSource::LineToHorizontalSegment> SVGPathStringViewSource::parseLineToHorizontalSegment(FloatPoint)
 {
     return parse([](auto& buffer) -> std::optional<LineToHorizontalSegment> {
-        auto x = parseNumber(buffer);
-        if (!x)
+        auto values = parsePathSegmentNumbers<1>(buffer);
+        if (!values)
             return std::nullopt;
-        
+
         LineToHorizontalSegment segment;
-        segment.x = *x;
+        segment.x = (*values)[0];
         return segment;
     });
 }
@@ -178,12 +200,12 @@ std::optional<SVGPathSource::LineToHorizontalSegment> SVGPathStringViewSource::p
 std::optional<SVGPathSource::LineToVerticalSegment> SVGPathStringViewSource::parseLineToVerticalSegment(FloatPoint)
 {
     return parse([](auto& buffer) -> std::optional<LineToVerticalSegment> {
-        auto y = parseNumber(buffer);
-        if (!y)
+        auto values = parsePathSegmentNumbers<1>(buffer);
+        if (!values)
             return std::nullopt;
-        
+
         LineToVerticalSegment segment;
-        segment.y = *y;
+        segment.y = (*values)[0];
         return segment;
     });
 }
@@ -191,22 +213,14 @@ std::optional<SVGPathSource::LineToVerticalSegment> SVGPathStringViewSource::par
 std::optional<SVGPathSource::CurveToCubicSegment> SVGPathStringViewSource::parseCurveToCubicSegment(FloatPoint)
 {
     return parse([](auto& buffer) -> std::optional<CurveToCubicSegment> {
-        auto point1 = parseFloatPoint(buffer);
-        if (!point1)
-            return std::nullopt;
-
-        auto point2 = parseFloatPoint(buffer);
-        if (!point2)
-            return std::nullopt;
-
-        auto targetPoint = parseFloatPoint(buffer);
-        if (!targetPoint)
+        auto values = parsePathSegmentNumbers<6>(buffer);
+        if (!values)
             return std::nullopt;
 
         CurveToCubicSegment segment;
-        segment.point1 = *point1;
-        segment.point2 = *point2;
-        segment.targetPoint = *targetPoint;
+        segment.point1 = { (*values)[0], (*values)[1] };
+        segment.point2 = { (*values)[2], (*values)[3] };
+        segment.targetPoint = { (*values)[4], (*values)[5] };
         return segment;
     });
 }
@@ -214,17 +228,13 @@ std::optional<SVGPathSource::CurveToCubicSegment> SVGPathStringViewSource::parse
 std::optional<SVGPathSource::CurveToCubicSmoothSegment> SVGPathStringViewSource::parseCurveToCubicSmoothSegment(FloatPoint)
 {
     return parse([](auto& buffer) -> std::optional<CurveToCubicSmoothSegment> {
-        auto point2 = parseFloatPoint(buffer);
-        if (!point2)
-            return std::nullopt;
-
-        auto targetPoint = parseFloatPoint(buffer);
-        if (!targetPoint)
+        auto values = parsePathSegmentNumbers<4>(buffer);
+        if (!values)
             return std::nullopt;
 
         CurveToCubicSmoothSegment segment;
-        segment.point2 = *point2;
-        segment.targetPoint = *targetPoint;
+        segment.point2 = { (*values)[0], (*values)[1] };
+        segment.targetPoint = { (*values)[2], (*values)[3] };
         return segment;
     });
 }
@@ -232,17 +242,13 @@ std::optional<SVGPathSource::CurveToCubicSmoothSegment> SVGPathStringViewSource:
 std::optional<SVGPathSource::CurveToQuadraticSegment> SVGPathStringViewSource::parseCurveToQuadraticSegment(FloatPoint)
 {
     return parse([](auto& buffer) -> std::optional<CurveToQuadraticSegment> {
-        auto point1 = parseFloatPoint(buffer);
-        if (!point1)
-            return std::nullopt;
-
-        auto targetPoint = parseFloatPoint(buffer);
-        if (!targetPoint)
+        auto values = parsePathSegmentNumbers<4>(buffer);
+        if (!values)
             return std::nullopt;
 
         CurveToQuadraticSegment segment;
-        segment.point1 = *point1;
-        segment.targetPoint = *targetPoint;
+        segment.point1 = { (*values)[0], (*values)[1] };
+        segment.targetPoint = { (*values)[2], (*values)[3] };
         return segment;
     });
 }
@@ -250,45 +256,32 @@ std::optional<SVGPathSource::CurveToQuadraticSegment> SVGPathStringViewSource::p
 std::optional<SVGPathSource::CurveToQuadraticSmoothSegment> SVGPathStringViewSource::parseCurveToQuadraticSmoothSegment(FloatPoint)
 {
     return parse([](auto& buffer) -> std::optional<CurveToQuadraticSmoothSegment> {
-        auto targetPoint = parseFloatPoint(buffer);
-        if (!targetPoint)
+        auto values = parsePathSegmentNumbers<2>(buffer);
+        if (!values)
             return std::nullopt;
 
         CurveToQuadraticSmoothSegment segment;
-        segment.targetPoint = *targetPoint;
+        segment.targetPoint = { (*values)[0], (*values)[1] };
         return segment;
     });
 }
 
 std::optional<SVGPathSource::ArcToSegment> SVGPathStringViewSource::parseArcToSegment(FloatPoint)
 {
+    // rx, ry, angle, largeArc, sweep, targetPoint.
+    static constexpr uint32_t arcProgram = WebCoreSwift_SVGNumberGrammar_withItemKind(WebCoreSwift_SVGNumberGrammar_withItemKind(WebCoreSwift_SVGNumberGrammar_numbers(7), 3, WebCoreSwift_SVGNumberGrammar_ArcFlag), 4, WebCoreSwift_SVGNumberGrammar_ArcFlag);
     return parse([](auto& buffer) -> std::optional<ArcToSegment> {
-        auto rx = parseNumber(buffer);
-        if (!rx)
-            return std::nullopt;
-        auto ry = parseNumber(buffer);
-        if (!ry)
-            return std::nullopt;
-        auto angle = parseNumber(buffer);
-        if (!angle)
-            return std::nullopt;
-        auto largeArc = parseArcFlag(buffer);
-        if (!largeArc)
-            return std::nullopt;
-        auto sweep = parseArcFlag(buffer);
-        if (!sweep)
-            return std::nullopt;
-        auto targetPoint = parseFloatPoint(buffer);
-        if (!targetPoint)
+        auto values = parsePathSegmentNumbers<7>(buffer, arcProgram);
+        if (!values)
             return std::nullopt;
 
         ArcToSegment segment;
-        segment.rx = *rx;
-        segment.ry = *ry;
-        segment.angle = *angle;
-        segment.largeArc = *largeArc;
-        segment.sweep = *sweep;
-        segment.targetPoint = *targetPoint;
+        segment.rx = (*values)[0];
+        segment.ry = (*values)[1];
+        segment.angle = (*values)[2];
+        segment.largeArc = (*values)[3] != 0;
+        segment.sweep = (*values)[4] != 0;
+        segment.targetPoint = { (*values)[5], (*values)[6] };
         return segment;
     });
 }

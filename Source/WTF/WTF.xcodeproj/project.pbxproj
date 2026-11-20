@@ -942,14 +942,12 @@
 		E3618AB92AD8C4BA00DA7E43 /* ButterflyArray.h in Headers */ = {isa = PBXBuildFile; fileRef = E3618AB82AD8C4B900DA7E43 /* ButterflyArray.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		E361DB532891159C00B2A2B8 /* FastFloat.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E361DB512891159B00B2A2B8 /* FastFloat.cpp */; };
 		E361DB542891159C00B2A2B8 /* FastFloat.h in Headers */ = {isa = PBXBuildFile; fileRef = E361DB522891159C00B2A2B8 /* FastFloat.h */; settings = {ATTRIBUTES = (Private, ); }; };
-		E361DB61289115D000B2A2B8 /* fast_float.h in Headers */ = {isa = PBXBuildFile; fileRef = E361DB57289115D000B2A2B8 /* fast_float.h */; };
 		E36BA9DE29E275DB00300057 /* WTFProcess.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E36BA9DC29E275DB00300057 /* WTFProcess.cpp */; };
 		E36BA9DF29E275DB00300057 /* WTFProcess.h in Headers */ = {isa = PBXBuildFile; fileRef = E36BA9DD29E275DB00300057 /* WTFProcess.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		E36DC1762DF0F9C20091549D /* WasmSIMD128.h in Headers */ = {isa = PBXBuildFile; fileRef = E36DC1752DF0F9C20091549D /* WasmSIMD128.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		E37E96542702AD0B00E1C36A /* ApproximateTime.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E37E96522702AD0700E1C36A /* ApproximateTime.cpp */; };
 		E382C9E12E9089E600843CA6 /* AuditToken.h in Headers */ = {isa = PBXBuildFile; fileRef = E382C9DF2E9089E600843CA6 /* AuditToken.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		E382C9E22E9089E600843CA6 /* AuditToken.mm in Sources */ = {isa = PBXBuildFile; fileRef = E382C9E02E9089E600843CA6 /* AuditToken.mm */; };
-		E383AAC92B6C730B00058E60 /* AdaptiveStringSearcher.h in Headers */ = {isa = PBXBuildFile; fileRef = E383AAC82B6C730B00058E60 /* AdaptiveStringSearcher.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		E388886F20C9095100E632BC /* WorkerPool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E388886D20C9095100E632BC /* WorkerPool.cpp */; };
 		E38C41281EB4E0680042957D /* CPUTime.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E38C41261EB4E0680042957D /* CPUTime.cpp */; };
 		E38C7CD82C366A1800BB9B18 /* SIMDUTF.h in Headers */ = {isa = PBXBuildFile; fileRef = E38C7CD72C366A1800BB9B18 /* SIMDUTF.h */; settings = {ATTRIBUTES = (Private, ); }; };
@@ -1013,6 +1011,11 @@
 		FF8CB4032A88C125004AF498 /* StringHasherInlines.h in Headers */ = {isa = PBXBuildFile; fileRef = FF8CB4022A88C125004AF498 /* StringHasherInlines.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		FF910E982979FE6F00D1A24D /* FixedBitVector.h in Headers */ = {isa = PBXBuildFile; fileRef = FF910E972979FE6F00D1A24D /* FixedBitVector.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		FFEE46F42825DF80003BC981 /* CompactPtr.h in Headers */ = {isa = PBXBuildFile; fileRef = FFEE46F32825DF80003BC981 /* CompactPtr.h */; settings = {ATTRIBUTES = (Private, ); }; };
+		C8F9AE76C265BB6F71F3BBC8 /* NumberParse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06106FE7CA02E9654B3B2D5F /* NumberParse.swift */; };
+		9EE50F1B88F28C6873E5AB8D /* NumberParseBigint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122DD52AE58FBEF0FF1EC9F2 /* NumberParseBigint.swift */; };
+		A20A716D60A273CAE3578AFA /* NumberParseBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD256C9920887891356C75D7 /* NumberParseBoundary.swift */; };
+		F23E4DD491D321D865564F65 /* NumberParseEntryPoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84DAF141206A4B273880C4DA /* NumberParseEntryPoints.swift */; };
+		BFA6BA427A304AFC52F216B6 /* NumberParseTables.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08FDF9A6CB0ED15B34CDFC09 /* NumberParseTables.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -2063,7 +2066,6 @@
 		E3618AB82AD8C4B900DA7E43 /* ButterflyArray.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ButterflyArray.h; sourceTree = "<group>"; };
 		E361DB512891159B00B2A2B8 /* FastFloat.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = FastFloat.cpp; sourceTree = "<group>"; };
 		E361DB522891159C00B2A2B8 /* FastFloat.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FastFloat.h; sourceTree = "<group>"; };
-		E361DB57289115D000B2A2B8 /* fast_float.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = fast_float.h; sourceTree = "<group>"; };
 		E36895CB23A445CD008DD4C8 /* PackedRef.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PackedRef.h; sourceTree = "<group>"; };
 		E36895CC23A445EE008DD4C8 /* PackedRefPtr.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PackedRefPtr.h; sourceTree = "<group>"; };
 		E36BA9DC29E275DB00300057 /* WTFProcess.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WTFProcess.cpp; sourceTree = "<group>"; };
@@ -2075,7 +2077,6 @@
 		E382C9DF2E9089E600843CA6 /* AuditToken.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AuditToken.h; sourceTree = "<group>"; };
 		E382C9E02E9089E600843CA6 /* AuditToken.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = AuditToken.mm; sourceTree = "<group>"; };
 		E3831F922703101A00EF5EB3 /* GenericTimeMixin.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GenericTimeMixin.h; sourceTree = "<group>"; };
-		E383AAC82B6C730B00058E60 /* AdaptiveStringSearcher.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AdaptiveStringSearcher.h; sourceTree = "<group>"; };
 		E388886D20C9095100E632BC /* WorkerPool.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WorkerPool.cpp; sourceTree = "<group>"; };
 		E388886E20C9095100E632BC /* WorkerPool.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WorkerPool.h; sourceTree = "<group>"; };
 		E38C41261EB4E0680042957D /* CPUTime.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUTime.cpp; sourceTree = "<group>"; };
@@ -2169,6 +2170,12 @@
 		FF8CB4022A88C125004AF498 /* StringHasherInlines.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = StringHasherInlines.h; sourceTree = "<group>"; };
 		FF910E972979FE6F00D1A24D /* FixedBitVector.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FixedBitVector.h; sourceTree = "<group>"; };
 		FFEE46F32825DF80003BC981 /* CompactPtr.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CompactPtr.h; sourceTree = "<group>"; };
+		06106FE7CA02E9654B3B2D5F /* NumberParse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberParse/NumberParse.swift; sourceTree = "<group>"; };
+		122DD52AE58FBEF0FF1EC9F2 /* NumberParseBigint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberParse/NumberParseBigint.swift; sourceTree = "<group>"; };
+		FD256C9920887891356C75D7 /* NumberParseBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberParse/NumberParseBoundary.swift; sourceTree = "<group>"; };
+		84DAF141206A4B273880C4DA /* NumberParseEntryPoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberParse/NumberParseEntryPoints.swift; sourceTree = "<group>"; };
+		A5E3D6A236A0CB25E962004D /* NumberParseSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NumberParse/NumberParseSwiftBoundary.h; sourceTree = "<group>"; };
+		08FDF9A6CB0ED15B34CDFC09 /* NumberParseTables.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberParse/NumberParseTables.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2374,11 +2381,11 @@
 		A876DBD6151816E500DADB95 /* wtf */ = {
 			isa = PBXGroup;
 			children = (
+				67395A5A06838D0C16C157AA /* swift */,
 				2CDED0F018115C3F004DBA70 /* cf */,
 				E4A0AD3B1A96251900536DF6 /* cocoa */,
 				37C7CC281EA40A54007BD956 /* darwin */,
 				A8A47281151A825A004123FF /* dtoa */,
-				E361DB56289115D000B2A2B8 /* fast_float */,
 				1FA47C87152502DA00568D1B /* ios */,
 				A8A472C4151A825A004123FF /* mac */,
 				E43A46851E228B5700276B05 /* persistence */,
@@ -2997,7 +3004,6 @@
 				A5BA15F61824359E00A82E69 /* cf */,
 				A5BA15F11824339F00A82E69 /* cocoa */,
 				1C181C881D307AB800F5FA16 /* icu */,
-				E383AAC82B6C730B00058E60 /* AdaptiveStringSearcher.h */,
 				A8A4731C151A825B004123FF /* ASCIIFastPath.h */,
 				C6F050790D9C432A99085E75 /* ASCIILiteral.cpp */,
 				382029E246C84B0099FD6764 /* ASCIILiteral.h */,
@@ -3435,14 +3441,6 @@
 			path = wasm;
 			sourceTree = "<group>";
 		};
-		E361DB56289115D000B2A2B8 /* fast_float */ = {
-			isa = PBXGroup;
-			children = (
-				E361DB57289115D000B2A2B8 /* fast_float.h */,
-			);
-			path = fast_float;
-			sourceTree = "<group>";
-		};
 		E396C11B2BE885D9000CBAE1 /* arm */ = {
 			isa = PBXGroup;
 			children = (
@@ -3515,6 +3513,19 @@
 			path = cocoa;
 			sourceTree = "<group>";
 		};
+		67395A5A06838D0C16C157AA /* swift */ = {
+			isa = PBXGroup;
+			children = (
+				08FDF9A6CB0ED15B34CDFC09 /* NumberParseTables.swift */,
+				A5E3D6A236A0CB25E962004D /* NumberParseSwiftBoundary.h */,
+				84DAF141206A4B273880C4DA /* NumberParseEntryPoints.swift */,
+				FD256C9920887891356C75D7 /* NumberParseBoundary.swift */,
+				122DD52AE58FBEF0FF1EC9F2 /* NumberParseBigint.swift */,
+				06106FE7CA02E9654B3B2D5F /* NumberParse.swift */,
+			);
+			path = swift;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -3527,7 +3538,6 @@
 				1404B3E52CBC954D00A7471C /* AbstractRefCountedAndCanMakeWeakPtr.h in Headers */,
 				5363861F2CFE391C0034E883 /* AbstractThreadSafeRefCountedAndCanMakeWeakPtr.h in Headers */,
 				E3B8E6032961EA7600A8AEE3 /* AccessibleAddress.h in Headers */,
-				E383AAC92B6C730B00058E60 /* AdaptiveStringSearcher.h in Headers */,
 				DD3DC8FA27A4BF8E007E5B61 /* AggregateLogger.h in Headers */,
 				466E7A7A2D66E57E0096FDA4 /* AlignedStorage.h in Headers */,
 				7B8486622ED5E5A400E34DC1 /* AllocSpanMixin.h in Headers */,
@@ -3660,7 +3670,6 @@
 				DDF307C827C086DF006A526F /* ExternalStringImpl.h in Headers */,
 				DD3DC94027A4BF8E007E5B61 /* FailureAction.h in Headers */,
 				DDF3076C27C086CD006A526F /* fast-dtoa.h in Headers */,
-				E361DB61289115D000B2A2B8 /* fast_float.h in Headers */,
 				DD3DC8CC27A4BF8E007E5B61 /* FastBitVector.h in Headers */,
 				461229722ACF6B3100BB1CCC /* FastCharacterComparison.h in Headers */,
 				E361DB542891159C00B2A2B8 /* FastFloat.h in Headers */,
@@ -4757,6 +4766,11 @@
 				E4A0AD391A96245500536DF6 /* WorkQueue.cpp in Sources */,
 				E4A0AD3D1A96253C00536DF6 /* WorkQueueCocoa.mm in Sources */,
 				07D49BE82F41B5DC00263E9A /* wtf.swift in Sources */,
+				BFA6BA427A304AFC52F216B6 /* NumberParseTables.swift in Sources */,
+				F23E4DD491D321D865564F65 /* NumberParseEntryPoints.swift in Sources */,
+				A20A716D60A273CAE3578AFA /* NumberParseBoundary.swift in Sources */,
+				9EE50F1B88F28C6873E5AB8D /* NumberParseBigint.swift in Sources */,
+				C8F9AE76C265BB6F71F3BBC8 /* NumberParse.swift in Sources */,
 				FE05FAFF1FE5007500093230 /* WTFAssertions.cpp in Sources */,
 				FE032AD22463E43B0012D7C7 /* WTFConfig.cpp in Sources */,
 				E36BA9DE29E275DB00300057 /* WTFProcess.cpp in Sources */,

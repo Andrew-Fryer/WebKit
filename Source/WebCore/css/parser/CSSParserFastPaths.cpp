@@ -48,7 +48,6 @@
 #include "CSSValuePool.h"
 #include "ColorConversion.h"
 #include "FloatConversion.h"
-#include "HashTools.h"
 #include "StylePropertyShorthand.h"
 #include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringParsingBuffer.h>
@@ -217,7 +216,7 @@ static RefPtr<CSSValue> parseSimpleLengthValue(StringView string, CSSParserMode 
     return CSSPrimitiveValue::create(number, unit);
 }
 
-// Numeric and hex colors are parsed in Swift (CSSColorSwiftBoundary.h).
+// Numeric, hex and named colors are parsed in Swift (CSSColorSwiftBoundary.h).
 static std::optional<SRGBA<uint8_t>> parseColorWithSwift(StringView string, uint8_t mode)
 {
     auto packed = WebCoreSwift_CSSColor_parseColor(string.rawCharacters(), string.length(), string.is8Bit(), mode);
@@ -245,34 +244,9 @@ static RefPtr<CSSValue> parseColor(StringView string, const CSSParserContext& co
     return nullptr;
 }
 
-static std::optional<SRGBA<uint8_t>> finishParsingNamedColor(std::span<char> buffer)
-{
-    buffer.back() = '\0';
-    auto namedColor = findColor(buffer.data(), buffer.size() - 1);
-    if (!namedColor)
-        return std::nullopt;
-    return asSRGBA(PackedColor::ARGB { namedColor->ARGBValue });
-}
-
-template<typename CharacterType> static std::optional<SRGBA<uint8_t>> parseNamedColorInternal(std::span<const CharacterType> characters)
-{
-    std::array<char, 64> buffer; // Easily big enough for the longest color name.
-    if (characters.size() > buffer.size() - 1)
-        return std::nullopt;
-    for (size_t i = 0; i < characters.size(); ++i) {
-        auto character = characters[i];
-        if (!character || !isASCII(character))
-            return std::nullopt;
-        buffer[i] = toASCIILower(static_cast<char>(character));
-    }
-    return finishParsingNamedColor(std::span { buffer }.first(characters.size() + 1));
-}
-
 std::optional<SRGBA<uint8_t>> CSSParserFastPaths::parseSimpleColor(StringView string, const CSSParserContext& context)
 {
-    if (auto color = parseNumericColor(string, context))
-        return color;
-    return parseNamedColor(string);
+    return parseColorWithSwift(string, isQuirksModeBehavior(context.mode) ? WebCoreSwift_CSSColor_SimpleQuirks : WebCoreSwift_CSSColor_Simple);
 }
 
 std::optional<SRGBA<uint8_t>> CSSParserFastPaths::parseHexColor(StringView string)
@@ -282,9 +256,7 @@ std::optional<SRGBA<uint8_t>> CSSParserFastPaths::parseHexColor(StringView strin
 
 std::optional<SRGBA<uint8_t>> CSSParserFastPaths::parseNamedColor(StringView string)
 {
-    if (string.is8Bit())
-        return parseNamedColorInternal(string.span8());
-    return parseNamedColorInternal(string.span16());
+    return parseColorWithSwift(string, WebCoreSwift_CSSColor_Named);
 }
 
 static bool isUniversalKeyword(StringView string)

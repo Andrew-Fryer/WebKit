@@ -32,12 +32,12 @@ func WebCoreSwift_SVGTransform_lexItems(_ characters: UnsafeRawPointer?, _ lengt
     var valueSpan = unsafe UnsafeMutableBufferPointer(start: values, count: valueCapacity).mutableSpan
     if !is16Bit {
         let units = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt8.self), count: length).span
-        return SVGTransformLexer.lex(SVGTransformLatin1Characters(units), &resultSpan, &valueSpan)
+        return SVGTransformLexer.lex(SVGLatin1Characters(units), &resultSpan, &valueSpan)
     }
     if Int(bitPattern: characters) & 1 == 0 {
         let units = unsafe UnsafeBufferPointer(start: characters?.assumingMemoryBound(to: UInt16.self), count: length).span
-        return SVGTransformLexer.lex(SVGTransformUTF16Characters(units), &resultSpan, &valueSpan)
+        return SVGTransformLexer.lex(SVGUTF16Characters(units), &resultSpan, &valueSpan)
     }
     let bytes = unsafe UnsafeRawBufferPointer(start: characters, count: length * 2).bytes
-    return SVGTransformLexer.lex(SVGTransformUnalignedUTF16Characters(bytes), &resultSpan, &valueSpan)
+    return SVGTransformLexer.lex(SVGUnalignedUTF16Characters(bytes), &resultSpan, &valueSpan)
 }

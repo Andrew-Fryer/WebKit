@@ -55,8 +55,7 @@ public:
 
 private:
     struct Entry;
-    NODELETE static bool isUsableAfterInlineStyleChange(const MatchResultCache::Entry&, const StyleProperties& inlineStyle);
-    static PropertyCascade::IncludedProperties computeAndUpdateChangedProperties(MatchResultCache::Entry&);
+    static bool changedPropertiesAfterInlineStyleChange(MatchResultCache::Entry&, const StyleProperties* currentInlineStyle, PropertyCascade::IncludedProperties& changedProperties);
 
     WeakHashMap<const Element, UniqueRef<Entry>, WeakPtrImplWithEventTargetData> m_entries;
 };

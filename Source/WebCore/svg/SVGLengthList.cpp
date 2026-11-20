@@ -26,10 +26,18 @@
 #include "config.h"
 #include "SVGLengthList.h"
 
+#include "SVGNumberGrammarSwiftBoundary.h"
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/StringParsingBuffer.h>
 
 namespace WebCore {
+
+// Returns how far to advance past the length at the start of `characters` (up to a space or ',') and the delimiter after
+// it (0 if there is none), and its length.
+template<typename CharacterType> static size_t scanLengthListItem(std::span<const CharacterType> characters, size_t& itemLength)
+{
+    return WebCoreSwift_SVGNumberGrammar_scanListItem(characters.data(), characters.size(), std::is_same_v<CharacterType, char16_t>, WebCoreSwift_SVGNumberGrammar_LengthListItem, &itemLength);
+}
 
 bool SVGLengthList::parse(StringView value)
 {
@@ -39,20 +47,20 @@ bool SVGLengthList::parse(StringView value)
         skipOptionalSVGSpaces(buffer);
 
         while (buffer.hasCharactersRemaining()) {
-            auto start = buffer.position();
-
-            skipUntil<isSVGSpaceOrComma>(buffer);
-
-            if (buffer.position() == start)
+            // The item (up to a space or ',') and the delimiter after it are scanned by the Swift SVG number grammar.
+            auto characters = buffer.span();
+            size_t itemLength = 0;
+            auto advance = scanLengthListItem(characters, itemLength);
+            if (!advance)
                 break;
 
             SVGParsingError parseError;
-            auto length = SVGLengthValue::construct(m_lengthMode, std::span(start, buffer.position() - start), parseError);
+            auto length = SVGLengthValue::construct(m_lengthMode, characters.first(itemLength), parseError);
             if (parseError != SVGParsingError::None)
                 return false;
 
             lengths.append(WTF::move(length));
-            skipOptionalSVGSpacesOrDelimiter(buffer);
+            buffer.advanceBy(advance);
         }
 
         return buffer.atEnd();

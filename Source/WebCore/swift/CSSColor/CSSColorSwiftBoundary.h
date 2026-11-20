@@ -43,6 +43,9 @@ enum {
     WebCoreSwift_CSSColor_Numeric = 0, // parseNumericColor: #hex, rgb()/rgba() and hsl()/hsla().
     WebCoreSwift_CSSColor_NumericQuirks = 1, // The same, plus bare hex (isQuirksModeBehavior(mode)).
     WebCoreSwift_CSSColor_Hex = 2, // CSSParserFastPaths::parseHexColor: 3, 4, 6 or 8 hex digits, no '#'.
+    WebCoreSwift_CSSColor_Simple = 3, // CSSParserFastPaths::parseSimpleColor: Numeric, else Named.
+    WebCoreSwift_CSSColor_SimpleQuirks = 4, // The same with NumericQuirks (isQuirksModeBehavior(mode)).
+    WebCoreSwift_CSSColor_Named = 5, // CSSParserFastPaths::parseNamedColor: a ColorData.gperf name, ASCII case-insensitively.
 };
 
 // Parses `length` Latin-1 characters (is8Bit) or UTF-16 code units in any alignment as `mode` (one of the values

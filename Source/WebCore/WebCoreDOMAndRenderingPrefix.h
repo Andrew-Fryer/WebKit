@@ -43,7 +43,6 @@
 #include <wtf/WeakHashCountedSet.h>
 #include <wtf/WeakListHashSet.h>
 #include <wtf/persistence/PersistentCoders.h>
-#include <wtf/text/AdaptiveStringSearcher.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/TextStream.h>
 #if PLATFORM(COCOA)

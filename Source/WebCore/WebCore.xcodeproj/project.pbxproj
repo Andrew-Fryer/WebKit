@@ -7558,6 +7558,17 @@
 		FBACABF382DC9593A2B5C759 /* TextRunScanners.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76F428B411C0E431C5D9A6B0 /* TextRunScanners.swift */; };
 		1EC86050BCE3D677DB8BC24F /* TextRunScannersBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74271B57E63A0E7841C3F6C9 /* TextRunScannersBoundary.swift */; };
 		386775070485B294B02790D0 /* HTMLScanFastPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 621E1D5C112502FDE91480CA /* HTMLScanFastPath.swift */; };
+		357758027CF3957794D13551 /* CSSColorNamedColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 338F7FA621769F3480997022 /* CSSColorNamedColors.swift */; };
+		603FF8C4A728A9234AE251CE /* CSSTokenizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70668C16DE18A16E9294F0B1 /* CSSTokenizer.swift */; };
+		F54AC6DFD0F6DB2025BD3B4E /* CSSTokenizerBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A3CE2FE51068B70C04A89AF /* CSSTokenizerBoundary.swift */; };
+		13358B635B35335A21D638A1 /* CSSTokenizerNumber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78646D498507BE689CAD11C4 /* CSSTokenizerNumber.swift */; };
+		F62AB18DDDFE81B2A0CD25FA /* CSSTokenizerNumberBigint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17AEA9A0DE920FD8F5062FE2 /* CSSTokenizerNumberBigint.swift */; };
+		D3F4F879C2ED30A1DA724D1D /* CSSTokenizerNumberTables.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D2B389E71E24CC807A89239 /* CSSTokenizerNumberTables.swift */; };
+		3BE71FC993C973A517144000 /* CSSTokenizerUnits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89FB9A4BECEF0D9E309F1460 /* CSSTokenizerUnits.swift */; };
+		DB57E2CAD1F8B278810C80BB /* MatchResultCacheDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = D834FCF50400EEC50EEFF81B /* MatchResultCacheDiff.swift */; };
+		DD85995854DFC0EAEB6E4F5D /* MatchResultCacheDiffBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E1BD88FB72F259A921863A5 /* MatchResultCacheDiffBoundary.swift */; };
+		0CD0532D83C0D6C4633C6B95 /* SVGNumberGrammar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE3A185A9B62769588017718 /* SVGNumberGrammar.swift */; };
+		6582252DCF8C466E379664D1 /* SVGNumberGrammarBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F764CBB68A750D35EE491C91 /* SVGNumberGrammarBoundary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -20044,7 +20055,6 @@
 		BC7C5E8B2BE2A8FB00AE645C /* CSSSupportsParser.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CSSSupportsParser.h; sourceTree = "<group>"; };
 		BC7C5E8C2BE2A8FB00AE645C /* CSSTokenizer.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CSSTokenizer.cpp; sourceTree = "<group>"; };
 		BC7C5E8D2BE2A8FB00AE645C /* CSSTokenizer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CSSTokenizer.h; sourceTree = "<group>"; };
-		BC7C5E8E2BE2A8FB00AE645C /* CSSTokenizerInputStream.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CSSTokenizerInputStream.cpp; sourceTree = "<group>"; };
 		BC7C5E8F2BE2A8FB00AE645C /* CSSTokenizerInputStream.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CSSTokenizerInputStream.h; sourceTree = "<group>"; };
 		BC7C5E902BE2A8FB00AE645C /* CSSSubstitutionParser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CSSSubstitutionParser.cpp; sourceTree = "<group>"; };
 		BC7C5E912BE2A8FB00AE645C /* CSSSubstitutionParser.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CSSSubstitutionParser.h; sourceTree = "<group>"; };
@@ -24221,6 +24231,20 @@
 		74271B57E63A0E7841C3F6C9 /* TextRunScannersBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextRunScanners/TextRunScannersBoundary.swift; sourceTree = "<group>"; };
 		588359208C45138A21E33F81 /* TextRunScannersSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TextRunScanners/TextRunScannersSwiftBoundary.h; sourceTree = "<group>"; };
 		621E1D5C112502FDE91480CA /* HTMLScanFastPath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLScan/HTMLScanFastPath.swift; sourceTree = "<group>"; };
+		338F7FA621769F3480997022 /* CSSColorNamedColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSColor/CSSColorNamedColors.swift; sourceTree = "<group>"; };
+		70668C16DE18A16E9294F0B1 /* CSSTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSTokenizer/CSSTokenizer.swift; sourceTree = "<group>"; };
+		9A3CE2FE51068B70C04A89AF /* CSSTokenizerBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSTokenizer/CSSTokenizerBoundary.swift; sourceTree = "<group>"; };
+		78646D498507BE689CAD11C4 /* CSSTokenizerNumber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSTokenizer/CSSTokenizerNumber.swift; sourceTree = "<group>"; };
+		17AEA9A0DE920FD8F5062FE2 /* CSSTokenizerNumberBigint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSTokenizer/CSSTokenizerNumberBigint.swift; sourceTree = "<group>"; };
+		7D2B389E71E24CC807A89239 /* CSSTokenizerNumberTables.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSTokenizer/CSSTokenizerNumberTables.swift; sourceTree = "<group>"; };
+		92993281427DDC077434808E /* CSSTokenizerSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CSSTokenizer/CSSTokenizerSwiftBoundary.h; sourceTree = "<group>"; };
+		89FB9A4BECEF0D9E309F1460 /* CSSTokenizerUnits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSTokenizer/CSSTokenizerUnits.swift; sourceTree = "<group>"; };
+		D834FCF50400EEC50EEFF81B /* MatchResultCacheDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchResultCacheDiff/MatchResultCacheDiff.swift; sourceTree = "<group>"; };
+		1E1BD88FB72F259A921863A5 /* MatchResultCacheDiffBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchResultCacheDiff/MatchResultCacheDiffBoundary.swift; sourceTree = "<group>"; };
+		49BB72C5B1B0E67CAED37DAE /* MatchResultCacheDiffSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MatchResultCacheDiff/MatchResultCacheDiffSwiftBoundary.h; sourceTree = "<group>"; };
+		FE3A185A9B62769588017718 /* SVGNumberGrammar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGNumberGrammar/SVGNumberGrammar.swift; sourceTree = "<group>"; };
+		F764CBB68A750D35EE491C91 /* SVGNumberGrammarBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGNumberGrammar/SVGNumberGrammarBoundary.swift; sourceTree = "<group>"; };
+		D6BEACD0F61A913EF9372DFE /* SVGNumberGrammarSwiftBoundary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SVGNumberGrammar/SVGNumberGrammarSwiftBoundary.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -33966,7 +33990,6 @@
 				BC7C5E8B2BE2A8FB00AE645C /* CSSSupportsParser.h */,
 				BC7C5E8C2BE2A8FB00AE645C /* CSSTokenizer.cpp */,
 				BC7C5E8D2BE2A8FB00AE645C /* CSSTokenizer.h */,
-				BC7C5E8E2BE2A8FB00AE645C /* CSSTokenizerInputStream.cpp */,
 				BC7C5E8F2BE2A8FB00AE645C /* CSSTokenizerInputStream.h */,
 				BC7C5E922BE2A8FB00AE645C /* MediaQueryBlockWatcher.cpp */,
 				BC7C5E932BE2A8FB00AE645C /* MediaQueryBlockWatcher.h */,
@@ -44301,6 +44324,20 @@
 		91EC392E6A5F6B385F6BCD04 /* swift */ = {
 			isa = PBXGroup;
 			children = (
+				D6BEACD0F61A913EF9372DFE /* SVGNumberGrammarSwiftBoundary.h */,
+				F764CBB68A750D35EE491C91 /* SVGNumberGrammarBoundary.swift */,
+				FE3A185A9B62769588017718 /* SVGNumberGrammar.swift */,
+				49BB72C5B1B0E67CAED37DAE /* MatchResultCacheDiffSwiftBoundary.h */,
+				1E1BD88FB72F259A921863A5 /* MatchResultCacheDiffBoundary.swift */,
+				D834FCF50400EEC50EEFF81B /* MatchResultCacheDiff.swift */,
+				89FB9A4BECEF0D9E309F1460 /* CSSTokenizerUnits.swift */,
+				92993281427DDC077434808E /* CSSTokenizerSwiftBoundary.h */,
+				7D2B389E71E24CC807A89239 /* CSSTokenizerNumberTables.swift */,
+				17AEA9A0DE920FD8F5062FE2 /* CSSTokenizerNumberBigint.swift */,
+				78646D498507BE689CAD11C4 /* CSSTokenizerNumber.swift */,
+				9A3CE2FE51068B70C04A89AF /* CSSTokenizerBoundary.swift */,
+				70668C16DE18A16E9294F0B1 /* CSSTokenizer.swift */,
+				338F7FA621769F3480997022 /* CSSColorNamedColors.swift */,
 				621E1D5C112502FDE91480CA /* HTMLScanFastPath.swift */,
 				588359208C45138A21E33F81 /* TextRunScannersSwiftBoundary.h */,
 				74271B57E63A0E7841C3F6C9 /* TextRunScannersBoundary.swift */,
@@ -51443,6 +51480,17 @@
 				41514FDB2E92DC40002074EA /* StreamPipeToUtilities.cpp in Sources */,
 				A833C7CA0A2CF06B00D57664 /* SVGNames.cpp in Sources */,
 				07E047C3305A9DB000DFCC4B /* SwiftStub.swift in Sources */,
+				6582252DCF8C466E379664D1 /* SVGNumberGrammarBoundary.swift in Sources */,
+				0CD0532D83C0D6C4633C6B95 /* SVGNumberGrammar.swift in Sources */,
+				DD85995854DFC0EAEB6E4F5D /* MatchResultCacheDiffBoundary.swift in Sources */,
+				DB57E2CAD1F8B278810C80BB /* MatchResultCacheDiff.swift in Sources */,
+				3BE71FC993C973A517144000 /* CSSTokenizerUnits.swift in Sources */,
+				D3F4F879C2ED30A1DA724D1D /* CSSTokenizerNumberTables.swift in Sources */,
+				F62AB18DDDFE81B2A0CD25FA /* CSSTokenizerNumberBigint.swift in Sources */,
+				13358B635B35335A21D638A1 /* CSSTokenizerNumber.swift in Sources */,
+				F54AC6DFD0F6DB2025BD3B4E /* CSSTokenizerBoundary.swift in Sources */,
+				603FF8C4A728A9234AE251CE /* CSSTokenizer.swift in Sources */,
+				357758027CF3957794D13551 /* CSSColorNamedColors.swift in Sources */,
 				386775070485B294B02790D0 /* HTMLScanFastPath.swift in Sources */,
 				1EC86050BCE3D677DB8BC24F /* TextRunScannersBoundary.swift in Sources */,
 				FBACABF382DC9593A2B5C759 /* TextRunScanners.swift in Sources */,

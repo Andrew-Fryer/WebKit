@@ -33,84 +33,8 @@
 
 namespace WebCore {
 
+// The CSS tokenizer's input stream (its peek() and nextInputChar() past the end) is Swift: swift/CSSTokenizer.
+// The HTML tokenizer and others still use the end-of-file marker.
 constexpr Latin1Character kEndOfFileMarker = 0;
-
-DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CSSTokenizerInputStream);
-class CSSTokenizerInputStream {
-    WTF_MAKE_NONCOPYABLE(CSSTokenizerInputStream);
-    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(CSSTokenizerInputStream, CSSTokenizerInputStream);
-public:
-    NODELETE explicit CSSTokenizerInputStream(StringView string LIFETIME_BOUND);
-
-    // Gets the char in the stream. Will return (NUL) kEndOfFileMarker when at the
-    // end of the stream.
-    char16_t nextInputChar() const
-    {
-        if (m_offset >= m_stringLength)
-            return kEndOfFileMarker;
-        return m_string[m_offset];
-    }
-
-    // Gets the char at lookaheadOffset from the current stream position. Will
-    // return NUL (kEndOfFileMarker) if the stream position is at the end.
-    char16_t peek(unsigned lookaheadOffset) const
-    {
-        if ((m_offset + lookaheadOffset) >= m_stringLength)
-            return kEndOfFileMarker;
-        return m_string[m_offset + lookaheadOffset];
-    }
-
-    void advance(unsigned offset = 1) { m_offset += offset; }
-    void pushBack(char16_t cc)
-    {
-        --m_offset;
-        ASSERT_UNUSED(cc, nextInputChar() == cc);
-    }
-
-    double getDouble(unsigned start, unsigned end) const;
-
-    template<bool characterPredicate(char16_t)>
-    unsigned skipWhilePredicate(unsigned offset)
-    {
-        if (m_string.is8Bit()) {
-            auto characters8 = m_string.span8();
-            while ((m_offset + offset) < m_stringLength && characterPredicate(characters8[m_offset + offset]))
-                ++offset;
-        } else {
-            auto characters16 = m_string.span16();
-            while ((m_offset + offset) < m_stringLength && characterPredicate(characters16[m_offset + offset]))
-                ++offset;
-        }
-        return offset;
-    }
-
-    bool is8Bit() const { return m_string.is8Bit(); }
-
-    // Gets the 8-bit characters from lookaheadOffset to the end of the stream.
-    std::span<const Latin1Character> remainingSpan8(unsigned lookaheadOffset) const
-    {
-        ASSERT(is8Bit());
-        if ((m_offset + lookaheadOffset) >= m_stringLength)
-            return { };
-        return m_string.span8().subspan(m_offset + lookaheadOffset);
-    }
-
-    void advanceUntilNonWhitespace();
-    void advanceUntilNewlineOrNonWhitespace();
-
-    unsigned length() const { return m_stringLength; }
-    unsigned offset() const { return std::min(m_offset, m_stringLength); }
-
-    StringView rangeAt(unsigned start, unsigned length) const
-    {
-        ASSERT(start + length <= m_stringLength);
-        return m_string.substring(start, length);
-    }
-
-private:
-    size_t m_offset;
-    const size_t m_stringLength;
-    StringView m_string;
-};
 
 } // namespace WebCore

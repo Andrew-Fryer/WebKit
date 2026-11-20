@@ -144,7 +144,7 @@ ALWAYS_INLINE int RegExp::matchInline(JSGlobalObject* nullOrGlobalObject, VM& vm
 
     if constexpr (matchFrom == Yarr::MatchFrom::VMThread) {
         if (hasValidAtom()) {
-            size_t found = s.find(vm.adaptiveStringSearcherTables(), atom(), startOffset);
+            size_t found = stringSearch(s, atom(), startOffset);
             if (found == notFound)
                 return -1;
             offsetVector[0] = found;
@@ -275,7 +275,7 @@ ALWAYS_INLINE MatchResult RegExp::matchInline(JSGlobalObject* nullOrGlobalObject
 
     if constexpr (matchFrom == Yarr::MatchFrom::VMThread) {
         if (hasValidAtom()) {
-            size_t found = StringView(s).find(vm.adaptiveStringSearcherTables(), atom(), startOffset);
+            size_t found = stringSearch(StringView(s), atom(), startOffset);
             if (found == notFound)
                 return MatchResult::failed();
             return MatchResult { found, found + atom().length() };

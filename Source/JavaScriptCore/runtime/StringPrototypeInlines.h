@@ -394,7 +394,7 @@ ALWAYS_INLINE JSString* stringReplaceStringString(JSGlobalObject* globalObject, 
         matchStart = table->find(string, search);
     else {
         UNUSED_PARAM(table);
-        matchStart = StringView(string).find(vm.adaptiveStringSearcherTables(), StringView(search));
+        matchStart = stringSearch(StringView(string), StringView(search));
     }
     if (matchStart == notFound)
         return stringCell;
@@ -461,7 +461,7 @@ ALWAYS_INLINE JSString* stringReplaceAllStringString(JSGlobalObject* globalObjec
         if constexpr (useTable == StringReplaceUseTable::Yes)
             matchStart = table->find(StringView(string).substring(matchStart), search);
         else
-            matchStart = StringView(string).find(vm.adaptiveStringSearcherTables(), StringView(search), matchStart);
+            matchStart = stringSearch(StringView(string), StringView(search), matchStart);
 
         if (matchStart == notFound)
             break;
@@ -530,7 +530,7 @@ inline JSString* replaceUsingStringSearch(VM& vm, JSGlobalObject* globalObject, 
     }
 
     ASSERT(callData.type != CallData::Type::None);
-    size_t matchStart = StringView(string).find(vm.adaptiveStringSearcherTables(), StringView(searchString));
+    size_t matchStart = stringSearch(StringView(string), StringView(searchString));
     if (matchStart == notFound)
         return jsString;
 
@@ -576,7 +576,7 @@ inline JSString* replaceUsingStringSearch(VM& vm, JSGlobalObject* globalObject, 
         endOfLastMatch = matchEnd;
         if constexpr (mode == StringReplaceMode::Single)
             break;
-        matchStart = StringView(string).find(vm.adaptiveStringSearcherTables(), StringView(searchString), !searchStringLength ? endOfLastMatch + 1 : endOfLastMatch);
+        matchStart = stringSearch(StringView(string), StringView(searchString), !searchStringLength ? endOfLastMatch + 1 : endOfLastMatch);
     } while (matchStart != notFound);
 
     if (!sourceRanges.tryConstructAndAppend(endOfLastMatch, string.length())) [[unlikely]] {
@@ -695,7 +695,7 @@ static ALWAYS_INLINE JSString* removeAllUsingRegExpSearch(VM& vm, JSGlobalObject
     Vector<Range<int32_t>, 64> sourceRanges;
     unsigned sourceLen = source.length();
 
-    auto genericMatches = [&](VM& vm, auto input, auto pattern) ALWAYS_INLINE_LAMBDA -> size_t {
+    auto genericMatches = [&](VM&, auto input, auto pattern) ALWAYS_INLINE_LAMBDA -> size_t {
         ASSERT(!pattern.empty());
         unsigned startIndex = 0;
         if (pattern.size() == 1) {
@@ -725,23 +725,23 @@ static ALWAYS_INLINE JSString* removeAllUsingRegExpSearch(VM& vm, JSGlobalObject
             return lastFound;
         }
 
-        AdaptiveStringSearcher<typename decltype(pattern)::value_type, typename decltype(input)::value_type> search(vm.adaptiveStringSearcherTables(), pattern);
-        size_t found = search.search(input, startIndex);
-        if (found == notFound)
-            return notFound;
-
         size_t lastFound = notFound;
-        do {
-            if (startIndex < found) {
-                if (!sourceRanges.tryConstructAndAppend(startIndex, found)) [[unlikely]] {
-                    throwOutOfMemoryError(globalObject, scope);
-                    return notFound;
-                }
+        std::array<Range<int32_t>, 64> gaps;
+        while (true) {
+            auto matches = stringSearchAll(StringView(input), StringView(pattern), startIndex, gaps);
+            if (!sourceRanges.tryAppend(std::span<const Range<int32_t>> { gaps }.first(matches.gapCount))) [[unlikely]] {
+                throwOutOfMemoryError(globalObject, scope);
+                return notFound;
             }
-            startIndex = found + pattern.size();
-            lastFound = found;
-            found = search.search(input, startIndex);
-        } while (found != notFound);
+            if (matches.count) {
+                lastFound = matches.last;
+                startIndex = matches.end;
+            }
+            if (matches.gapCount < gaps.size())
+                break;
+        }
+        if (lastFound == notFound)
+            return notFound;
 
         if (startIndex < sourceLen) {
             if (!sourceRanges.tryConstructAndAppend(startIndex, sourceLen)) [[unlikely]] {

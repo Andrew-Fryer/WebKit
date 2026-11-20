@@ -22,17 +22,30 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 
 
-// Memory-safe port of the per-hash loops of css/SelectorFilter.cpp: SelectorFilter::pushParent adds a parent's
-// identifier hashes to the ancestor filter, a WTF::CountingBloomFilter<12> (wtf/BloomFilter.h), and
-// SelectorFilter::popParent removes them again (and clears the filter when the parent stack becomes empty).
+// Memory-safe port of the ancestor stack of css/SelectorFilter.cpp. Swift owns the identifier hashes of every element
+// on the parent stack (SelectorFilter::pushParent's ParentStackFrame::identifierHashes in the original) and does every
+// update of the ancestor filter, a WTF::CountingBloomFilter<12> (wtf/BloomFilter.h): pushParent adds a parent's hashes,
+// popParent removes them again and clears the filter when the parent stack becomes empty. C++ keeps the element
+// pointers (a Vector<CheckedPtr<Element>>, for CheckedPtr's lifetime check), gathers the hashes from the DOM, and
+// reads the filter in SelectorFilter::fastRejectSelector.
 //
 // The filter is the CountingBloomFilter's 4096 one-byte buckets, owned by C++. Each hash touches two buckets:
 // first = hash & 0xFFF and second = (hash * 0x9e3779b9) & 0xFFF (wrapping 32-bit multiply). A bucket at 255 is
 // saturated and never changes until the filter is cleared. The two buckets may be the same one; it is then updated
 // twice, the second update reading the first one's result, exactly as CountingBloomFilter::add/remove do through
 // two references to the same byte. Removing from an empty bucket is an ASSERT in WTF and wraps to 255 in release
-// builds; it does the same here (assert, then wrapping subtract). No allocation, no reference counting; the bucket
-// indices are masked to 12 bits and the bucket count is checked once, so the bounds checks fold away.
+// builds; it does the same here (assert, then wrapping subtract).
+//
+// The hash stack lives in 32-bit words that C++ allocates and never interprets (SelectorFilterSwiftBoundary.h):
+//   word 0: `used`, the number of words in use after the header (0 when the parent stack is empty);
+//   word 1: the number of hashes in the top frame (0 when the parent stack is empty);
+//   words 2 ..< 2 + used: the frames, bottom of the stack first. A frame is its element's hashes in order, followed by
+//                         one word holding the hash count of the frame below it (0 for the bottom frame).
+// The header locates the top frame without a dependent load, so pop's loop can start right away.
+// When a push doesn't fit, nothing is changed and the number of words needed is returned; C++ grows the storage
+// (keeping its contents) and pushes again. Words past `used` are never read, so C++ needn't initialize them.
+// No allocation, no reference counting; bucket indices are masked to 12 bits and the bucket count is checked once, so
+// those bounds checks fold away. Every word index is bounds-checked, so damaged storage traps instead of escaping.
 
 enum SelectorFilterBloom {
     // CountingBloomFilter<12>::tableSize, keyMask, goldenRatioHash and maximumCount().
@@ -40,6 +53,9 @@ enum SelectorFilterBloom {
     static var keyMask: UInt32 { 0xFFF }
     static var goldenRatioHash: UInt32 { 0x9e37_79b9 }
     static var maximumCount: UInt8 { 255 }
+
+    // WebCoreSwift_SelectorFilter_StackHeaderWords.
+    static var headerWords: Int { 2 }
 
     @inline(__always)
     static func firstBucket(_ hash: UInt32) -> Int {
@@ -51,59 +67,87 @@ enum SelectorFilterBloom {
         Int((hash &* goldenRatioHash) & keyMask)
     }
 
-    // SelectorFilterSwiftBoundary.h's operations: 0 = add, 1 = remove, 2 = remove then clear (popParent when the
-    // parent stack becomes empty). Removing before clearing keeps the original's debug-only likelyEmpty() check.
+    // SelectorFilter::pushParent: pushes a frame holding `hashes` and adds them to the filter
+    // (for (auto hash : hashes) filter.add(hash)). Returns 0, or, when the frame doesn't fit in `stack`, the number of
+    // words needed, leaving everything unchanged.
     @inline(__always) // Lets the C entry point contain the whole loop (no frame, no further call).
-    static func update(_ buckets: inout MutableSpan<UInt8>, _ hashes: Span<UInt32>, operation: UInt8) {
+    static func push(_ buckets: inout MutableSpan<UInt8>, _ stack: inout MutableSpan<UInt32>, _ hashes: Span<UInt32>) -> Int {
         precondition(buckets.count == tableSize)
-        switch operation {
-        case 0:
-            addHashes(&buckets, hashes)
-        case 1:
-            removeHashes(&buckets, hashes)
-        case 2:
-            removeHashes(&buckets, hashes)
+        precondition(stack.count >= headerWords)
+        let used = Int(stack[0])
+        let start = headerWords + used
+        let linkWord = start + hashes.count
+        guard linkWord < stack.count else {
+            return linkWord + 1
+        }
+        for index in hashes.indices {
+            let hash = hashes[index]
+            stack[start &+ index] = hash
+            add(&buckets, hash)
+        }
+        stack[linkWord] = stack[1]
+        stack[1] = UInt32(hashes.count)
+        stack[0] = UInt32(used + hashes.count + 1)
+        return 0
+    }
+
+    // SelectorFilter::popParent: pops the top frame and removes its hashes from the filter
+    // (for (auto hash : hashes) filter.remove(hash)); when that empties the stack, clears the filter. Popping an empty
+    // stack traps, as Vector::last() does. Returns nothing, so that the clear is a tail call and the common path needs
+    // no stack frame.
+    @inline(__always) // Lets the C entry point contain the whole loop (no frame, no further call).
+    static func pop(_ buckets: inout MutableSpan<UInt8>, _ stack: inout MutableSpan<UInt32>) {
+        precondition(buckets.count == tableSize)
+        precondition(stack.count >= headerWords)
+        let used = stack[0]
+        let count = stack[1]
+        precondition(count < used, "popParent on an empty or damaged parent stack")
+        // The top frame: its hashes and then its link word (one bounds check for all of them).
+        let linkWord = headerWords + Int(used) - 1
+        let below: UInt32
+        do {
+            let frame = stack.span.extracting(linkWord - Int(count) ..< linkWord + 1)
+            let hashCount = Int(count)
+            for index in 0 ..< hashCount {
+                remove(&buckets, frame[index])
+            }
+            below = frame[hashCount]
+        }
+        let remaining = used &- count &- 1
+        stack[1] = below
+        stack[0] = remaining
+        if remaining == 0 {
             assert(likelyEmpty(buckets))
             clear(&buckets)
-        default:
-            preconditionFailure("unknown SelectorFilter operation")
         }
     }
 
-    // CountingBloomFilter::add(unsigned) for every hash, in order.
+    // CountingBloomFilter::add(unsigned).
     @inline(__always)
-    static func addHashes(_ buckets: inout MutableSpan<UInt8>, _ hashes: Span<UInt32>) {
-        precondition(buckets.count == tableSize)
-        for index in hashes.indices {
-            let hash = hashes[index]
-            let first = firstBucket(hash)
-            let second = secondBucket(hash)
-            // Branch-free increment unless saturated (cmp + cinc); measured faster than the branch here, unlike remove.
-            let firstCount = buckets[first]
-            buckets[first] = firstCount &+ (firstCount < maximumCount ? 1 : 0)
-            let secondCount = buckets[second]
-            buckets[second] = secondCount &+ (secondCount < maximumCount ? 1 : 0)
-        }
+    static func add(_ buckets: inout MutableSpan<UInt8>, _ hash: UInt32) {
+        let first = firstBucket(hash)
+        let second = secondBucket(hash)
+        // Branch-free increment unless saturated (cmp + cinc); measured faster than the branch here, unlike remove.
+        let firstCount = buckets[first]
+        buckets[first] = firstCount &+ (firstCount < maximumCount ? 1 : 0)
+        let secondCount = buckets[second]
+        buckets[second] = secondCount &+ (secondCount < maximumCount ? 1 : 0)
     }
 
-    // CountingBloomFilter::remove(unsigned) for every hash, in order.
+    // CountingBloomFilter::remove(unsigned).
     @inline(__always)
-    static func removeHashes(_ buckets: inout MutableSpan<UInt8>, _ hashes: Span<UInt32>) {
-        precondition(buckets.count == tableSize)
-        for index in hashes.indices {
-            let hash = hashes[index]
-            let first = firstBucket(hash)
-            let second = secondBucket(hash)
-            let firstCount = buckets[first]
-            assert(firstCount != 0)
-            if firstCount < maximumCount {
-                buckets[first] = firstCount &- 1
-            }
-            let secondCount = buckets[second]
-            assert(secondCount != 0)
-            if secondCount < maximumCount {
-                buckets[second] = secondCount &- 1
-            }
+    static func remove(_ buckets: inout MutableSpan<UInt8>, _ hash: UInt32) {
+        let first = firstBucket(hash)
+        let second = secondBucket(hash)
+        let firstCount = buckets[first]
+        assert(firstCount != 0)
+        if firstCount < maximumCount {
+            buckets[first] = firstCount &- 1
+        }
+        let secondCount = buckets[second]
+        assert(secondCount != 0)
+        if secondCount < maximumCount {
+            buckets[second] = secondCount &- 1
         }
     }
 

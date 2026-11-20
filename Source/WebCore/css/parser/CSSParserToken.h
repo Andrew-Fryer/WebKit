@@ -102,11 +102,8 @@ public:
     CSSParserToken(CSSParserTokenType, BlockType = NotBlock);
     CSSParserToken(CSSParserTokenType, StringView, BlockType = NotBlock);
 
-    explicit CSSParserToken(unsigned nonNewlineWhitespaceCount); // NonNewlineWhitespaceToken
-    CSSParserToken(CSSParserTokenType, char16_t); // for DelimiterToken
     CSSParserToken(double, NumericValueType, NumericSign, StringView originalText); // for NumberToken
-
-    CSSParserToken(HashTokenType, StringView);
+    // The CSSTokenizer's tokens are made in Swift (swift/CSSTokenizer), in this class's layout.
 
     NODELETE static CSSUnitType stringToUnitType(StringView);
 
@@ -114,7 +111,6 @@ public:
 
     // Converts NumberToken to DimensionToken.
     void convertToDimensionWithUnit(CSSUnitType);
-    NODELETE void convertToDimensionWithUnit(StringView);
 
     // Converts NumberToken to PercentageToken.
     NODELETE void convertToPercentage();

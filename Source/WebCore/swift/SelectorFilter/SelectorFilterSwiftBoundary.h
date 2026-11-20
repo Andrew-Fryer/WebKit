@@ -25,13 +25,16 @@
 
 #pragma once
 
-// C boundary of the SelectorFilter Swift kernel (Source/WebCore/swift/SelectorFilter): the per-hash loops of
-// SelectorFilter::pushParent and SelectorFilter::popParent (css/SelectorFilter.cpp) on the ancestor filter, a
-// WTF::CountingBloomFilter<12>. The symbol is internal to WebCore (hidden); only WebCore .cpp files may call it,
-// never header-inline code.
+// C boundary of the SelectorFilter Swift kernel (Source/WebCore/swift/SelectorFilter): the ancestor stack of
+// SelectorFilter::pushParent and SelectorFilter::popParent (css/SelectorFilter.cpp). Swift owns the identifier hashes
+// of every element on the parent stack and does every update of the ancestor filter, a WTF::CountingBloomFilter<12>.
+// The symbols are internal to WebCore (hidden); only WebCore .cpp files may call them, never header-inline code.
 //
-// `buckets` is the filter's whole bucket array (asMutableByteSpan of the CountingBloomFilter<12>, bucketCount = 4096,
-// checked by the Swift side). `hashes` are the parent frame's identifierHashes, null only when hashCount is 0.
+// `buckets` is the filter's whole bucket array: asMutableByteSpan(CountingBloomFilter<12>).data(), always
+// WebCoreSwift_SelectorFilter_BucketCount bytes (static_assert it). `stack` is the hash stack: `stackWords` 32-bit words that C++ allocates and keeps for
+// Swift, starting with WebCoreSwift_SelectorFilter_StackHeaderWords words that must be zero for an empty stack. C++
+// never reads or writes the words otherwise, except to copy all of them when it grows the storage. `hashes` are the
+// pushed element's identifier hashes, null only when hashCount is 0.
 
 #include <stddef.h>
 #include <stdint.h>
@@ -47,13 +50,18 @@ extern "C" {
 #endif
 
 enum {
-    WebCoreSwift_SelectorFilter_Add = 0, // for (auto hash : hashes) filter.add(hash);
-    WebCoreSwift_SelectorFilter_Remove = 1, // for (auto hash : hashes) filter.remove(hash);
-    WebCoreSwift_SelectorFilter_RemoveAndClear = 2, // The same, then ASSERT(filter.likelyEmpty()); filter.clear();
+    WebCoreSwift_SelectorFilter_BucketCount = 4096, // CountingBloomFilter<12>::tableSize.
+    WebCoreSwift_SelectorFilter_StackHeaderWords = 2, // The minimum stackWords; zero-initialized for an empty stack.
 };
 
-// Applies `operation` (one of the values above; anything else traps) to the filter.
-WEBCORE_SWIFT_SELECTOR_FILTER_NODELETE void WebCoreSwift_SelectorFilter_update(uint8_t* buckets, size_t bucketCount, const uint32_t* hashes, size_t hashCount, uint8_t operation);
+// Pushes a frame with `hashes` and adds them to the filter: for (auto hash : hashes) filter.add(hash);
+// Returns 0, or, if the frame doesn't fit in `stackWords`, the number of words needed, changing nothing. Then grow the
+// storage to at least that many words, keeping its contents, and push again.
+WEBCORE_SWIFT_SELECTOR_FILTER_NODELETE size_t WebCoreSwift_SelectorFilter_push(uint8_t* buckets, uint32_t* stack, size_t stackWords, const uint32_t* hashes, size_t hashCount);
+
+// Pops the top frame and removes its hashes from the filter: for (auto hash : hashes) filter.remove(hash);
+// If the stack is then empty: ASSERT(filter.likelyEmpty()); filter.clear(); Traps if the stack is empty.
+WEBCORE_SWIFT_SELECTOR_FILTER_NODELETE void WebCoreSwift_SelectorFilter_pop(uint8_t* buckets, uint32_t* stack, size_t stackWords);
 
 #ifdef __cplusplus
 }

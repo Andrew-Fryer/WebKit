@@ -32,6 +32,7 @@
 #include "JSCJSValueInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
+#include "BitRangeClearSwiftBoundary.h"
 #include "DFGCFAMergeSwiftBoundary.h"
 
 namespace JSC { namespace DFG {
@@ -72,7 +73,9 @@ void InPlaceAbstractState::beginBasicBlock(BasicBlock* basicBlock)
 
     m_block = basicBlock;
 
-    m_activeVariables.clearRange(0, std::min(m_variables.size(), m_activeVariables.size()));
+    // FastBitVector::clearRange, in Swift (BitRangeClear.swift).
+    auto activeWords = m_activeVariables.unsafeWords().words();
+    JSCSwift_BitRangeClear_clearRange(activeWords.data(), activeWords.size(), m_activeVariables.numBits(), 0, std::min(m_variables.size(), m_activeVariables.size()));
     if (m_variables.size() > m_activeVariables.size())
         m_activeVariables.resize(m_variables.size());
     
@@ -111,6 +114,36 @@ void InPlaceAbstractState::activateAllVariables()
         activateVariableIfNecessary(i);
 }
 
+static uint64_t* abstractValueWords(Operands<AbstractValue>&);
+
+// The value resets of initialize() for one block, done by Swift (DFGCFAMerge.swift) on the values' words: every value at
+// the block's head and tail becomes clear (AbstractValue::clear()), except that the first argumentFormats.size() values
+// at head (a ThreadedCPS root's arguments) start out as their FlushFormat says. Swift writes out the words of the fat
+// structure sets it cleared, and this frees their lists, since C++ owns them. Returns false, changing nothing, for a bad
+// flush format.
+ALWAYS_INLINE static bool resetBlockValues(BasicBlock& block, std::span<const FlushFormat> argumentFormats, Vector<uint64_t, 24>& freedLists)
+{
+    // The constants DFGCFAMerge.swift uses for the arguments: setNonCellType(SpecInt32Only), setNonCellType(SpecBoolean),
+    // setType(graph, SpecCellCheck) (a cell type that is neither only strings nor only symbols, so TOP structures) and
+    // makeBytecodeTop().
+    static_assert(FlushedInt32 == 1 && FlushedCell == 4 && FlushedBoolean == 5 && FlushedJSValue == 6 && sizeof(FlushFormat) == 1);
+    static_assert(SpecInt32Only == 0x60'0000'0000 && SpecBoolean == 0x2000'0000'0000 && !((SpecInt32Only | SpecBoolean) & SpecCell));
+    static_assert(SpecCellCheck == 0x3'801f'ffff'fff7 && ((SpecCellCheck & SpecCell) & ~SpecString) && (SpecCellCheck & SpecCell) != SpecSymbol);
+    static_assert(SpecBytecodeTop == 0x3'ee7f'ffff'fff7 && ALL_ARRAY_MODES == 0xfeff'3ffb);
+    ASSERT(block.valuesAtHead.numberOfArguments() == block.valuesAtTail.numberOfArguments());
+    ASSERT(block.valuesAtHead.numberOfLocals() == block.valuesAtTail.numberOfLocals());
+    size_t count = block.valuesAtHead.size();
+    if (count > freedLists.size() / 2) [[unlikely]]
+        freedLists.grow(2 * count);
+    ptrdiff_t freedCount = JSCSwift_DFGCFAMerge_resetValues(abstractValueWords(block.valuesAtHead), count, abstractValueWords(block.valuesAtTail), block.valuesAtTail.size(),
+        std::bit_cast<const uint8_t*>(argumentFormats.data()), argumentFormats.size(), freedLists.mutableSpan().data(), freedLists.size());
+    if (freedCount < 0) [[unlikely]]
+        return false;
+    for (uint64_t word : freedLists.span().first(static_cast<size_t>(freedCount)))
+        StructureAbstractValue::destroyListForSwift(word);
+    return true;
+}
+
 void InPlaceAbstractState::initialize()
 {
     for (BasicBlock* entrypoint : m_graph.m_roots) {
@@ -119,53 +152,21 @@ void InPlaceAbstractState::initialize()
         entrypoint->cfaStructureClobberStateAtHead = StructuresAreWatched;
         entrypoint->cfaStructureClobberStateAtTail = StructuresAreWatched;
 
-        if (m_graph.m_form == SSA)  {
-            for (size_t i = 0; i < entrypoint->valuesAtHead.numberOfArguments(); ++i) {
-                entrypoint->valuesAtHead.argument(i).clear();
-                entrypoint->valuesAtTail.argument(i).clear();
-            }
-        } else {
-            const ArgumentsVector& arguments = m_graph.m_rootToArguments.find(entrypoint)->value;
-            for (size_t i = 0; i < entrypoint->valuesAtHead.numberOfArguments(); ++i) {
-                entrypoint->valuesAtTail.argument(i).clear();
-
-                FlushFormat format;
-                Node* node = arguments[i];
-                if (!node)
-                    format = FlushedJSValue;
-                else {
-                    ASSERT(node->op() == SetArgumentDefinitely);
-                    format = node->variableAccessData()->flushFormat();
-                }
-
-                switch (format) {
-                case FlushedInt32:
-                    entrypoint->valuesAtHead.argument(i).setNonCellType(SpecInt32Only);
-                    break;
-                case FlushedBoolean:
-                    entrypoint->valuesAtHead.argument(i).setNonCellType(SpecBoolean);
-                    break;
-                case FlushedCell:
-                    entrypoint->valuesAtHead.argument(i).setType(m_graph, SpecCellCheck);
-                    break;
-                case FlushedJSValue:
-                    entrypoint->valuesAtHead.argument(i).makeBytecodeTop();
-                    break;
-                default:
-                    DFG_CRASH(m_graph, nullptr, "Bad flush format for argument"_s);
-                    break;
-                }
-            }
+        if (m_graph.m_form == SSA) {
+            bool ok = resetBlockValues(*entrypoint, { }, m_structureListScratch);
+            ASSERT_UNUSED(ok, ok);
+            continue;
         }
-
-        for (size_t i = 0; i < entrypoint->valuesAtHead.numberOfLocals(); ++i) {
-            entrypoint->valuesAtHead.local(i).clear();
-            entrypoint->valuesAtTail.local(i).clear();
-        }
-        for (size_t i = 0; i < entrypoint->valuesAtHead.numberOfTmps(); ++i) {
-            entrypoint->valuesAtHead.tmp(i).clear();
-            entrypoint->valuesAtTail.tmp(i).clear();
-        }
+        const ArgumentsVector& arguments = m_graph.m_rootToArguments.find(entrypoint)->value;
+        Vector<FlushFormat, 16> formats(entrypoint->valuesAtHead.numberOfArguments(), [&](size_t i) {
+            Node* node = arguments[i];
+            if (!node)
+                return FlushedJSValue;
+            ASSERT(node->op() == SetArgumentDefinitely);
+            return node->variableAccessData()->flushFormat();
+        });
+        if (!resetBlockValues(*entrypoint, formats.span(), m_structureListScratch))
+            DFG_CRASH(m_graph, nullptr, "Bad flush format for argument"_s);
     }
 
     for (BasicBlock* block : m_graph.blocksInNaturalOrder()) {
@@ -179,10 +180,8 @@ void InPlaceAbstractState::initialize()
         block->cfaHasVisited = false;
         block->cfaStructureClobberStateAtHead = StructuresAreWatched;
         block->cfaStructureClobberStateAtTail = StructuresAreWatched;
-        for (size_t i = 0; i < block->valuesAtHead.size(); ++i) {
-            block->valuesAtHead[i].clear();
-            block->valuesAtTail[i].clear();
-        }
+        bool ok = resetBlockValues(*block, { }, m_structureListScratch);
+        ASSERT_UNUSED(ok, ok);
     }
 
     if (m_graph.m_form == SSA) {

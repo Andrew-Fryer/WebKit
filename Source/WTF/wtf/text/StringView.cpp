@@ -34,7 +34,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <wtf/Lock.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/ZippedRange.h>
-#include <wtf/text/AdaptiveStringSearcher.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/TextBreakIterator.h>
 #include <wtf/unicode/icu/ICUHelpers.h>
@@ -132,34 +131,6 @@ UTF8CString StringView::utf8(ConversionMode mode) const
 size_t StringView::find(StringView matchString, unsigned start) const
 {
     return findCommon(*this, matchString, start);
-}
-
-SUPPRESS_NODELETE size_t StringView::find(AdaptiveStringSearcherTables& tables, StringView matchString, unsigned start) const
-{
-    unsigned subjectLength = length();
-    unsigned matchLength = matchString.length();
-
-    if (start > subjectLength)
-        return notFound;
-
-    if (!matchLength)
-        return start;
-
-    if (matchLength > subjectLength - start)
-        return notFound;
-
-    if (subjectLength > INT32_MAX || matchLength > INT32_MAX) [[unlikely]]
-        return find(matchString, start);
-
-    if (is8Bit()) {
-        if (matchString.is8Bit())
-            return searchString(tables, span8(), matchString.span8(), start);
-        return searchString(tables, span8(), matchString.span16(), start);
-    }
-
-    if (matchString.is8Bit())
-        return searchString(tables, span16(), matchString.span8(), start);
-    return searchString(tables, span16(), matchString.span16(), start);
 }
 
 size_t StringView::find(std::span<const Latin1Character> match, unsigned start) const

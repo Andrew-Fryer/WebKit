@@ -37,6 +37,8 @@
 #include <wtf/text/StringToIntegerConversion.h>
 #include <wtf/unicode/UTF8Conversion.h>
 
+#include "NumberParseSwiftBoundary.h"
+
 namespace WTF {
 
 // Construct a string with UTF-16 data.
@@ -499,92 +501,50 @@ String String::fromCodePoint(char32_t codePoint)
 
 // String Operations
 
-enum class WhitespacePolicy : bool { Skip, Preserve };
-enum class ParseMode : bool { General, Fixed };
-
-template<typename CharacterType, TrailingJunkPolicy trailingJunkPolicy, WhitespacePolicy whitespacePolicy, ParseMode mode>
-static inline double toDoubleType(std::span<const CharacterType> data, bool* ok, size_t& parsedLength)
-{
-    size_t leadingSpacesLength = 0;
-    if constexpr (whitespacePolicy == WhitespacePolicy::Skip) {
-        while (leadingSpacesLength < data.size() && isUnicodeCompatibleASCIIWhitespace(data[leadingSpacesLength]))
-            ++leadingSpacesLength;
-    }
-
-    double number;
-    if constexpr (mode == ParseMode::Fixed)
-        number = parseFixedDouble(data.subspan(leadingSpacesLength), parsedLength);
-    else
-        number = parseDouble(data.subspan(leadingSpacesLength), parsedLength);
-
-    if (!parsedLength) {
-        if (ok)
-            *ok = false;
-        return 0.0;
-    }
-
-    parsedLength += leadingSpacesLength;
-    if (ok)
-        *ok = trailingJunkPolicy == TrailingJunkPolicy::Allow || parsedLength == data.size();
-    return number;
-}
+// toDoubleType (leading whitespace, parse, trailing junk) and the float rounding are Swift: wtf/swift/NumberParse.
+static constexpr uint32_t charactersToDoubleMode = WTFSwiftNumberParseModeSkipWhitespace;
+static constexpr uint32_t charactersToFixedDoubleMode = WTFSwiftNumberParseModeFixed;
+static constexpr uint32_t charactersToFloatMode = WTFSwiftNumberParseModeSkipWhitespace | WTFSwiftNumberParseModeFloat;
+static constexpr uint32_t charactersToFloatAllowingTrailingJunkMode = charactersToFloatMode | WTFSwiftNumberParseModeAllowTrailingJunk;
 
 double charactersToDouble(std::span<const Latin1Character> data, bool* ok)
 {
-    size_t parsedLength;
-    return toDoubleType<Latin1Character, TrailingJunkPolicy::Disallow, WhitespacePolicy::Skip, ParseMode::General>(data, ok, parsedLength);
+    return WTFSwift_NumberParse_charactersToDouble8(byteCast<uint8_t>(data).data(), data.size(), ok);
 }
 
 double charactersToDouble(std::span<const char16_t> data, bool* ok)
 {
-    size_t parsedLength;
-    return toDoubleType<char16_t, TrailingJunkPolicy::Disallow, WhitespacePolicy::Skip, ParseMode::General>(data, ok, parsedLength);
+    return WTFSwift_NumberParse_charactersTo16(data.data(), data.size(), charactersToDoubleMode, nullptr, ok);
 }
 
 double charactersToFixedDouble(std::span<const Latin1Character> data, bool* ok)
 {
-    size_t parsedLength;
-    return toDoubleType<Latin1Character, TrailingJunkPolicy::Disallow, WhitespacePolicy::Preserve, ParseMode::Fixed>(data, ok, parsedLength);
+    return WTFSwift_NumberParse_charactersTo8(byteCast<uint8_t>(data).data(), data.size(), charactersToFixedDoubleMode, nullptr, ok);
 }
 
 double charactersToFixedDouble(std::span<const char16_t> data, bool* ok)
 {
-    size_t parsedLength;
-    return toDoubleType<char16_t, TrailingJunkPolicy::Disallow, WhitespacePolicy::Preserve, ParseMode::Fixed>(data, ok, parsedLength);
-}
-
-NODELETE static inline float doubleToFloatCheckingOverflow(double number, bool* isValid)
-{
-    float result = static_cast<float>(number);
-    if (isValid && *isValid && std::isfinite(number) && !std::isfinite(result))
-        *isValid = false;
-    return result;
+    return WTFSwift_NumberParse_charactersTo16(data.data(), data.size(), charactersToFixedDoubleMode, nullptr, ok);
 }
 
 float charactersToFloat(std::span<const Latin1Character> data, bool* ok)
 {
-    size_t parsedLength;
-    double number = toDoubleType<Latin1Character, TrailingJunkPolicy::Disallow, WhitespacePolicy::Skip, ParseMode::General>(data, ok, parsedLength);
-    return doubleToFloatCheckingOverflow(number, ok);
+    return static_cast<float>(WTFSwift_NumberParse_charactersTo8(byteCast<uint8_t>(data).data(), data.size(), charactersToFloatMode, nullptr, ok));
 }
 
 float charactersToFloat(std::span<const char16_t> data, bool* ok)
 {
-    size_t parsedLength;
-    double number = toDoubleType<char16_t, TrailingJunkPolicy::Disallow, WhitespacePolicy::Skip, ParseMode::General>(data, ok, parsedLength);
-    return doubleToFloatCheckingOverflow(number, ok);
+    return static_cast<float>(WTFSwift_NumberParse_charactersTo16(data.data(), data.size(), charactersToFloatMode, nullptr, ok));
 }
 
 float charactersToFloat(std::span<const Latin1Character> data, size_t& parsedLength)
 {
-    double number = toDoubleType<Latin1Character, TrailingJunkPolicy::Allow, WhitespacePolicy::Skip, ParseMode::General>(data, nullptr, parsedLength);
-    return static_cast<float>(number);
+    return static_cast<float>(WTFSwift_NumberParse_charactersTo8(byteCast<uint8_t>(data).data(), data.size(), charactersToFloatAllowingTrailingJunkMode, &parsedLength, nullptr));
 }
 
 float charactersToFloat(std::span<const char16_t> data, size_t& parsedLength)
 {
-    double number = toDoubleType<char16_t, TrailingJunkPolicy::Allow, WhitespacePolicy::Skip, ParseMode::General>(data, nullptr, parsedLength);
-    return static_cast<float>(number);
+    return static_cast<float>(WTFSwift_NumberParse_charactersTo16(data.data(), data.size(), charactersToFloatAllowingTrailingJunkMode, &parsedLength, nullptr));
 }
 
 const StaticString nullStringData { nullptr };

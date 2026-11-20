@@ -36,6 +36,8 @@
 #include "JSCJSValueInlines.h"
 #include <wtf/FastBitVector.h>
 
+#include "BitRangeClearSwiftBoundary.h"
+
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC { namespace DFG {
@@ -62,7 +64,9 @@ public:
         for (BasicBlock* block : m_graph.blocksInNaturalOrder()) {
             size_t blockSize = block->size();
             doBlock(block);
-            m_barrierPoints.clearRange(0, blockSize);
+            // FastBitVector::clearRange, in Swift (BitRangeClear.swift).
+            auto barrierWords = m_barrierPoints.unsafeWords().words();
+            JSCSwift_BitRangeClear_clearRange(barrierWords.data(), barrierWords.size(), m_barrierPoints.numBits(), 0, blockSize);
         }
         
         return true;

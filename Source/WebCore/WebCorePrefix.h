@@ -542,7 +542,6 @@
 #include <wtf/spi/cocoa/IOSurfaceSPI.h>
 #include <wtf/spi/cocoa/SecuritySPI.h>
 #endif
-#include <wtf/text/AdaptiveStringSearcher.h>
 #include <wtf/text/AtomStringTable.h>
 #include <wtf/text/CharacterProperties.h>
 #include <wtf/text/SymbolImpl.h>

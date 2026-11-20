@@ -78,6 +78,21 @@ public:
         return encodeSpan(singleElementSpan(object));
     }
 
+    // For a coder that encodes in place (the Swift Path encoder, Shared/PathArgumentCoders.cpp): `encode` gets the rest of
+    // the buffer and returns how many bytes it encoded at its start, aligning each value to its size in memory as
+    // encodeSpan() does, or a negative number if they don't fit, which makes the encoder invalid, as encodeSpan() does.
+    template<typename Function>
+    bool encodeInPlace(NOESCAPE const Function& encode)
+    {
+        intptr_t encoded = encode(m_buffer);
+        if (encoded < 0) {
+            m_buffer = { };
+            return false;
+        }
+        m_buffer = m_buffer.subspan(static_cast<size_t>(encoded));
+        return true;
+    }
+
     template<typename T>
     StreamConnectionEncoder& operator<<(T&& t)
     {

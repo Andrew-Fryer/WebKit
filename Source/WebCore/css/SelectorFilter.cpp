@@ -48,7 +48,8 @@ NODELETE static bool isExcludedAttribute(const AtomString& name)
     return name == HTMLNames::classAttr->localName() || name == HTMLNames::idAttr->localName() || name == HTMLNames::styleAttr->localName();
 }
 
-void SelectorFilter::collectElementIdentifierHashes(const Element& element, Vector<unsigned, 4>& identifierHashes)
+template<size_t inlineCapacity>
+void SelectorFilter::collectElementIdentifierHashes(const Element& element, Vector<unsigned, inlineCapacity>& identifierHashes)
 {
     identifierHashes.append(element.localNameLowercase().impl()->existingHash() * TagNameSalt);
 
@@ -72,12 +73,14 @@ void SelectorFilter::collectElementIdentifierHashes(const Element& element, Vect
     }
 }
 
+template void SelectorFilter::collectElementIdentifierHashes(const Element&, Vector<unsigned, 4>&); // HasSelectorFilter::add
+
 bool SelectorFilter::parentStackIsConsistent(const ContainerNode* parentNode) const
 {
     if (!parentNode || isAnyOf<Document, ShadowRoot>(*parentNode))
         return m_parentStack.isEmpty();
 
-    return !m_parentStack.isEmpty() && m_parentStack.last().element == parentNode;
+    return !m_parentStack.isEmpty() && m_parentStack.last() == parentNode;
 }
 
 void SelectorFilter::initializeParentStack(Element& parent)
@@ -90,25 +93,45 @@ void SelectorFilter::initializeParentStack(Element& parent)
         pushParent(protect(ancestors[i]));
 }
 
-// The Swift kernel updates the CountingBloomFilter's bucket array in place (SelectorFilterSwiftBoundary.h).
-template<unsigned keyBits> NODELETE static void updateWithSwift(CountingBloomFilter<keyBits>& filter, std::span<const unsigned> hashes, uint8_t operation)
+// The Swift kernel keeps the parent stack's identifier hashes in `parentHashStack` and updates the CountingBloomFilter's
+// bucket array in place (SelectorFilterSwiftBoundary.h).
+template<unsigned keyBits> static uint8_t* bucketsForSwift(CountingBloomFilter<keyBits>& filter)
 {
     static_assert(sizeof(CountingBloomFilter<keyBits>) == CountingBloomFilter<keyBits>::tableSize);
+    static_assert(CountingBloomFilter<keyBits>::tableSize == WebCoreSwift_SelectorFilter_BucketCount);
+    return asMutableByteSpan(filter).data();
+}
+
+template<unsigned keyBits, size_t inlineCapacity> static size_t pushWithSwift(CountingBloomFilter<keyBits>& filter, Vector<uint32_t, inlineCapacity>& parentHashStack, std::span<const unsigned> hashes)
+{
     static_assert(sizeof(unsigned) == sizeof(uint32_t));
-    auto buckets = asMutableByteSpan(filter);
-    WebCoreSwift_SelectorFilter_update(buckets.data(), buckets.size(), hashes.data(), hashes.size(), operation);
+    auto stack = parentHashStack.mutableSpan();
+    return WebCoreSwift_SelectorFilter_push(bucketsForSwift(filter), stack.data(), stack.size(), hashes.data(), hashes.size());
+}
+
+template<unsigned keyBits, size_t inlineCapacity> NODELETE static void popWithSwift(CountingBloomFilter<keyBits>& filter, Vector<uint32_t, inlineCapacity>& parentHashStack)
+{
+    auto stack = parentHashStack.mutableSpan();
+    WebCoreSwift_SelectorFilter_pop(bucketsForSwift(filter), stack.data(), stack.size());
 }
 
 void SelectorFilter::pushParent(Element* parent)
 {
-    ASSERT(m_parentStack.isEmpty() || m_parentStack.last().element == parent->parentElement());
+    static_assert(parentHashStackInlineCapacity >= WebCoreSwift_SelectorFilter_StackHeaderWords);
+    ASSERT(m_parentStack.isEmpty() || m_parentStack.last() == parent->parentElement());
     ASSERT(!m_parentStack.isEmpty() || !parent->parentElement());
-    m_parentStack.append(ParentStackFrame(parent));
-    ParentStackFrame& parentFrame = m_parentStack.last();
+    m_parentStack.append(parent);
     // Mix tags, class names and ids into some sort of weird bouillabaisse.
     // The filter is used for fast rejection of child and descendant selectors.
-    collectElementIdentifierHashes(*parent, parentFrame.identifierHashes);
-    updateWithSwift(m_ancestorIdentifierFilter, parentFrame.identifierHashes.span(), WebCoreSwift_SelectorFilter_Add);
+    Vector<unsigned, 16> identifierHashes;
+    collectElementIdentifierHashes(*parent, identifierHashes);
+    // Swift pushes the hashes on the parent hash stack and adds them to the filter. If they don't fit, it changes nothing
+    // and returns the number of words needed.
+    if (size_t wordsNeeded = pushWithSwift(m_ancestorIdentifierFilter, m_parentHashStack, identifierHashes.span())) [[unlikely]] {
+        m_parentHashStack.grow(std::max<size_t>(wordsNeeded, 2 * m_parentHashStack.size()));
+        wordsNeeded = pushWithSwift(m_ancestorIdentifierFilter, m_parentHashStack, identifierHashes.span());
+        RELEASE_ASSERT(!wordsNeeded);
+    }
 }
 
 void SelectorFilter::pushParentInitializingIfNeeded(Element& parent)
@@ -123,16 +146,16 @@ void SelectorFilter::pushParentInitializingIfNeeded(Element& parent)
 void SelectorFilter::popParent()
 {
     ASSERT(!m_parentStack.isEmpty());
-    const ParentStackFrame& parentFrame = m_parentStack.last();
-    // Popping the last parent also clears the filter (after asserting that it is likely empty).
-    updateWithSwift(m_ancestorIdentifierFilter, parentFrame.identifierHashes.span(), m_parentStack.size() == 1 ? WebCoreSwift_SelectorFilter_RemoveAndClear : WebCoreSwift_SelectorFilter_Remove);
     m_parentStack.removeLast();
+    // Swift pops the top frame of the parent hash stack and removes its hashes from the filter. Popping the last parent
+    // also clears the filter (after asserting that it is likely empty). Last, so that it is a tail call.
+    popWithSwift(m_ancestorIdentifierFilter, m_parentHashStack);
 }
 
 void SelectorFilter::popParentsUntil(Element* parent)
 {
     while (!m_parentStack.isEmpty()) {
-        if (parent && m_parentStack.last().element == parent)
+        if (parent && m_parentStack.last() == parent)
             return;
         popParent();
     }

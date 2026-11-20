@@ -21,11 +21,14 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// Memory-safe port of the numeric color fast paths of CSSParserFastPaths.cpp (at 05fbeeaa85b0) for Latin-1 and
-// UTF-16 strings: parseNumericColor (#hex, quirks-mode bare hex, rgb()/rgba(), hsl()/hsla() dispatch),
-// CSSParserFastPaths::parseHexColor, parseHexColorInternal, finishParsingHexColor, parseColorIntOrPercentage,
-// parseRGBAlphaValue, isTenthAlpha, checkForValidDouble and parseDouble. hsl()/hsla() is in CSSColorHSL.swift.
-// Every function mirrors its C++ twin statement by statement; the C++ names are kept.
+// Memory-safe port of the color fast paths of CSSParserFastPaths.cpp (at 05fbeeaa85b0) for Latin-1 and UTF-16
+// strings: CSSParserFastPaths::parseSimpleColor (parseSimpleColorInternal), parseNumericColor (#hex, quirks-mode bare
+// hex, rgb()/rgba(), hsl()/hsla() dispatch), CSSParserFastPaths::parseHexColor, parseHexColorInternal,
+// finishParsingHexColor, parseColorIntOrPercentage, parseRGBAlphaValue, isTenthAlpha, checkForValidDouble, parseDouble,
+// and CSSParserFastPaths::parseNamedColor (parseNamedColorInternal, finishParsingNamedColor and its findColor() lookup
+// of platform/ColorData.gperf, whose table is CSSColorNamedColors.swift). hsl()/hsla() is in CSSColorHSL.swift.
+// Every function mirrors its C++ twin statement by statement (the named-color lookup is a different hash with the
+// same answers); the C++ names are kept.
 //
 // Results are packed into a UInt64: 0 means "not a color" (std::nullopt), otherwise bit 32 is set and the low 32
 // bits are PackedColor::RGBA (r << 24 | g << 16 | b << 8 | a).
@@ -133,22 +136,47 @@ struct CSSColorUTF16Characters: CSSColorCharacters, ~Escapable {
 }
 
 enum CSSColor {
-    // What to parse; CSSColorSwiftBoundary.h's WebCoreSwift_CSSColor_Mode values.
+    // What to parse; CSSColorSwiftBoundary.h's WebCoreSwift_CSSColor_* mode values.
     static var modeNumeric: UInt8 { 0 }
     static var modeNumericQuirks: UInt8 { 1 }
     static var modeHex: UInt8 { 2 }
+    static var modeSimple: UInt8 { 3 }
+    static var modeSimpleQuirks: UInt8 { 4 }
+    static var modeNamed: UInt8 { 5 }
 
-    // parseNumericColor (modeNumeric, or modeNumericQuirks for isQuirksModeBehavior()) or
-    // CSSParserFastPaths::parseHexColor (modeHex). Any other mode traps.
+    // parseNumericColor (modeNumeric, or modeNumericQuirks for isQuirksModeBehavior()),
+    // CSSParserFastPaths::parseHexColor (modeHex), CSSParserFastPaths::parseSimpleColor (modeSimple, or
+    // modeSimpleQuirks for isQuirksModeBehavior()) or CSSParserFastPaths::parseNamedColor (modeNamed).
+    // Any other mode traps.
     @inline(__always)
     static func parseColor<C: CSSColorCharacters & ~Escapable>(_ characters: C, mode: UInt8) -> UInt64 {
+        // The hot case (canvas fillStyle/strokeStyle "#rrggbb"), decided here so that it makes no further call.
+        // In the numeric and simple modes, a '#' followed by at least 3 characters is parsed as exactly
+        // parseHexColorInternal(characters[1...]): parseNumericColor tries that first and, when it fails, nothing
+        // else can match a string that starts with '#' (the quirks-mode bare hex needs a hex digit there, the rgb(),
+        // rgba(), hsl() and hsla() prefixes need 'r' or 'h', and parseNamedColor needs a letter).
+        // The C entry point inlines this check and tail-calls parseColorOtherwise, so the hot case needs no stack frame.
+        if mode != modeHex && mode <= modeSimpleQuirks && characters.count >= 4 && characters[0] == asciiHash {
+            return parseHexColorInternal(characters, 1, characters.count)
+        }
+        return parseColorOtherwise(characters, mode: mode)
+    }
+
+    // One copy of parseNumericColor serves the numeric and simple modes (no further call level before parseRGB/parseHSL).
+    @inline(never)
+    static func parseColorOtherwise<C: CSSColorCharacters & ~Escapable>(_ characters: C, mode: UInt8) -> UInt64 {
         switch mode {
-        case modeNumeric:
-            return parseNumericColor(characters, quirksMode: false)
-        case modeNumericQuirks:
-            return parseNumericColor(characters, quirksMode: true)
+        case modeNumeric, modeNumericQuirks, modeSimple, modeSimpleQuirks:
+            // parseSimpleColorInternal: parseNumericColor, then (simple modes only) parseNamedColorInternal.
+            let color = parseNumericColor(characters, quirksMode: mode == modeNumericQuirks || mode == modeSimpleQuirks)
+            if color != notAColor || mode == modeNumeric || mode == modeNumericQuirks {
+                return color
+            }
+            return parseNamedColor(characters)
         case modeHex:
             return parseHexColorInternal(characters, 0, characters.count)
+        case modeNamed:
+            return parseNamedColor(characters)
         default:
             preconditionFailure("unknown CSSColor mode")
         }
@@ -156,6 +184,7 @@ enum CSSColor {
 }
 
 extension CSSColor {
+    @inline(__always)
     static func parseNumericColor<C: CSSColorCharacters & ~Escapable>(_ characters: C, quirksMode: Bool) -> UInt64 {
         let count = characters.count
         if count >= 4 && characters[0] == asciiHash {
@@ -225,21 +254,26 @@ extension CSSColor {
         character &- asciiZero < 10
     }
 
-    @inline(__always)
-    private static func isASCIIHexDigit(_ character: UInt8) -> Bool {
-        // isASCIIDigit(character) || (toASCIILowerUnchecked(character) >= 'a' && toASCIILowerUnchecked(character) <= 'f'),
-        // where toASCIILowerUnchecked(character) is character | 0x20. Evaluated without short-circuiting so the
-        // per-digit check is a single, well-predicted branch (clang emits cmp + ccmp for the C++); with `||`
-        // the digit/letter test is a data-dependent branch that mispredicts on random hex strings.
-        let isDigit: UInt8 = character &- asciiZero < 10 ? 1 : 0
-        let isLetter: UInt8 = (character | 0x20) &- 0x61 < 6 ? 1 : 0
-        return isDigit | isLetter != 0
-    }
-
-    @inline(__always)
-    private static func toASCIIHexValue(_ character: UInt8) -> UInt8 {
-        character < 0x41 ? character &- asciiZero : (character &- 0x41 &+ 10) & 0xF
-    }
+    // isASCIIHexDigit(character) ? toASCIIHexValue(character) : 0xFF, for every byte (a statically initialized constant
+    // table). One load per digit replaces the C++ digit/letter tests; the values are the same.
+    static let hexDigitValues: InlineArray<256, UInt8> = [
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x00
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x10
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x20
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x30
+        0xFF, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x40
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x50
+        0xFF, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x60
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x70
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x80
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x90
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0xA0
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0xB0
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0xC0
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0xD0
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0xE0
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0xF0
+    ]
 
     @inline(__always)
     static func isASCIIWhitespace(_ character: UInt8) -> Bool {
@@ -339,15 +373,13 @@ extension CSSColor {
         }
 
         var value: UInt32 = 0
-        var index = start
-        while index < end {
-            let digit = characters[index]
-            if !isASCIIHexDigit(digit) {
+        let digits = characters.extracting(start..<end)
+        for index in digits.indices {
+            let digitValue = hexDigitValues[Int(digits[index])]
+            if digitValue > 0xF {
                 return notAColor
             }
-            value <<= 4
-            value |= UInt32(toASCIIHexValue(digit))
-            index &+= 1
+            value = value << 4 | UInt32(digitValue)
         }
         return finishParsingHexColor(value, length)
     }
@@ -740,6 +772,62 @@ extension CSSColor {
         }
 
         return notAColor
+    }
+}
+
+extension CSSColor {
+    // MARK: - Named colors
+
+    // Every character ORed with 0x20, as the bytes of a little-endian word. OR-ing 0x20 maps 'A'-'Z' to 'a'-'z',
+    // keeps 'a'-'z', and maps every other byte (NUL, the rest of ASCII, Latin-1 0x80-0xFF, and the 0x80 that stands for
+    // every non-ASCII UTF-16 code unit) to a nonzero byte that is not a letter.
+    static var namedColorLowercaseBits: UInt64 { 0x2020_2020_2020_2020 }
+
+    // CSSParserFastPaths::parseNamedColor: parseNamedColorInternal, finishParsingNamedColor and findColor().
+    // The C++ gives nullopt for more than 63 characters or for a NUL or non-ASCII character, and otherwise looks the
+    // ASCII-lowercased characters up, exactly, among the names of ColorData.gperf, which are 3 to 20 lowercase letters.
+    // Here the characters, ORed with 0x20 (namedColorLowercaseBits), form the key words of CSSColorNamedColors.swift,
+    // zero-filled. A key matches a name only if each of its first `count` bytes is the name's letter there (a non-letter
+    // character can't become a letter) and the name has no letter beyond them (the key's bytes there are zero, and its
+    // first `count` bytes are nonzero), so exactly the inputs the C++ accepts are found, with the same colors.
+    static func parseNamedColor<C: CSSColorCharacters & ~Escapable>(_ characters: C) -> UInt64 {
+        let count = characters.count
+        guard count >= 3, count <= 20 else {
+            return notAColor
+        }
+
+        var word0: UInt64 = 0
+        var word1: UInt64 = 0
+        var word2: UInt64 = 0
+        if count >= 8 {
+            word0 = characters.eightCharacters(at: 0) | namedColorLowercaseBits
+            if count >= 16 {
+                word1 = characters.eightCharacters(at: 8) | namedColorLowercaseBits
+                if count > 16 {
+                    // Characters [16, count), from the eight that end the string.
+                    word2 = (characters.eightCharacters(at: count &- 8) | namedColorLowercaseBits) >> (UInt64(truncatingIfNeeded: 24 &- count) &* 8)
+                }
+            } else if count > 8 {
+                // Characters [8, count), from the eight that end the string.
+                word1 = (characters.eightCharacters(at: count &- 8) | namedColorLowercaseBits) >> (UInt64(truncatingIfNeeded: 16 &- count) &* 8)
+            }
+        } else {
+            for index in 0..<count {
+                word0 |= UInt64(characters[index] | 0x20) << (UInt64(truncatingIfNeeded: index) &* 8)
+            }
+        }
+
+        // The table lookup (CSSColorNamedColors.swift). bucket < 64 and slot < 256, so the indices are in bounds.
+        let hash = (word0 &+ word1 &* namedColorMultiplier1 &+ word2 &* namedColorMultiplier2) &* namedColorHashMultiplier
+        let bucket = Int(truncatingIfNeeded: hash >> namedColorBucketShift)
+        let slot = Int(truncatingIfNeeded: (hash >> 32) & 0xFF) ^ Int(namedColorDisplacements[bucket])
+        let entry = slot &* 3
+        let entryWord2 = namedColorEntries[entry &+ 2]
+        guard namedColorEntries[entry] == word0, namedColorEntries[entry &+ 1] == word1, entryWord2 & 0xFFFF_FFFF == word2 else {
+            return notAColor
+        }
+        // asSRGBA(PackedColor::ARGB { namedColor->ARGBValue }); the table holds the color as PackedColor::RGBA.
+        return UInt64(1) << 32 | entryWord2 >> 32
     }
 }
 

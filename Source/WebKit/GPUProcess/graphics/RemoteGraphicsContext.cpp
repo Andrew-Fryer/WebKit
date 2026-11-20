@@ -29,6 +29,7 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "GPUConnectionToWebProcess.h"
+#include "GPUStrokeLinesSwiftBoundary.h"
 #include "ImageBufferShareableAllocator.h"
 #include "Logging.h"
 #include "RemoteGraphicsContextMessages.h"
@@ -667,24 +668,29 @@ void RemoteGraphicsContext::strokeLine(const PathDataLine& line)
     context().strokeLine(line);
 }
 
+// Swift reads each PathDataLineColorThickness as 6 32-bit words (GPUStrokeLinesSwiftBoundary.h).
+static_assert(std::is_standard_layout_v<PathDataLineColorThickness> && std::is_trivially_copyable_v<PathDataLineColorThickness>);
+static_assert(sizeof(PathDataLineColorThickness) == WebKitSwift_GPUStrokeLines_WordsPerLine * sizeof(uint32_t));
+static_assert(alignof(PathDataLineColorThickness) == alignof(uint32_t));
+static_assert(sizeof(PathDataLine) == 4 * sizeof(float) && offsetof(PathDataLineColorThickness, line) == 0);
+static_assert(sizeof(PackedColor::RGBA) == sizeof(uint32_t) && offsetof(PathDataLineColorThickness, color) == WebKitSwift_GPUStrokeLines_ColorWord * sizeof(uint32_t));
+static_assert(sizeof(float) == sizeof(uint32_t) && offsetof(PathDataLineColorThickness, thickness) == WebKitSwift_GPUStrokeLines_ThicknessWord * sizeof(uint32_t));
+
 void RemoteGraphicsContext::strokeLinesWithColorAndThickness(std::span<const PathDataLineColorThickness> lines)
 {
-    // Each line carries its stroke color and thickness so the batch is self
-    // describing; only push a state change to the context when it differs from
-    // the previously applied value to avoid redundant CG state changes.
-    std::optional<PackedColor::RGBA> lastColor;
-    std::optional<float> lastThickness;
-    for (const auto& entry : lines) {
-        if (lastColor != entry.color) {
-            setStrokePackedColor(entry.color);
-            lastColor = entry.color;
-        }
-        if (lastThickness != entry.thickness) {
-            setStrokeThickness(std::max(entry.thickness, 0.f));
-            lastThickness = entry.thickness;
-        }
-        context().strokeLine(entry.line);
-    }
+    // Swift (Source/WebKit/swift/GPUStrokeLines) runs the loop: each line carries its stroke color and thickness so
+    // the batch is self describing, and Swift only pushes a state change to the context when it differs from the
+    // previously applied value, to avoid redundant CG state changes. The callbacks do what the loop does for a line.
+    WebKitSwift_GPUStrokeLines_strokeLines(reinterpret_cast<const uint32_t*>(lines.data()), lines.size(), reinterpret_cast<uintptr_t>(this),
+        [](uintptr_t context, uint32_t rgba) {
+            reinterpret_cast<RemoteGraphicsContext*>(context)->setStrokePackedColor(PackedColor::RGBA { rgba });
+        },
+        [](uintptr_t context, float thickness) {
+            reinterpret_cast<RemoteGraphicsContext*>(context)->setStrokeThickness(thickness);
+        },
+        [](uintptr_t context, float startX, float startY, float endX, float endY) {
+            reinterpret_cast<RemoteGraphicsContext*>(context)->context().strokeLine(PathDataLine { FloatPoint { startX, startY }, FloatPoint { endX, endY } });
+        });
 }
 
 void RemoteGraphicsContext::strokeArc(const PathArc& arc)

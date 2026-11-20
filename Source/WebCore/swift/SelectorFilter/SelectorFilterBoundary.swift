@@ -22,14 +22,24 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 
 
-// C entry point of SelectorFilter (declared to C++ in SelectorFilterSwiftBoundary.h). This is the only file of the
-// unit with `unsafe`: it wraps the CountingBloomFilter's buckets and the parent frame's identifier hashes, both owned
-// by C++, in spans and calls the safe core in SelectorFilterBloom.swift. `hashes` may be null only when `hashCount`
-// is 0.
+// C entry points of SelectorFilter (declared to C++ in SelectorFilterSwiftBoundary.h). This is the only file of the
+// unit with `unsafe`: it wraps the CountingBloomFilter's buckets (always WebCoreSwift_SelectorFilter_BucketCount =
+// SelectorFilterBloom.tableSize bytes, static_asserted by the C++ caller), the hash stack's words and the pushed
+// element's identifier hashes, all owned by C++, in spans and calls the safe core in SelectorFilterBloom.swift.
+// `hashes` may be null only when `hashCount` is 0.
 
-@_cdecl("WebCoreSwift_SelectorFilter_update")
+@_cdecl("WebCoreSwift_SelectorFilter_push")
 @inline(__always)
-func WebCoreSwift_SelectorFilter_update(_ buckets: UnsafeMutablePointer<UInt8>?, _ bucketCount: Int, _ hashes: UnsafePointer<UInt32>?, _ hashCount: Int, _ operation: UInt8) {
-    var bucketSpan = unsafe UnsafeMutableBufferPointer(start: buckets, count: bucketCount).mutableSpan
-    unsafe SelectorFilterBloom.update(&bucketSpan, UnsafeBufferPointer(start: hashes, count: hashCount).span, operation: operation)
+func WebCoreSwift_SelectorFilter_push(_ buckets: UnsafeMutablePointer<UInt8>?, _ stack: UnsafeMutablePointer<UInt32>?, _ stackWords: Int, _ hashes: UnsafePointer<UInt32>?, _ hashCount: Int) -> Int {
+    var bucketSpan = unsafe UnsafeMutableBufferPointer(start: buckets, count: SelectorFilterBloom.tableSize).mutableSpan
+    var stackSpan = unsafe UnsafeMutableBufferPointer(start: stack, count: stackWords).mutableSpan
+    return unsafe SelectorFilterBloom.push(&bucketSpan, &stackSpan, UnsafeBufferPointer(start: hashes, count: hashCount).span)
+}
+
+@_cdecl("WebCoreSwift_SelectorFilter_pop")
+@inline(__always)
+func WebCoreSwift_SelectorFilter_pop(_ buckets: UnsafeMutablePointer<UInt8>?, _ stack: UnsafeMutablePointer<UInt32>?, _ stackWords: Int) {
+    var bucketSpan = unsafe UnsafeMutableBufferPointer(start: buckets, count: SelectorFilterBloom.tableSize).mutableSpan
+    var stackSpan = unsafe UnsafeMutableBufferPointer(start: stack, count: stackWords).mutableSpan
+    SelectorFilterBloom.pop(&bucketSpan, &stackSpan)
 }

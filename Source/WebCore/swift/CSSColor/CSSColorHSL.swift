@@ -184,7 +184,8 @@ extension CSSColor {
     // WTF::parseDouble (FastFloat.cpp), fast_float::from_chars with chars_format::general | no_infnan | allow_leading_plus,
     // which must consume everything. fast_float rounds correctly (overflow gives +-infinity, underflow +-0 or a
     // subnormal), so every correctly rounded conversion of the same decimal gives the same double: the exact Clinger
-    // fast path below, or else the standard library's conversion of the validated text.
+    // fast path below, fast_float's own Eisel-Lemire step (eiselLemireDouble) for up to 19 digits and |exponent| <= 27,
+    // or else the standard library's conversion of the validated text.
     static func charactersToDouble<C: CSSColorCharacters & ~Escapable>(_ characters: C, _ start: Int, _ end: Int) -> Double? {
         guard start >= 0, start <= end, end <= characters.count else {
             return nil
@@ -277,10 +278,8 @@ extension CSSColor {
                 // Clinger's fast path: the mantissa and the power of ten are exact doubles, so one IEEE operation
                 // rounds once.
                 magnitude = exponent < 0 ? Double(mantissa) / powerOfTen(-exponent) : Double(mantissa) * powerOfTen(exponent)
-            } else if exponent < 0 && exponent >= -22 {
-                magnitude = verifiedQuotient(mantissa, -exponent)
             } else {
-                magnitude = exactlyRoundedDouble(mantissa, exponent)
+                magnitude = eiselLemireDouble(mantissa, exponent)
             }
             return negative ? -magnitude : magnitude
         }
@@ -299,42 +298,6 @@ extension CSSColor {
         value = value &* 10 &+ value &>> 8
         value = ((value & 0x0000_00FF_0000_00FF) &* 0x000F_4240_0000_0064 &+ (value &>> 16 & 0x0000_00FF_0000_00FF) &* 0x0000_2710_0000_0001) &>> 32
         return UInt32(truncatingIfNeeded: value)
-    }
-
-    // 5^e for 0 <= e <= 27 (5^27 < 2^63).
-    @inline(__always)
-    private static func powerOfFive(_ exponent: Int) -> UInt64 {
-        switch exponent {
-        case 0: 1
-        case 1: 5
-        case 2: 25
-        case 3: 125
-        case 4: 625
-        case 5: 3125
-        case 6: 15625
-        case 7: 78125
-        case 8: 390625
-        case 9: 1953125
-        case 10: 9765625
-        case 11: 48828125
-        case 12: 244140625
-        case 13: 1220703125
-        case 14: 6103515625
-        case 15: 30517578125
-        case 16: 152587890625
-        case 17: 762939453125
-        case 18: 3814697265625
-        case 19: 19073486328125
-        case 20: 95367431640625
-        case 21: 476837158203125
-        case 22: 2384185791015625
-        case 23: 11920928955078125
-        case 24: 59604644775390625
-        case 25: 298023223876953125
-        case 26: 1490116119384765625
-        case 27: 7450580596923828125
-        default: preconditionFailure("power of five out of range")
-        }
     }
 
     // 10^e for 0 <= e <= 22, all exact doubles.
@@ -368,77 +331,107 @@ extension CSSColor {
         }
     }
 
-    // mantissa / 10^j rounded to nearest (ties to even), for 2^53 < mantissa < 2^64 and 1 <= j <= 22: the double
-    // quotient is within a few ulps; an exact 128-bit comparison of the value with the candidate and its midpoints picks
-    // the correctly rounded double. A candidate at a power of two (asymmetric neighbors) goes to exactlyRoundedDouble().
-    //
-    // With candidate = s * 2^p and value = mantissa / 10^j, scaling by 2 * 10^j * 2^-p gives value -> mantissa * 2^(1 - p),
-    // candidate -> 2s * 10^j, and the midpoints -> 2s * 10^j +- 10^j. Both sides stay below 2^128 (2s < 2^54 and
-    // 10^j < 2^74, with 2s * 10^j < 2^127.2) and within about 2^74 of each other.
-    private static func verifiedQuotient(_ mantissa: UInt64, _ j: Int) -> Double {
-        let tenPower = UInt128(powerOfFive(j)) << j // 10^j < 2^74.
-        var candidate = Double(mantissa) / powerOfTen(j)
-        for _ in 0..<4 {
-            let significand = candidate.significandBitPattern | 1 << 52
-            if significand == 1 << 52 {
-                break
-            }
-            var value = UInt128(mantissa)
-            var scaledCandidate = UInt128(2 &* significand) &* tenPower
-            var halfStep = tenPower
-            let shift = 1 &- (Int(candidate.exponent) &- 52)
-            if shift >= 0 {
-                value <<= shift
-            } else {
-                scaledCandidate <<= -shift
-                halfStep <<= -shift
-            }
-            let difference = Int128(truncatingIfNeeded: value &- scaledCandidate)
-            let half = Int128(truncatingIfNeeded: halfStep)
-            let isOdd = significand & 1 == 1
-            if difference > half || (difference == half && isOdd) {
-                candidate = candidate.nextUp
-                continue
-            }
-            if difference < -half || (difference == -half && isOdd) {
-                candidate = candidate.nextDown
-                continue
-            }
-            return candidate
-        }
-        return exactlyRoundedDouble(mantissa, -j)
-    }
+    // fast_float's power_of_five_128 entries (WTF/wtf/fast_float/fast_float.h) for 5^-27 ... 5^27: each power of five
+    // as a 128-bit significand (high word first), normalized so its top bit is set, rounded toward one.
+    static let powerOfFive128: InlineArray<110, UInt64> = [
+        0x9E74D1B791E07E48, 0x775EA264CF55347E, // 5^-27
+        0xC612062576589DDA, 0x95364AFE032A819E, // 5^-26
+        0xF79687AED3EEC551, 0x3A83DDBD83F52205, // 5^-25
+        0x9ABE14CD44753B52, 0xC4926A9672793543, // 5^-24
+        0xC16D9A0095928A27, 0x75B7053C0F178294, // 5^-23
+        0xF1C90080BAF72CB1, 0x5324C68B12DD6339, // 5^-22
+        0x971DA05074DA7BEE, 0xD3F6FC16EBCA5E04, // 5^-21
+        0xBCE5086492111AEA, 0x88F4BB1CA6BCF585, // 5^-20
+        0xEC1E4A7DB69561A5, 0x2B31E9E3D06C32E6, // 5^-19
+        0x9392EE8E921D5D07, 0x3AFF322E62439FD0, // 5^-18
+        0xB877AA3236A4B449, 0x09BEFEB9FAD487C3, // 5^-17
+        0xE69594BEC44DE15B, 0x4C2EBE687989A9B4, // 5^-16
+        0x901D7CF73AB0ACD9, 0x0F9D37014BF60A11, // 5^-15
+        0xB424DC35095CD80F, 0x538484C19EF38C95, // 5^-14
+        0xE12E13424BB40E13, 0x2865A5F206B06FBA, // 5^-13
+        0x8CBCCC096F5088CB, 0xF93F87B7442E45D4, // 5^-12
+        0xAFEBFF0BCB24AAFE, 0xF78F69A51539D749, // 5^-11
+        0xDBE6FECEBDEDD5BE, 0xB573440E5A884D1C, // 5^-10
+        0x89705F4136B4A597, 0x31680A88F8953031, // 5^-9
+        0xABCC77118461CEFC, 0xFDC20D2B36BA7C3E, // 5^-8
+        0xD6BF94D5E57A42BC, 0x3D32907604691B4D, // 5^-7
+        0x8637BD05AF6C69B5, 0xA63F9A49C2C1B110, // 5^-6
+        0xA7C5AC471B478423, 0x0FCF80DC33721D54, // 5^-5
+        0xD1B71758E219652B, 0xD3C36113404EA4A9, // 5^-4
+        0x83126E978D4FDF3B, 0x645A1CAC083126EA, // 5^-3
+        0xA3D70A3D70A3D70A, 0x3D70A3D70A3D70A4, // 5^-2
+        0xCCCCCCCCCCCCCCCC, 0xCCCCCCCCCCCCCCCD, // 5^-1
+        0x8000000000000000, 0x0000000000000000, // 5^0
+        0xA000000000000000, 0x0000000000000000, // 5^1
+        0xC800000000000000, 0x0000000000000000, // 5^2
+        0xFA00000000000000, 0x0000000000000000, // 5^3
+        0x9C40000000000000, 0x0000000000000000, // 5^4
+        0xC350000000000000, 0x0000000000000000, // 5^5
+        0xF424000000000000, 0x0000000000000000, // 5^6
+        0x9896800000000000, 0x0000000000000000, // 5^7
+        0xBEBC200000000000, 0x0000000000000000, // 5^8
+        0xEE6B280000000000, 0x0000000000000000, // 5^9
+        0x9502F90000000000, 0x0000000000000000, // 5^10
+        0xBA43B74000000000, 0x0000000000000000, // 5^11
+        0xE8D4A51000000000, 0x0000000000000000, // 5^12
+        0x9184E72A00000000, 0x0000000000000000, // 5^13
+        0xB5E620F480000000, 0x0000000000000000, // 5^14
+        0xE35FA931A0000000, 0x0000000000000000, // 5^15
+        0x8E1BC9BF04000000, 0x0000000000000000, // 5^16
+        0xB1A2BC2EC5000000, 0x0000000000000000, // 5^17
+        0xDE0B6B3A76400000, 0x0000000000000000, // 5^18
+        0x8AC7230489E80000, 0x0000000000000000, // 5^19
+        0xAD78EBC5AC620000, 0x0000000000000000, // 5^20
+        0xD8D726B7177A8000, 0x0000000000000000, // 5^21
+        0x878678326EAC9000, 0x0000000000000000, // 5^22
+        0xA968163F0A57B400, 0x0000000000000000, // 5^23
+        0xD3C21BCECCEDA100, 0x0000000000000000, // 5^24
+        0x84595161401484A0, 0x0000000000000000, // 5^25
+        0xA56FA5B99019A5C8, 0x0000000000000000, // 5^26
+        0xCECB8F27F4200F3A, 0x0000000000000000, // 5^27
+    ]
 
-    // mantissa * 10^exponent rounded to nearest (ties to even), for 0 < mantissa < 2^64 and |exponent| <= 27, with
-    // exact integer arithmetic: 10^e = 5^e * 2^e and 5^27 < 2^63, so mantissa * 5^e (e >= 0) fits in 128 bits, and
-    // for e < 0 the 128-bit quotient (mantissa << shift) / 5^-e has at least 55 bits, plus a sticky remainder.
-    private static func exactlyRoundedDouble(_ mantissa: UInt64, _ exponent: Int) -> Double {
-        let power = powerOfFive(exponent < 0 ? -exponent : exponent)
-        var value: UInt128
-        var binaryExponent: Int
-        var isInexact = false
-        if exponent >= 0 {
-            value = UInt128(mantissa) &* UInt128(power)
-            binaryExponent = exponent
-        } else {
-            let shift = max(0, 56 &+ (64 &- power.leadingZeroBitCount) &- (64 &- mantissa.leadingZeroBitCount))
-            let (quotient, remainder) = (UInt128(mantissa) << shift).quotientAndRemainder(dividingBy: UInt128(power))
-            value = quotient
-            isInexact = remainder != 0
-            binaryExponent = exponent &- shift
-        }
-        let bitCount = 128 &- value.leadingZeroBitCount
-        if bitCount > 53 {
-            let dropped = bitCount &- 53
-            let droppedBits = value & ((1 << dropped) &- 1)
-            let half: UInt128 = 1 << (dropped &- 1)
-            value >>= dropped
-            binaryExponent &+= dropped
-            if droppedBits > half || (droppedBits == half && (isInexact || value & 1 == 1)) {
-                value &+= 1 // At most 2^53, still exact.
+    // mantissa * 10^exponent rounded to nearest (ties to even), for 0 < mantissa < 2^64 and |exponent| <= 27: fast_float's
+    // compute_float<binary_format<double>> (Eisel-Lemire), which fast_float::from_chars uses for these inputs when the
+    // Clinger fast path doesn't apply. The 128-bit product approximation is always sufficient for a 64-bit mantissa
+    // (Mushtak and Lemire, "Fast Number Parsing Without Fallback"), and in this exponent range the result is a normal,
+    // finite double (no zero, subnormal or infinity cases).
+    @inline(__always)
+    private static func eiselLemireDouble(_ mantissa: UInt64, _ exponent: Int) -> Double {
+        let leadingZeros = mantissa.leadingZeroBitCount
+        let normalized = mantissa << leadingZeros
+        let index = 2 &* (exponent &+ 27)
+
+        // compute_product_approximation<mantissa_explicit_bits + 3 = 55>: precision_mask = ~0 >> 55.
+        let first = normalized.multipliedFullWidth(by: powerOfFive128[index])
+        var high = first.high
+        var low = first.low
+        if high & 0x1FF == 0x1FF {
+            let second = normalized.multipliedFullWidth(by: powerOfFive128[index &+ 1])
+            low &+= second.high
+            if second.high > low {
+                high &+= 1
             }
         }
-        return Double(sign: .plus, exponent: binaryExponent, significand: Double(UInt64(truncatingIfNeeded: value)))
+
+        let upperBit = Int(truncatingIfNeeded: high >> 63)
+        let shift = upperBit &+ 64 &- 52 &- 3
+        var significand = high >> UInt64(truncatingIfNeeded: shift)
+        // detail::power(q) + upperbit - lz - minimum_exponent, with power(q) = ((152170 + 65536) * q >> 16) + 63.
+        var power2 = ((152170 &+ 65536) &* exponent) >> 16 &+ 63 &+ upperBit &- leadingZeros &+ 1023
+
+        // Usually round up, but round to even when exactly halfway (only possible when 5^q fits in 64 bits).
+        if low <= 1 && exponent >= -4 && exponent <= 23 && significand & 3 == 1 && significand << UInt64(truncatingIfNeeded: shift) == high {
+            significand &= ~1
+        }
+        significand &+= significand & 1
+        significand >>= 1
+        if significand >= 2 << 52 {
+            significand = 1 << 52
+            power2 &+= 1
+        }
+        significand &= ~(1 << 52)
+        return Double(bitPattern: UInt64(truncatingIfNeeded: power2) << 52 | significand)
     }
 
     // The standard library's correctly rounded decimal conversion (strtod-based) of text[start...], which

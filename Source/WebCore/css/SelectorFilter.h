@@ -51,7 +51,7 @@ public:
     bool fastRejectSelector(const Hashes&) const;
     static Hashes collectHashes(const CSSSelector&);
 
-    static void collectElementIdentifierHashes(const Element&, Vector<unsigned, 4>&);
+    template<size_t inlineCapacity> static void collectElementIdentifierHashes(const Element&, Vector<unsigned, inlineCapacity>&);
 
     struct CollectedSelectorHashes {
         using HashVector = Vector<unsigned, 8>;
@@ -70,18 +70,22 @@ private:
     static void collectSelectorHashes(CollectedSelectorHashes&, const CSSSelector& rightmostSelector, IncludeRightmost);
     static Hashes chooseSelectorHashesForFilter(const CollectedSelectorHashes&);
 
-    struct ParentStackFrame {
-        ParentStackFrame() = default;
-        ParentStackFrame(Element* element) : element(element) { }
-        const CheckedPtr<Element> element;
-        Vector<unsigned, 4> identifierHashes;
-    };
-    Vector<ParentStackFrame, 20> m_parentStack;
+    // The parent stack's elements. Their identifier hashes are on m_parentHashStack.
+    Vector<CheckedPtr<Element>, 20> m_parentStack;
+
+    // The identifier hashes of the parent stack's elements, held for the Swift kernel, which owns their representation
+    // (SelectorFilterSwiftBoundary.h): C++ only allocates the words, zero-initialized (an empty stack), and grows them
+    // on request. Swift also does every update of m_ancestorIdentifierFilter.
+    static constexpr size_t parentHashStackInlineCapacity = 160;
+    Vector<uint32_t, parentHashStackInlineCapacity> m_parentHashStack { FillWith { }, parentHashStackInlineCapacity, 0u };
 
     // With 100 unique strings in the filter, 2^12 slot table has false positive rate of ~0.2%.
     static const unsigned bloomFilterKeyBits = 12;
     CountingBloomFilter<bloomFilterKeyBits> m_ancestorIdentifierFilter;
 };
+
+// Defined in SelectorFilter.cpp; pushParent uses its own instantiation.
+extern template void SelectorFilter::collectElementIdentifierHashes(const Element&, Vector<unsigned, 4>&);
 
 inline bool SelectorFilter::fastRejectSelector(const Hashes& hashes) const
 {

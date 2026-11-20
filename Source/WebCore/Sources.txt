@@ -1172,7 +1172,6 @@ css/parser/CSSSelectorParser.cpp
 css/parser/CSSSelectorParserContext.cpp
 css/parser/CSSSupportsParser.cpp
 css/parser/CSSTokenizer.cpp
-css/parser/CSSTokenizerInputStream.cpp
 css/parser/CSSSubstitutionParser.cpp
 css/parser/MediaQueryBlockWatcher.cpp
 css/parser/MutableCSSSelector.cpp
